@@ -512,3 +512,21 @@ export async function generateSHAPExplanation(
   });
   return _handleLlmoopsResponse(res);
 }
+
+export async function storeXAIShallowResults(
+  predictionId: string,
+  shapValues: SHAPExplainResponse,
+  model: string = 'shap'
+): Promise<{ status: string }> {
+  return request<{ status: string }>('/api/v1/explanations/store/shap', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prediction_id: predictionId,
+      shap_values: shapValues,
+      content: `SHAP analysis: ${shapValues.features?.length || 0} features analyzed`,
+      summary: `Top positive: ${shapValues.top_positive?.map(f => f.name).join(', ') || 'none'}`,
+      model,
+    }),
+  });
+}

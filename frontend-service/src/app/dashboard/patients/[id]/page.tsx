@@ -49,6 +49,7 @@ import {
   generateXAIGradCAM,
   generateXAISeverity,
   generateSHAPExplanation,
+  storeXAIShallowResults,
 } from '@/lib/api';
 import { toast } from 'sonner';
 import type { Patient, MRIScan, OCTReport, Prediction, Report, PaginatedResponse } from '@/types';
@@ -179,10 +180,18 @@ export default function PatientProfilePage() {
       const confidence = prediction.confidence_score ?? 0;
       const clinicalFeatures = prediction.input_payload as Record<string, unknown>;
 
+      let shapResult = null;
+
       // Generate SHAP explanation (may fail if model features don't match)
       try {
         toast.info('Generating SHAP explanations...');
-        await generateSHAPExplanation(prediction.id, clinicalFeatures || {});
+        shapResult = await generateSHAPExplanation(prediction.id, clinicalFeatures || {});
+        
+        // Store SHAP results in backend
+        if (shapResult) {
+          await storeXAIShallowResults(prediction.id, shapResult);
+          toast.success('SHAP explanations stored');
+        }
       } catch (shapError) {
         console.warn('SHAP generation failed (expected with limited features):', shapError);
       }
