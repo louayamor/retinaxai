@@ -7,9 +7,9 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.models.prediction_explanation import ExplanationStatus, PredictionExplanation
+from app.models.prediction_explanation import PredictionExplanation
 from app.models.gradcam_explanation import GradCAMExplanation
-from app.models.severity_report import RiskLevel, SeverityReport
+from app.models.severity_report import SeverityReport
 from app.predictions.repository import PredictionRepository
 
 router = APIRouter(prefix="/explanations", tags=["explanations"])
@@ -60,9 +60,7 @@ async def store_xai_results(
             content=request.explanation_content or "",
             summary=request.explanation_summary,
             model_used=request.explanation_model or "unknown",
-            status=ExplanationStatus.COMPLETED.value
-            if hasattr(ExplanationStatus.COMPLETED, "value")
-            else "completed",
+            status="completed",
             shap_values=request.shap_values,
         )
         db.add(exp)
@@ -87,15 +85,16 @@ async def store_xai_results(
         results["stored"].append("gradcam_explanation")
 
     if request.severity_content:
-        risk_level = RiskLevel(request.severity_risk_level.lower())
         severity = SeverityReport(
             id=uuid.uuid4(),
             prediction_id=prediction.id,
             patient_id=prediction.patient_id,
             content=request.severity_content,
             summary=request.severity_summary,
-            risk_level=risk_level,
-            recommendations=request.severity_recommendations,
+            risk_level=request.severity_risk_level.lower()
+            if request.severity_risk_level
+            else "moderate",
+            recommendations=request.severity_recommendations or [],
             model_used=request.explanation_model or "unknown",
         )
         db.add(severity)
