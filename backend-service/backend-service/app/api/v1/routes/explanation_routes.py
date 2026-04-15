@@ -12,7 +12,7 @@ from app.models.gradcam_explanation import GradCAMExplanation
 from app.models.severity_report import RiskLevel, SeverityReport
 from app.predictions.repository import PredictionRepository
 
-router = APIRouter(prefix="/v1/explanations", tags=["explanations"])
+router = APIRouter(prefix="/explanations", tags=["explanations"])
 
 
 class StoreXAIRequest(BaseModel):
