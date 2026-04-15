@@ -60,7 +60,9 @@ async def store_xai_results(
             content=request.explanation_content or "",
             summary=request.explanation_summary,
             model_used=request.explanation_model or "unknown",
-            status=ExplanationStatus.COMPLETED,
+            status=ExplanationStatus.COMPLETED.value
+            if hasattr(ExplanationStatus.COMPLETED, "value")
+            else "completed",
             shap_values=request.shap_values,
         )
         db.add(exp)
@@ -137,7 +139,7 @@ async def store_shap_results(
         content=request.content or "",
         summary=request.summary,
         model_used=request.model,
-        status=ExplanationStatus.COMPLETED,
+        status="completed",
         shap_values=request.shap_values,
     )
     db.add(exp)
