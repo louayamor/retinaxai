@@ -2,9 +2,10 @@ import asyncio
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from app.db.session import get_db
 from app.models.prediction_explanation import PredictionExplanation
@@ -63,14 +64,32 @@ async def store_xai_results(
             status="completed",
             shap_values=request.shap_values,
         )
-        db.add(exp)
-        results["stored"].append("prediction_explanation")
+        try:
+            db.add(exp)
+            await db.flush()
+            results["stored"].append("prediction_explanation")
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="XAI explanation already exists for this prediction",
+            )
 
         prediction.output_payload = prediction.output_payload or {}
         if request.explanation_content:
             prediction.output_payload["explanation"] = request.explanation_content
         if request.shap_values:
             prediction.output_payload["shap_values"] = request.shap_values
+
+        db.add(prediction)
+
+        prediction.output_payload = prediction.output_payload or {}
+        if request.explanation_content:
+            prediction.output_payload["explanation"] = request.explanation_content
+        if request.shap_values:
+            prediction.output_payload["shap_values"] = request.shap_values
+
+        db.add(prediction)
 
     if request.gradcam_left_explanation or request.gradcam_right_explanation:
         gradcam_exp = GradCAMExplanation(
@@ -85,15 +104,23 @@ async def store_xai_results(
         results["stored"].append("gradcam_explanation")
 
     if request.severity_content:
+        risk_level_str = (
+            request.severity_risk_level.lower()
+            if request.severity_risk_level
+            else "moderate"
+        )
+        try:
+            risk_enum = RiskLevel(risk_level_str)
+        except ValueError:
+            risk_enum = RiskLevel.MODERATE
+
         severity = SeverityReport(
             id=uuid.uuid4(),
             prediction_id=prediction.id,
             patient_id=prediction.patient_id,
             content=request.severity_content,
             summary=request.severity_summary,
-            risk_level=request.severity_risk_level.lower()
-            if request.severity_risk_level
-            else "moderate",
+            risk_level=risk_enum,
             recommendations=request.severity_recommendations or [],
             model_used=request.explanation_model or "unknown",
         )

@@ -560,3 +560,10 @@ export async function storeXAIResults(
     }),
   });
 }
+
+export class ApiConflictError extends ApiError {
+  constructor(message: string) {
+    super(message, 409);
+    this.name = 'ApiConflictError';
+  }
+}

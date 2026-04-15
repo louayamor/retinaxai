@@ -28,7 +28,7 @@ class PredictionExplanation(Base, UUIDMixin, TimestampMixin):
     summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
     model_used: Mapped[str] = mapped_column(String(100), nullable=False)
     status: Mapped[ExplanationStatus] = mapped_column(
-        Enum(ExplanationStatus),
+        Enum(ExplanationStatus, values_callable=lambda obj: [e.value for e in obj]),
         default=ExplanationStatus.PENDING,
         nullable=False,
     )

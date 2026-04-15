@@ -50,6 +50,7 @@ import {
   generateXAISeverity,
   generateSHAPExplanation,
   storeXAIResults,
+  ApiError,
 } from '@/lib/api';
 import { toast } from 'sonner';
 import type { Patient, MRIScan, OCTReport, Prediction, Report, PaginatedResponse } from '@/types';
@@ -219,18 +220,25 @@ export default function PatientProfilePage() {
 
       // Store all XAI results in backend
       toast.info('Storing XAI results...');
-      await storeXAIResults(prediction.id, {
-        explanationContent: xaiResult?.content,
-        explanationSummary: xaiResult?.summary,
-        shapValues: shapResult ?? undefined,
-        severityContent: severityResult?.content,
-        severitySummary: severityResult?.summary,
-        severityRiskLevel: severityResult?.risk_level,
-        severityRecommendations: severityResult?.recommendations,
-        model: 'gpt-4.1-mini',
-      });
-
-      toast.success('XAI generation complete!');
+      try {
+        await storeXAIResults(prediction.id, {
+          explanationContent: xaiResult?.content,
+          explanationSummary: xaiResult?.summary,
+          shapValues: shapResult ?? undefined,
+          severityContent: severityResult?.content,
+          severitySummary: severityResult?.summary,
+          severityRiskLevel: severityResult?.risk_level,
+          severityRecommendations: severityResult?.recommendations,
+          model: 'gpt-4.1-mini',
+        });
+        toast.success('XAI generation complete!');
+      } catch (storeError) {
+        if (storeError instanceof ApiError && storeError.status === 409) {
+          toast.warning('XAI explanation already exists for this prediction');
+        } else {
+          throw storeError;
+        }
+      }
 
       // Refresh prediction data to show new results
       await loadPatientData();

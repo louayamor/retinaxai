@@ -31,7 +31,7 @@ class SeverityReport(Base, UUIDMixin, TimestampMixin):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
     risk_level: Mapped[RiskLevel] = mapped_column(
-        Enum(RiskLevel),
+        Enum(RiskLevel, values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
     )
     recommendations: Mapped[dict] = mapped_column(JSON, nullable=False)
