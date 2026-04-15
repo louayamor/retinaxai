@@ -49,7 +49,7 @@ import {
   generateXAIGradCAM,
   generateXAISeverity,
   generateSHAPExplanation,
-  storeXAIShallowResults,
+  storeXAIResults,
 } from '@/lib/api';
 import { toast } from 'sonner';
 import type { Patient, MRIScan, OCTReport, Prediction, Report, PaginatedResponse } from '@/types';
@@ -181,24 +181,20 @@ export default function PatientProfilePage() {
       const clinicalFeatures = prediction.input_payload as Record<string, unknown>;
 
       let shapResult = null;
+      let xaiResult = null;
+      let severityResult = null;
 
       // Generate SHAP explanation (may fail if model features don't match)
       try {
         toast.info('Generating SHAP explanations...');
         shapResult = await generateSHAPExplanation(prediction.id, clinicalFeatures || {});
-        
-        // Store SHAP results in backend
-        if (shapResult) {
-          await storeXAIShallowResults(prediction.id, shapResult);
-          toast.success('SHAP explanations stored');
-        }
       } catch (shapError) {
         console.warn('SHAP generation failed (expected with limited features):', shapError);
       }
 
       // Generate XAI explanation with LLM
       toast.info('Generating AI explanation...');
-      const xaiResult = await generateXAIExplanation(prediction.id, drGrade, confidence, clinicalFeatures);
+      xaiResult = await generateXAIExplanation(prediction.id, drGrade, confidence, clinicalFeatures);
 
       // Generate GradCAM interpretation (only if we have regions)
       const leftRegions = (prediction.output_payload?.gradcam_left_regions as string[]) || [];
@@ -210,7 +206,7 @@ export default function PatientProfilePage() {
 
       // Generate severity report
       toast.info('Generating severity assessment...');
-      await generateXAISeverity(
+      severityResult = await generateXAISeverity(
         prediction.id,
         {
           name: `${patient.first_name} ${patient.last_name}`,
@@ -220,6 +216,19 @@ export default function PatientProfilePage() {
         drGrade,
         (clinicalFeatures?.risk_factors as string[]) || []
       );
+
+      // Store all XAI results in backend
+      toast.info('Storing XAI results...');
+      await storeXAIResults(prediction.id, {
+        explanationContent: xaiResult?.content,
+        explanationSummary: xaiResult?.summary,
+        shapValues: shapResult ?? undefined,
+        severityContent: severityResult?.content,
+        severitySummary: severityResult?.summary,
+        severityRiskLevel: severityResult?.risk_level,
+        severityRecommendations: severityResult?.recommendations,
+        model: 'gpt-4.1-mini',
+      });
 
       toast.success('XAI generation complete!');
 

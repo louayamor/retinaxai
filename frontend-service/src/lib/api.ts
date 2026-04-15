@@ -530,3 +530,33 @@ export async function storeXAIShallowResults(
     }),
   });
 }
+
+export async function storeXAIResults(
+  predictionId: string,
+  options: {
+    explanationContent?: string;
+    explanationSummary?: string;
+    shapValues?: SHAPExplainResponse;
+    severityContent?: string;
+    severitySummary?: string;
+    severityRiskLevel?: string;
+    severityRecommendations?: string[];
+    model?: string;
+  }
+): Promise<{ status: string }> {
+  return request<{ status: string }>('/api/v1/explanations/store', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prediction_id: predictionId,
+      explanation_content: options.explanationContent,
+      explanation_summary: options.explanationSummary,
+      explanation_model: options.model || 'gpt-4.1-mini',
+      shap_values: options.shapValues,
+      severity_content: options.severityContent,
+      severity_summary: options.severitySummary,
+      severity_risk_level: options.severityRiskLevel || 'moderate',
+      severity_recommendations: options.severityRecommendations || [],
+    }),
+  });
+}

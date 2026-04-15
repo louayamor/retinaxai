@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from typing import Any
 
@@ -6,7 +7,6 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.models.prediction import Prediction
 from app.models.prediction_explanation import ExplanationStatus, PredictionExplanation
 from app.models.gradcam_explanation import GradCAMExplanation
 from app.models.severity_report import RiskLevel, SeverityReport
@@ -103,8 +103,7 @@ async def store_xai_results(
 
     try:
         socket_manager = get_socket_manager()
-        asyncio_create_task = __import__("asyncio").create_task
-        asyncio_create_task(
+        asyncio.create_task(
             socket_manager.emit_xai_event(
                 event_type="xai.explanation_ready",
                 prediction_id=str(prediction.id),
