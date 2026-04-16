@@ -60,10 +60,9 @@ class GitHubLLMClient(LLMClient):
             response = self._get_client().complete(
                 messages=messages,
                 temperature=0.3,
-                top_p=1.0,
+                top_p=0.9,
                 model=self.model,
                 max_tokens=self.max_tokens,
-                response_format={"type": "json_object"},
             )
             return response.choices[0].message.content
         except AzureError as e:
