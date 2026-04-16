@@ -63,6 +63,30 @@ export const navItems: NavItem[] = [
     items: []
   },
   {
+    title: 'MLOps Monitor',
+    url: '/dashboard/mlops',
+    icon: 'settings',
+    isActive: false,
+    shortcut: ['l', 'l'],
+    items: []
+  },
+  {
+    title: 'LLMOps Monitor',
+    url: '/dashboard/llmops',
+    icon: 'settings',
+    isActive: false,
+    shortcut: ['o', 'o'],
+    items: []
+  },
+  {
+    title: 'System Stats',
+    url: '/dashboard/system',
+    icon: 'settings',
+    isActive: false,
+    shortcut: ['s', 's'],
+    items: []
+  },
+  {
     title: 'Account',
     url: '#',
     icon: 'account',

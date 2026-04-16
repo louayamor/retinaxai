@@ -52,6 +52,16 @@ import {
   AlertCircle,
   CheckCircle2
 } from 'lucide-react';
+import {
+  ScatterChart,
+  Scatter,
+  XAxis,
+  YAxis,
+  ZAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
 import Image from 'next/image';
 import { toast } from 'sonner';
 import { useWebSocket } from '@/hooks/use-websocket';
@@ -453,6 +463,76 @@ export default function PredictionsPage() {
             </CardContent>
           </Card>
         </motion.div>
+
+        {/* Prediction Timeline */}
+        {predictions.length > 0 && (
+          <motion.div variants={shouldReduceMotion ? {} : fadeInUp}>
+            <Card>
+              <CardHeader>
+                <CardTitle>Prediction Timeline</CardTitle>
+                <CardDescription>DR grade progression over time across all patients</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                      <XAxis 
+                        dataKey="date" 
+                        type="category" 
+                        tick={{ fontSize: 11 }}
+                        tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      />
+                      <YAxis 
+                        dataKey="gradeLabel" 
+                        type="category" 
+                        domain={['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']}
+                        tick={{ fontSize: 11 }}
+                      />
+                      <ZAxis dataKey="confidence" range={[50, 200]} name="Confidence" />
+                      <Tooltip 
+                        content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            const data = payload[0].payload;
+                            return (
+                              <div className="bg-background border rounded-lg p-3 shadow-lg">
+                                <p className="font-medium">{data.patientName}</p>
+                                <p className="text-sm text-muted-foreground">
+                                  {new Date(data.date).toLocaleDateString()}
+                                </p>
+                                <p className="text-sm">Grade: {data.gradeLabel}</p>
+                                <p className="text-sm">Confidence: {(data.confidence * 100).toFixed(1)}%</p>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                      <Scatter 
+                        name="Predictions" 
+                        data={predictions.map(p => {
+                          const payload = p.output_payload as Record<string, unknown> | null;
+                          const grade = payload?.combined_grade as number | undefined;
+                          const GRADE_LABELS = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR'];
+                          const pred = p as unknown as { patient?: { first_name?: string; last_name?: string } };
+                          const patient = pred.patient;
+                          return {
+                            date: p.created_at,
+                            gradeLabel: GRADE_LABELS[grade ?? 2] || 'Moderate',
+                            grade: grade ?? 2,
+                            confidence: p.confidence_score ?? 0.8,
+                            patientName: patient?.first_name ? `${patient.first_name} ${patient.last_name || ''}` : 'Unknown',
+                          };
+                        })} 
+                        fill="#2563eb"
+                      />
+                    </ScatterChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
 
         {/* Predictions List */}
         <motion.div variants={shouldReduceMotion ? {} : fadeInUp}>

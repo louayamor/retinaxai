@@ -1,24 +1,14 @@
 import PageContainer from '@/components/layout/page-container';
-import { Badge } from '@/components/ui/badge';
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { IconEye, IconUsers, IconActivity, IconBrain } from '@tabler/icons-react';
 import Image from 'next/image';
 import React from 'react';
 import ScrollRestorer from '@/components/scroll-restorer';
-
-const gradeStats = [
-  { grade: 'No DR', count: 0, color: 'bg-emerald-500', pct: '0%' },
-  { grade: 'Mild', count: 8, color: 'bg-cyan-500', pct: '9.8%' },
-  { grade: 'Moderate', count: 29, color: 'bg-amber-500', pct: '35.4%' },
-  { grade: 'Severe', count: 9, color: 'bg-orange-500', pct: '11.0%' },
-  { grade: 'Proliferative', count: 36, color: 'bg-rose-500', pct: '43.9%' }
-];
+import { OverviewStats } from '@/components/overview-stats';
 
 const services = [
   'Contoura LASIK',
@@ -28,6 +18,11 @@ const services = [
   'Diabetic Retinopathy',
   'Dry Eyes'
 ];
+
+// Server component wrapper for client stats
+async function OverviewStatsWrapper() {
+  return <OverviewStats />;
+}
 
 export default function OverViewLayout({
   pie_stats,
@@ -82,84 +77,8 @@ export default function OverViewLayout({
           </div>
         </div>
 
-        {/* Stats Cards */}
-        <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-4'>
-          <Card className='animate-in-up border-0 bg-gradient-to-br from-card to-cyan-50/40 shadow-md transition-transform duration-300 hover:-translate-y-1 dark:to-cyan-950/15'>
-            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-4'>
-              <CardTitle className='text-base font-medium'>Total OCT Reports</CardTitle>
-              <IconEye className='h-5 w-5 text-[var(--brand-teal)]' />
-            </CardHeader>
-            <CardContent>
-              <div className='text-3xl font-bold'>119</div>
-              <p className='text-muted-foreground text-sm mt-1'>
-                From 104 unique patients
-              </p>
-            </CardContent>
-          </Card>
-          <Card className='animate-in-up border-0 bg-gradient-to-br from-card to-amber-50/40 shadow-md transition-transform duration-300 hover:-translate-y-1 dark:to-amber-950/15'>
-            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-4'>
-              <CardTitle className='text-base font-medium'>DR Detected</CardTitle>
-              <IconActivity className='h-5 w-5 text-[var(--brand-gold)]' />
-            </CardHeader>
-            <CardContent>
-              <div className='text-3xl font-bold'>82</div>
-              <p className='text-muted-foreground text-sm mt-1'>
-                68.9% of reports have a grade
-              </p>
-            </CardContent>
-          </Card>
-          <Card className='animate-in-up border-0 bg-gradient-to-br from-card to-cyan-50/40 shadow-md transition-transform duration-300 hover:-translate-y-1 dark:to-cyan-950/15'>
-            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-4'>
-              <CardTitle className='text-base font-medium'>Active Patients</CardTitle>
-              <IconUsers className='h-5 w-5 text-[var(--brand-teal)]' />
-            </CardHeader>
-            <CardContent>
-              <div className='text-3xl font-bold'>104</div>
-              <p className='text-muted-foreground text-sm mt-1'>
-                Registered in the system
-              </p>
-            </CardContent>
-          </Card>
-          <Card className='animate-in-up border-0 bg-gradient-to-br from-card to-emerald-50/40 shadow-md transition-transform duration-300 hover:-translate-y-1 dark:to-emerald-950/15'>
-            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-4'>
-              <CardTitle className='text-base font-medium'>Model Accuracy</CardTitle>
-              <IconBrain className='h-5 w-5 text-[var(--brand-teal)]' />
-            </CardHeader>
-            <CardContent>
-              <div className='text-3xl font-bold'>94.7%</div>
-              <p className='text-muted-foreground text-sm mt-1'>
-                EfficientNet-B3 on EyePACS
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Grade Distribution */}
-        <Card className='animate-in-up border-0 shadow-md'>
-          <CardHeader>
-            <CardTitle>DR Grade Distribution</CardTitle>
-            <CardDescription>
-              Breakdown of detected diabetic retinopathy severity levels
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-5'>
-              {gradeStats.map((item) => (
-                <div
-                  key={item.grade}
-                  className='flex flex-col items-center gap-2 rounded-xl border p-4 transition-colors duration-200 hover:bg-muted/40'
-                >
-                  <div className={`h-3 w-full rounded-full ${item.color}`} style={{ opacity: 0.8 }} />
-                  <div className='text-center'>
-                    <p className='text-2xl font-bold'>{item.count}</p>
-                    <p className='text-sm text-muted-foreground'>{item.grade}</p>
-                    <Badge variant='secondary' className='mt-1'>{item.pct}</Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        {/* Real-time Stats from API */}
+        <OverviewStats />
 
         {/* Charts */}
         <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-7'>

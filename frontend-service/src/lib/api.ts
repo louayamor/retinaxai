@@ -600,3 +600,190 @@ export interface XAIResponse {
 export async function getXAIExplanations(predictionId: string): Promise<XAIResponse> {
   return request<XAIResponse>(`/api/v1/explanations/${predictionId}`);
 }
+
+// ============ MLOps API ============
+
+const MLOPS_BASE = process.env.NEXT_PUBLIC_MLOPS_URL || 'http://localhost:8004';
+
+async function mlopsRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${MLOPS_BASE}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init.headers as Record<string, string> || {}),
+    },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new ApiError(body.detail ?? 'MLOps request failed', res.status);
+  }
+  return res.json();
+}
+
+export interface MLOpsJob {
+  job_id: string;
+  pipeline: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  started_at: string | null;
+  completed_at: string | null;
+  metrics?: {
+    accuracy?: number;
+    loss?: number;
+    val_accuracy?: number;
+  };
+  error?: string;
+}
+
+export interface MLOpsDriftStatus {
+  pipeline: string;
+  status: 'stable' | 'warning' | 'drifted';
+  psi_threshold: number;
+  current_psi?: number;
+  last_checked: string;
+  features_drifted?: string[];
+}
+
+export interface MLOpsFeature {
+  key: string;
+  value: string;
+  created_at: string;
+}
+
+export interface MLOpsMetrics {
+  imaging?: {
+    accuracy?: number;
+    quadratic_weighted_kappa?: number;
+    roc_auc_macro?: number;
+    precision_macro?: number;
+    recall_macro?: number;
+    num_samples?: number;
+  };
+  clinical?: {
+    accuracy?: number;
+    quadratic_weighted_kappa?: number;
+    roc_auc_macro?: number;
+    precision_macro?: number;
+    recall_macro?: number;
+    num_samples?: number;
+  };
+  training?: {
+    total_runs?: number;
+    active_jobs?: number;
+  };
+}
+
+export async function getMLOpsStatus(jobId?: string): Promise<{ job: MLOpsJob | null; jobs: MLOpsJob[] }> {
+  return mlopsRequest(jobId ? `/api/status/${jobId}` : '/api/status');
+}
+
+export async function getMLOpsMetrics(): Promise<MLOpsMetrics> {
+  return mlopsRequest('/api/metrics');
+}
+
+export async function getMLOpsDriftStatus(pipeline: string): Promise<MLOpsDriftStatus> {
+  return mlopsRequest(`/api/drift/status/${pipeline}`);
+}
+
+export async function getMLOpsDriftHistory(pipeline?: string): Promise<{ history: Array<{ pipeline: string; psi: number; status: string; timestamp: string }> }> {
+  return mlopsRequest(`/api/drift/history${pipeline ? `?pipeline=${pipeline}` : ''}`);
+}
+
+export async function getMLOpsFeatures(): Promise<{ features: MLOpsFeature[]; total: number }> {
+  return mlopsRequest('/api/features/list');
+}
+
+export async function triggerMLOpsDriftRetrain(pipeline: string): Promise<{ job_id: string; message: string }> {
+  return mlopsRequest('/api/automation/drift-retrain', {
+    method: 'POST',
+    body: JSON.stringify({ pipeline }),
+  });
+}
+
+export async function startMLOpsTraining(pipeline: string, config?: Record<string, unknown>): Promise<{ job_id: string }> {
+  return mlopsRequest('/api/train', {
+    method: 'POST',
+    body: JSON.stringify({ pipeline, ...config }),
+  });
+}
+
+export async function stopMLOpsTraining(jobId: string): Promise<{ message: string }> {
+  return mlopsRequest(`/api/train/${jobId}/stop`, {
+    method: 'POST',
+  });
+}
+
+// ============ LLMOps API ============
+
+async function llmopsRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${LLMOPS_BASE}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': process.env.NEXT_PUBLIC_LLMOPS_API_KEY || '',
+      ...(init.headers as Record<string, string> || {}),
+    },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new ApiError(body.detail ?? 'LLMOps request failed', res.status);
+  }
+  return res.json();
+}
+
+export interface LLMOpsRagStatus {
+  status: string;
+  collection_name: string;
+  total_documents: number;
+  last_updated: string | null;
+}
+
+export interface LLMOpsOperation {
+  operation: string;
+  status: string;
+  progress: number;
+  message: string;
+  started_at: string;
+}
+
+export async function getLLMOpsHealth(): Promise<{ status: string; llm_provider: string; model: string }> {
+  return llmopsRequest('/health');
+}
+
+export async function getLLMOpsRagStatus(): Promise<LLMOpsRagStatus> {
+  return llmopsRequest('/api/rag/status');
+}
+
+export async function triggerLLMOpsReindex(): Promise<{ message: string; job_id: string }> {
+  return llmopsRequest('/api/rag/reindex', {
+    method: 'POST',
+  });
+}
+
+export async function getLLMOpsOperation(): Promise<LLMOpsOperation | null> {
+  return llmopsRequest('/api/operation');
+}
+
+// ============ System Stats API ============
+
+export interface SystemStats {
+  database: {
+    total_patients: number;
+    total_predictions: number;
+    total_reports: number;
+    total_oct_reports: number;
+  };
+  services: {
+    backend: 'healthy' | 'unhealthy';
+    mlops: 'healthy' | 'unhealthy';
+    llmops: 'healthy' | 'unhealthy';
+  };
+  recent_activity: {
+    predictions_today: number;
+    reports_today: number;
+    new_patients_today: number;
+  };
+}
+
+export async function getSystemStats(): Promise<SystemStats> {
+  return request<SystemStats>('/api/v1/stats');
+}
