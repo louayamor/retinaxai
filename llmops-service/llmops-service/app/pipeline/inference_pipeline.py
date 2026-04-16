@@ -37,10 +37,12 @@ class InferencePipeline:
         )
 
         timeout = settings.timeout_seconds
+        max_tokens = settings.max_tokens
 
         client_kwargs: dict[str, str | int] = {
             "model": settings.llm_model,
             "timeout_seconds": timeout,
+            "max_tokens": max_tokens,
         }
         if provider == "github":
             client_kwargs["token"] = token if token is not None else ""

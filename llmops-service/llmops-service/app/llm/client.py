@@ -16,12 +16,14 @@ class GitHubLLMClient(LLMClient):
         token: str,
         model: str,
         endpoint: str = "https://models.github.ai/inference",
-        timeout_seconds: int = 60,
+        timeout_seconds: int = 120,
+        max_tokens: int = 2000,
     ):
         self.token = token
         self.model = model
         self.endpoint = endpoint
         self.timeout_seconds = timeout_seconds
+        self.max_tokens = max_tokens
         self._client = None
         self._retry_after = 0
 
@@ -57,9 +59,11 @@ class GitHubLLMClient(LLMClient):
         try:
             response = self._get_client().complete(
                 messages=messages,
-                temperature=0.7,
+                temperature=0.3,
                 top_p=1.0,
                 model=self.model,
+                max_tokens=self.max_tokens,
+                response_format={"type": "json_object"},
             )
             return response.choices[0].message.content
         except AzureError as e:
@@ -82,11 +86,13 @@ class OllamaLLMClient(LLMClient):
         self,
         model: str,
         base_url: str = "http://localhost:11434",
-        timeout_seconds: int = 60,
+        timeout_seconds: int = 120,
+        max_tokens: int = 2000,
     ):
         self.model = model
         self.base_url = base_url
         self.timeout_seconds = timeout_seconds
+        self.max_tokens = max_tokens
         self._client = None
 
     def _get_client(self):

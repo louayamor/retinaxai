@@ -1,11 +1,50 @@
 from __future__ import annotations
 
+import json
+
 from loguru import logger
 
 from app.core.config import settings
 from app.llm.client import get_llm_client
 from app.prompts.templates import REPORT_SYSTEM_PROMPT
 from app.services.websocket_client import send_xai_event
+
+
+XAI_EXPLANATION_SYSTEM_PROMPT = """Generate structured diabetic retinopathy explanations in JSON format.
+
+Output JSON with these exact keys:
+- diagnosis: {condition, severity, overall_grade (0-4), confidence (0.0-1.0), risk_level}
+- clinical_findings: {left_eye: {grade, severity, confidence, description}, right_eye: {...}}
+- feature_importance: {top_contributors: [{feature_name, contribution}], key_insights: []}
+- clinical_context: {risk_factors: [], visual_indicators: [], recommendations: []}
+- summary: 3-4 sentence clinical summary
+
+DATA REQUIREMENTS:
+- confidence: MUST be decimal like 0.79, NOT "79%" or 79
+- grade: MUST be integer 0-4
+- description: At least 2 sentences per eye with specific findings (microaneurysms, hemorrhages, etc.)
+
+Output complete valid JSON only."""
+
+
+XAI_SEVERITY_SYSTEM_PROMPT = """Generate structured severity reports in JSON format.
+
+Output JSON with these exact keys:
+- patient: {name, age, gender}
+- diagnosis: {condition, dr_grade (0-4), severity_label, risk_level}
+- clinical_assessment: {findings, visual_indicators: [], comparison_to_previous}
+- risk_factors: []
+- risk_stratification: {overall_risk, progression_risk, vision_loss_risk}
+- recommendations: [{action, timeframe, rationale}]
+- follow_up: {next_appointment, frequency, tests_required: []}
+- summary: 4-5 sentence clinical summary
+
+DATA REQUIREMENTS:
+- findings: At least 3 sentences with specific observations
+- recommendations: 3-5 items with urgency levels (immediate/urgent/routine)
+- summary: Must complete the full clinical narrative
+
+Output complete valid JSON only."""
 
 
 class XAIPipeline:
@@ -32,10 +71,12 @@ class XAIPipeline:
         )
 
         timeout = settings.timeout_seconds
+        max_tokens = settings.max_tokens
 
         client_kwargs: dict[str, str | int] = {
             "model": settings.llm_model,
             "timeout_seconds": timeout,
+            "max_tokens": max_tokens,
         }
         if provider == "github":
             client_kwargs["token"] = token if token is not None else ""
@@ -308,13 +349,25 @@ class XAIPipeline:
         confidence: float,
         clinical_features: dict | None,
     ) -> str:
-        base = f"""Explain this diabetic retinopathy prediction in patient-friendly terms:
-- DR Grade: {dr_grade}
-- Confidence: {confidence:.1%}
+        grade_int = int(dr_grade) if dr_grade.isdigit() else 2
+        grade_label = (
+            ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"][grade_int]
+            if 0 <= grade_int <= 4
+            else "Moderate"
+        )
 
-{f"Clinical context: {clinical_features}" if clinical_features else ""}"""
+        clinical_context = ""
+        if clinical_features:
+            clinical_context = f"\nClinical features: {json.dumps(clinical_features)}"
 
-        return f"{REPORT_SYSTEM_PROMPT}\n\n{base}"
+        return f"""{XAI_EXPLANATION_SYSTEM_PROMPT}
+
+PREDICTION DATA:
+- DR Grade: {grade_int} ({grade_label})
+- Confidence: {confidence:.2f}
+{clinical_context}
+
+Generate structured explanation as JSON."""
 
     def _build_prediction_prompt_with_shap(
         self,
@@ -393,13 +446,26 @@ Explain what these regions indicate for DR diagnosis."""
         dr_grade: str,
         risk_factors: list[str],
     ) -> str:
-        return f"""Generate a clinical severity report for this patient:
+        grade_int = int(dr_grade) if dr_grade.isdigit() else 2
+        grade_label = (
+            ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"][grade_int]
+            if 0 <= grade_int <= 4
+            else "Moderate"
+        )
 
-Patient: {patient_data.get("name", "Unknown")}
-DR Grade: {dr_grade}
-Risk Factors: {", ".join(risk_factors)}
+        patient_info = f"Name: {patient_data.get('name', 'Unknown')}, Age: {patient_data.get('age', 'N/A')}, Gender: {patient_data.get('gender', 'N/A')}"
+        risk_factors_str = ", ".join(risk_factors) if risk_factors else "None provided"
 
-Provide a professional clinical assessment with risk level and recommendations."""
+        return f"""{XAI_SEVERITY_SYSTEM_PROMPT}
+
+PATIENT DATA:
+{patient_info}
+
+DIAGNOSIS:
+- DR Grade: {grade_int} ({grade_label})
+- Risk Factors: {risk_factors_str}
+
+Generate structured severity report as JSON."""
 
     def _determine_risk_level(self, dr_grade: str) -> str:
         mapping = {

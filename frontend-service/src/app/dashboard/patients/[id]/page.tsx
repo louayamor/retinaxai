@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion, useReducedMotion } from 'motion/react';
 import PageContainer from '@/components/layout/page-container';
@@ -8,14 +8,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   ArrowLeft,
@@ -31,7 +23,6 @@ import {
   Loader,
   BarChart3,
   ImageIcon,
-  Download,
   Brain,
   Layers,
   Sparkles,
@@ -43,7 +34,6 @@ import {
   getPatientOctReports,
   listPatientPredictions,
   listPatientReports,
-  getPrediction,
   createReport,
   generateXAIExplanation,
   generateXAIGradCAM,
@@ -51,12 +41,16 @@ import {
   generateSHAPExplanation,
   storeXAIResults,
   ApiError,
+  getXAIExplanations,
+  type XAIResponse,
 } from '@/lib/api';
+import { usePatientWebSocket, type PredictionEventData, type XAIEventData, type SeverityEventData, type GradCAMEventData } from '@/hooks/use-patient-websocket';
 import { toast } from 'sonner';
 import type { Patient, MRIScan, OCTReport, Prediction, Report, PaginatedResponse } from '@/types';
 import { fadeInUp, slideInUp, staggerItem } from '@/lib/animations';
 import Image from 'next/image';
 import MedicalReport from '@/components/medical-report';
+import XAIExplanation from '@/components/xai-explanation';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
 const GRADE_LABELS = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative'];
@@ -90,15 +84,149 @@ export default function PatientProfilePage() {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
-  const [selectedPrediction, setSelectedPrediction] = useState<Prediction | null>(null);
   const [activeTab, setActiveTab] = useState(initialTab);
   const [generatingXAI, setGeneratingXAI] = useState<string | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
+  const [xaiData, setXaiData] = useState<Record<string, XAIResponse>>({});
+  const [needsRefresh, setNeedsRefresh] = useState({
+    predictions: false,
+    reports: false,
+    xai: false,
+  });
+
+  const fetchXAIData = useCallback(async (predId: string) => {
+    try {
+      const xai = await getXAIExplanations(predId);
+      if (xai.explanation || xai.severity_report) {
+        setXaiData(prev => ({ ...prev, [predId]: xai }));
+      }
+    } catch {
+      // XAI not found, use output_payload fallback
+    }
+  }, []);
+
+  const refreshPredictions = useCallback(async () => {
+    try {
+      const predsData = await listPatientPredictions(patientId, 1, 100);
+      setPredictions((predsData as PaginatedResponse<Prediction>).items);
+    } catch (err) {
+      console.error('Failed to refresh predictions:', err);
+    }
+  }, [patientId]);
+
+  const refreshReports = useCallback(async () => {
+    try {
+      const repsData = await listPatientReports(patientId, 1, 100);
+      setReports((repsData as PaginatedResponse<Report>).items);
+    } catch (err) {
+      console.error('Failed to refresh reports:', err);
+    }
+  }, [patientId]);
+
+  const refreshAll = useCallback(async () => {
+    try {
+      const [scansData, octData, predsData, repsData] = await Promise.all([
+        getPatientScans(patientId),
+        getPatientOctReports(patientId),
+        listPatientPredictions(patientId, 1, 100),
+        listPatientReports(patientId, 1, 100),
+      ]);
+      setScans(scansData);
+      setOctReports(octData);
+      setPredictions((predsData as PaginatedResponse<Prediction>).items);
+      setReports((repsData as PaginatedResponse<Report>).items);
+    } catch (err) {
+      console.error('Failed to refresh data:', err);
+    }
+  }, [patientId]);
+
+  const { connected } = usePatientWebSocket({
+    patientId,
+    onPredictionComplete: useCallback((_data: PredictionEventData) => {
+      setNeedsRefresh(prev => ({ ...prev, predictions: true }));
+    }, []),
+    onXAIReady: useCallback(async (data: XAIEventData) => {
+      if (data.prediction_id) {
+        await fetchXAIData(data.prediction_id);
+        setNeedsRefresh(prev => ({ ...prev, xai: true }));
+      }
+    }, [fetchXAIData]),
+    onGradCAMReady: useCallback(async (data: GradCAMEventData) => {
+      if (data.prediction_id) {
+        await fetchXAIData(data.prediction_id);
+      }
+    }, [fetchXAIData]),
+    onSeverityReady: useCallback(async (data: SeverityEventData) => {
+      if (data.prediction_id) {
+        await fetchXAIData(data.prediction_id);
+        setNeedsRefresh(prev => ({ ...prev, xai: true }));
+      }
+    }, [fetchXAIData]),
+  });
 
   useEffect(() => {
-    loadPatientData();
+    const loadInitialData = async () => {
+      try {
+        setError(null);
+        const [patientData, scansData, octData, predsData, repsData] = await Promise.all([
+          getPatient(patientId),
+          getPatientScans(patientId),
+          getPatientOctReports(patientId),
+          listPatientPredictions(patientId, 1, 100),
+          listPatientReports(patientId, 1, 100),
+        ]);
+        setPatient(patientData);
+        setScans(scansData);
+        setOctReports(octData);
+        setPredictions((predsData as PaginatedResponse<Prediction>).items);
+        setReports((repsData as PaginatedResponse<Report>).items);
+      } catch (err) {
+        console.error('Failed to load patient data:', err);
+        setError('Failed to load patient data');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadInitialData();
   }, [patientId]);
+
+  useEffect(() => {
+    if (needsRefresh.predictions) {
+      refreshPredictions();
+      setNeedsRefresh(prev => ({ ...prev, predictions: false }));
+    }
+  }, [needsRefresh, refreshPredictions]);
+
+  useEffect(() => {
+    if (needsRefresh.reports) {
+      refreshReports();
+      setNeedsRefresh(prev => ({ ...prev, reports: false }));
+    }
+  }, [needsRefresh, refreshReports]);
+
+  useEffect(() => {
+    if (activeTab === 'xai' && predictions.length > 0 && !needsRefresh.xai) {
+      const fetchXAIDataForTab = async () => {
+        const newXaiData: Record<string, XAIResponse> = {};
+        for (const pred of predictions) {
+          if (pred.status === 'success' && !xaiData[pred.id]) {
+            try {
+              const xai = await getXAIExplanations(pred.id);
+              if (xai.explanation || xai.severity_report) {
+                newXaiData[pred.id] = xai;
+              }
+            } catch {
+              // XAI not found, use output_payload fallback
+            }
+          }
+        }
+        if (Object.keys(newXaiData).length > 0) {
+          setXaiData(prev => ({ ...prev, ...newXaiData }));
+        }
+      };
+      fetchXAIDataForTab();
+    }
+  }, [activeTab, predictions, xaiData]);
 
   useEffect(() => {
     const tab = searchParams.get('tab');
@@ -106,32 +234,6 @@ export default function PatientProfilePage() {
       setActiveTab(tab);
     }
   }, [searchParams]);
-
-  const loadPatientData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const [patientData, scansData, octData, predsData, repsData] = await Promise.all([
-        getPatient(patientId),
-        getPatientScans(patientId),
-        getPatientOctReports(patientId),
-        listPatientPredictions(patientId, 1, 100),
-        listPatientReports(patientId, 1, 100),
-      ]);
-
-      setPatient(patientData);
-      setScans(scansData);
-      setOctReports(octData);
-      setPredictions((predsData as PaginatedResponse<Prediction>).items);
-      setReports((repsData as PaginatedResponse<Report>).items);
-    } catch (err) {
-      console.error('Failed to load patient data:', err);
-      setError('Failed to load patient data');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
@@ -185,7 +287,6 @@ export default function PatientProfilePage() {
       let xaiResult = null;
       let severityResult = null;
 
-      // Generate SHAP explanation (may fail if model features don't match)
       try {
         toast.info('Generating SHAP explanations...');
         shapResult = await generateSHAPExplanation(prediction.id, clinicalFeatures || {});
@@ -193,11 +294,9 @@ export default function PatientProfilePage() {
         console.warn('SHAP generation failed (expected with limited features):', shapError);
       }
 
-      // Generate XAI explanation with LLM
       toast.info('Generating AI explanation...');
       xaiResult = await generateXAIExplanation(prediction.id, drGrade, confidence, clinicalFeatures);
 
-      // Generate GradCAM interpretation (only if we have regions)
       const leftRegions = (prediction.output_payload?.gradcam_left_regions as string[]) || [];
       const rightRegions = (prediction.output_payload?.gradcam_right_regions as string[]) || [];
       if (leftRegions.length > 0 || rightRegions.length > 0) {
@@ -205,7 +304,6 @@ export default function PatientProfilePage() {
         await generateXAIGradCAM(prediction.id, leftRegions, rightRegions);
       }
 
-      // Generate severity report
       toast.info('Generating severity assessment...');
       severityResult = await generateXAISeverity(
         prediction.id,
@@ -218,7 +316,6 @@ export default function PatientProfilePage() {
         (clinicalFeatures?.risk_factors as string[]) || []
       );
 
-      // Store all XAI results in backend
       toast.info('Storing XAI results...');
       try {
         await storeXAIResults(prediction.id, {
@@ -240,8 +337,7 @@ export default function PatientProfilePage() {
         }
       }
 
-      // Refresh prediction data to show new results
-      await loadPatientData();
+      await fetchXAIData(prediction.id);
     } catch (err) {
       console.error('XAI generation failed:', err);
       toast.error('Failed to generate XAI', {
@@ -258,10 +354,7 @@ export default function PatientProfilePage() {
       toast.info('Generating clinical report...');
       await createReport(predictionId);
       toast.success('Report generation started!');
-      
-      // Refresh reports
-      const repsData = await listPatientReports(patientId, 1, 100);
-      setReports((repsData as PaginatedResponse<Report>).items);
+      setNeedsRefresh(prev => ({ ...prev, reports: true }));
     } catch (err) {
       console.error('Report generation failed:', err);
       toast.error('Failed to generate report', {
@@ -310,12 +403,20 @@ export default function PatientProfilePage() {
         className="flex flex-col gap-6"
       >
         {/* Header */}
-        <motion.div variants={shouldReduceMotion ? {} : slideInUp} className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard/patients')}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
-          </Button>
-          <h1 className="text-2xl font-bold">Patient Profile</h1>
+        <motion.div variants={shouldReduceMotion ? {} : slideInUp} className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard/patients')}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <h1 className="text-2xl font-bold">Patient Profile</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+            <span className="text-xs text-muted-foreground">
+              {connected ? 'Live' : 'Connecting...'}
+            </span>
+          </div>
         </motion.div>
 
         {/* Patient Info Card */}
@@ -694,7 +795,7 @@ export default function PatientProfilePage() {
                   <Brain className="h-5 w-5 text-purple-500" />
                   AI Explanations
                 </h3>
-                {latestPrediction && !latestPrediction.output_payload?.shap_values && (
+                {latestPrediction && !xaiData[latestPrediction.id] && (
                   <Button
                     onClick={() => handleGenerateXAI(latestPrediction)}
                     disabled={generatingXAI === latestPrediction.id}
@@ -725,11 +826,20 @@ export default function PatientProfilePage() {
                   {predictions
                     .filter((p) => p.status === 'success')
                     .map((pred) => {
+                      const xai = xaiData[pred.id];
                       const outputPayload = pred.output_payload as Record<string, unknown> | null;
                       const grade = outputPayload?.combined_grade as number | undefined;
                       const gradeLabel = grade !== undefined ? GRADE_LABELS[grade] : null;
-                      const shapValues = outputPayload?.shap_values as { top_positive: Array<{ name: string; contribution: number }> } | undefined;
-                      const explanation = outputPayload?.explanation as string | undefined;
+                      const shapValues = xai?.explanation?.shap_values || outputPayload?.shap_values as { top_positive: Array<{ name: string; contribution: number }> } | undefined;
+                      const explanation = xai?.explanation?.content || outputPayload?.explanation as string | undefined;
+                      const severityReport = xai?.severity_report || (
+                        outputPayload?.severity_risk_level ? {
+                          risk_level: outputPayload.severity_risk_level as string,
+                          summary: outputPayload.severity_summary as string | null,
+                          recommendations: outputPayload.severity_recommendations as string[] | null,
+                        } : null
+                      );
+                      const hasXAI = shapValues || explanation || severityReport;
 
                       return (
                         <Card key={pred.id}>
@@ -738,11 +848,23 @@ export default function PatientProfilePage() {
                               <CardTitle className="text-base">
                                 Prediction - {new Date(pred.created_at).toLocaleDateString()}
                               </CardTitle>
-                              {grade !== undefined && gradeLabel && (
-                                <Badge className={GRADE_COLORS_NUM[grade] || 'bg-muted'}>
-                                  {gradeLabel}
-                                </Badge>
-                              )}
+                              <div className="flex items-center gap-2">
+                                {severityReport && (
+                                  <Badge className={
+                                    severityReport.risk_level === 'low' ? 'bg-emerald-500' :
+                                    severityReport.risk_level === 'moderate' ? 'bg-amber-500' :
+                                    severityReport.risk_level === 'high' ? 'bg-orange-500' :
+                                    'bg-rose-500'
+                                  }>
+                                    {severityReport.risk_level.replace('_', ' ').toUpperCase()} Risk
+                                  </Badge>
+                                )}
+                                {grade !== undefined && gradeLabel && (
+                                  <Badge className={GRADE_COLORS_NUM[grade] || 'bg-muted'}>
+                                    {gradeLabel}
+                                  </Badge>
+                                )}
+                              </div>
                             </div>
                           </CardHeader>
                           <CardContent className="space-y-4">
@@ -775,8 +897,8 @@ export default function PatientProfilePage() {
                                   Top Contributing Features
                                 </p>
                                 <div className="space-y-2">
-                                  {(shapValues as any)?.top_positive?.slice(0, 5).map(
-                                    (feature: { name: string; contribution: number }, i: number) => (
+                                  {shapValues?.top_positive?.slice(0, 5).map(
+                                    (feature, i) => (
                                       <div key={i} className="flex items-center gap-2">
                                         <span className="text-sm w-32 truncate">{feature.name}</span>
                                         <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
@@ -799,22 +921,20 @@ export default function PatientProfilePage() {
                               </div>
                             )}
 
-                            {/* LLM Explanation */}
-                            {explanation && (
-                              <div>
-                                <p className="text-sm text-muted-foreground mb-2 flex items-center gap-1">
-                                  <FileText className="h-4 w-4" />
-                                  AI Interpretation
-                                </p>
-                                <div className="bg-muted/50 rounded-lg p-3 text-sm">
-                                  {typeof explanation === 'string'
-                                    ? explanation
-                                    : JSON.stringify(explanation, null, 2)}
-                                </div>
-                              </div>
+                            {/* LLM Explanation - Using new XAI Component */}
+                            {hasXAI && (
+                              <XAIExplanation
+                                explanation={explanation}
+                                severityReport={severityReport ? {
+                                  summary: severityReport.summary || undefined,
+                                  recommendations: severityReport.recommendations || undefined,
+                                  risk_level: severityReport.risk_level,
+                                } : undefined}
+                                shapValues={shapValues}
+                              />
                             )}
 
-                            {!shapValues && !explanation && (
+                            {!hasXAI && (
                               <div className="flex flex-col items-center gap-2 py-4">
                                 <p className="text-sm text-muted-foreground italic">
                                   No XAI explanations generated for this prediction

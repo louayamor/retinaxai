@@ -45,7 +45,8 @@ class Settings(BaseSettings):
     mlops_service_url: str = Field(
         default="http://mlops-service:8004", validation_alias="MLOPS_SERVICE_URL"
     )
-    timeout_seconds: int = 60
+    timeout_seconds: int = 120
+    max_tokens: int = Field(default=2000, validation_alias="LLM_MAX_TOKENS")
     rag_manifest_url: str = Field(
         default="http://mlops-service:8004/rag/manifest",
         validation_alias="RAG_MANIFEST_URL",
