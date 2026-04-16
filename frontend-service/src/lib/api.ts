@@ -567,3 +567,36 @@ export class ApiConflictError extends ApiError {
     this.name = 'ApiConflictError';
   }
 }
+
+export interface XAIExplanation {
+  id: string;
+  content: string;
+  summary: string | null;
+  model_used: string;
+  status: string;
+  shap_values?: {
+    top_positive: Array<{ name: string; contribution: number }>;
+    top_negative: Array<{ name: string; contribution: number }>;
+    features: Array<{ name: string; contribution: number }>;
+  };
+}
+
+export interface SeverityReport {
+  id: string;
+  content: string;
+  summary: string | null;
+  risk_level: 'low' | 'moderate' | 'high' | 'severe';
+  recommendations: string[];
+  model_used: string;
+}
+
+export interface XAIResponse {
+  prediction_id: string;
+  explanation: XAIExplanation | null;
+  severity_report: SeverityReport | null;
+  gradcam_explanation: null;
+}
+
+export async function getXAIExplanations(predictionId: string): Promise<XAIResponse> {
+  return request<XAIResponse>(`/api/v1/explanations/${predictionId}`);
+}

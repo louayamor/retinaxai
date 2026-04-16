@@ -2,19 +2,21 @@
 
 import { useEffect, useState, type ChangeEvent } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { createPatient, deletePatient, getPatients, getPatientStats, searchPatients, updatePatient } from '@/lib/api';
+import { createPatient, getPatients, getPatientStats } from '@/lib/api';
 import PageContainer from '@/components/layout/page-container';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import Image from 'next/image';
 import type { Patient } from '@/types';
 import { fadeInUp, slideInUp, staggerContainer, staggerItemFast, buttonTap, rowHover } from '@/lib/animations';
-import { PatientCard } from '@/components/patients/PatientCard';
 import { StatsCard } from '@/components/ui/stats-card';
-import { Users, UserPlus, Calendar, UserCheck, Search, X, User } from 'lucide-react';
+import { PatientTable } from '@/components/patients/PatientTable';
+import { EditPatientDialog } from '@/components/patients/EditPatientDialog';
+import { DeleteConfirmModal } from '@/components/patients/DeleteConfirmModal';
+import { PatientFilters } from '@/components/patients/PatientFilters';
+import { Users, UserPlus, Calendar, UserCheck, Search, X, User, Loader2 } from 'lucide-react';
 
 type PatientFormState = {
   first_name: string;
@@ -46,6 +48,9 @@ export default function PatientsPage() {
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<PatientFormState>(emptyForm);
+  const [genderFilter, setGenderFilter] = useState<'all' | 'M' | 'F'>('all');
+  const [editPatient, setEditPatient] = useState<Patient | null>(null);
+  const [deletePatient, setDeletePatient] = useState<Patient | null>(null);
   const shouldReduceMotion = useReducedMotion();
 
   const loadStats = async () => {
@@ -57,10 +62,10 @@ export default function PatientsPage() {
     }
   };
 
-  const loadPatients = async (query = '') => {
+  const loadPatients = async () => {
     setLoading(true);
     try {
-      const data = query.trim() ? await searchPatients(query.trim()) : await getPatients();
+      const data = await getPatients();
       setPatients(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Failed to fetch patients:', err);
@@ -76,10 +81,7 @@ export default function PatientsPage() {
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      void loadPatients(search);
-    }, 300);
-    return () => clearTimeout(t);
+    void loadPatients();
   }, [search]);
 
   const onChange =
@@ -108,34 +110,36 @@ export default function PatientsPage() {
 
     setSaving(true);
     try {
-      if (editingId) {
-        const updated = await updatePatient(editingId, {
-          first_name: form.first_name,
-          last_name: form.last_name,
-          age: ageNum,
-          gender: form.gender,
-          medical_record_number: form.medical_record_number,
-          phone: form.phone || null,
-          address: form.address || null,
-          ocr_patient_id: form.ocr_patient_id || null
-        });
-        toast.success('Patient updated successfully');
-        setPatients(prev => prev.map(p => p.id === editingId ? { ...p, ...updated } : p));
-      } else {
-        const created = await createPatient({
-          first_name: form.first_name,
-          last_name: form.last_name,
-          age: ageNum,
-          gender: form.gender,
-          medical_record_number: form.medical_record_number,
-          phone: form.phone || null,
-          address: form.address || null,
-          ocr_patient_id: form.ocr_patient_id || null
-        });
-        toast.success('Patient created successfully');
-        setPatients(prev => [...prev, { ...created, created_at: new Date().toISOString() }]);
-        await loadStats();
-      }
+      const created = await createPatient({
+        first_name: form.first_name,
+        last_name: form.last_name,
+        age: ageNum,
+        gender: form.gender,
+        medical_record_number: form.medical_record_number,
+        phone: form.phone || null,
+        address: form.address || null,
+        ocr_patient_id: form.ocr_patient_id || null
+      });
+      toast.success('Patient created successfully', {
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-5 w-5 text-emerald-500"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+            <polyline points="22 4 12 14.01 9 11.01" />
+          </svg>
+        ),
+        className: 'border-l-4 border-l-emerald-500',
+      });
+      setPatients(prev => [...prev, { ...created, created_at: new Date().toISOString() }]);
+      await loadStats();
       resetForm();
     } catch (err) {
       console.error('Failed to save patient:', err);
@@ -146,28 +150,21 @@ export default function PatientsPage() {
     }
   };
 
-  const onEdit = (p: Patient) => {
-    setEditingId(p.id);
-    setForm({
-      first_name: p.first_name,
-      last_name: p.last_name,
-      age: String(p.age),
-      gender: p.gender,
-      medical_record_number: p.medical_record_number,
-      phone: p.phone ?? '',
-      address: p.address ?? '',
-      ocr_patient_id: p.ocr_patient_id ?? ''
-    });
+  const handleEdit = (patient: Patient) => {
+    setEditPatient(patient);
   };
 
-  const onDelete = async (id: string) => {
-    if (!window.confirm('Delete this patient? This cannot be undone.')) return;
-    try {
-      await deletePatient(id);
-      await loadPatients(search);
-    } catch (err) {
-      console.error('Failed to delete patient:', err);
-    }
+  const handleDelete = (patient: Patient) => {
+    setDeletePatient(patient);
+  };
+
+  const handleEditSuccess = () => {
+    void loadPatients();
+  };
+
+  const handleDeleteSuccess = () => {
+    void loadPatients();
+    void loadStats();
   };
 
   return (
@@ -234,12 +231,12 @@ export default function PatientsPage() {
         </div>
 
         {/* Patient Form */}
-        <motion.div variants={shouldReduceMotion ? {} : slideInUp}>
+        <motion.div variants={shouldReduceMotion ? {} : slideInUp} id="add-patient-form">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <UserPlus className="h-5 w-5 text-[var(--brand-teal)]" />
-                {editingId ? 'Update Patient' : 'Add New Patient'}
+                Add New Patient
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -340,13 +337,8 @@ export default function PatientsPage() {
                   <Button onClick={onSubmit} disabled={saving}>
                     {saving ? (
                       <>
-                        <span className="mr-2">⏳</span>
-                        Saving...
-                      </>
-                    ) : editingId ? (
-                      <>
-                        <span className="mr-2">✓</span>
-                        Update Patient
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Adding...
                       </>
                     ) : (
                       <>
@@ -356,11 +348,6 @@ export default function PatientsPage() {
                     )}
                   </Button>
                 </motion.div>
-                {editingId ? (
-                  <Button variant="outline" onClick={resetForm}>
-                    Cancel
-                  </Button>
-                ) : null}
               </div>
             </CardContent>
           </Card>
@@ -368,63 +355,73 @@ export default function PatientsPage() {
 
         {/* Search & Patient List */}
         <motion.div variants={shouldReduceMotion ? {} : fadeInUp} className="space-y-4">
-          {/* Search */}
-          <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by name, MRN, OCR ID..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
-              {search && (
-                <button
-                  onClick={() => setSearch('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
+          {/* Search & Filters */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <PatientFilters
+              total={stats?.total ?? 0}
+              maleCount={stats?.male_count ?? 0}
+              femaleCount={stats?.female_count ?? 0}
+              value={genderFilter}
+              onChange={setGenderFilter}
+            />
+            <div className="flex items-center gap-4 w-full sm:w-auto">
+              <div className="relative flex-1 sm:flex-initial sm:w-72">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name, MRN..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
+                />
+                {search && (
+                  <button
+                    onClick={() => setSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const form = document.getElementById('add-patient-form');
+                  form?.scrollIntoView({ behavior: 'smooth' });
+                }}
+              >
+                <UserPlus className="mr-2 h-4 w-4" />
+                Add Patient
+              </Button>
             </div>
-            <span className="text-sm text-muted-foreground">
-              {patients.length} patient{patients.length !== 1 ? 's' : ''} found
-            </span>
           </div>
 
-          {/* Patient Cards */}
-          {loading ? (
-            <div className="py-8 text-center">
-              <p className="text-muted-foreground">Loading patients...</p>
-            </div>
-          ) : patients.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <div className="relative mb-4">
-                <Users className="h-16 w-16 text-muted-foreground/30" />
-                <div className="absolute -top-2 -right-2 h-8 w-8 rounded-full bg-[var(--brand-teal)]/20 flex items-center justify-center">
-                  <Search className="h-4 w-4 text-[var(--brand-teal)]" />
-                </div>
-              </div>
-              <p className="text-muted-foreground text-center">
-                {search ? 'No patients match your search' : 'No patients registered yet'}
-              </p>
-              <p className="text-sm text-muted-foreground/70 mt-1">
-                {search ? 'Try adjusting your search' : 'Add your first patient using the form above'}
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-4">
-              {patients.map((patient) => (
-                <PatientCard
-                  key={patient.id}
-                  patient={patient}
-                  onEdit={onEdit}
-                  onDelete={onDelete}
-                />
-              ))}
-            </div>
-          )}
+          {/* Patient Table */}
+          <PatientTable
+            patients={patients}
+            loading={loading}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            genderFilter={genderFilter}
+            searchQuery={search}
+          />
         </motion.div>
+
+        {/* Edit Dialog */}
+        <EditPatientDialog
+          patient={editPatient}
+          open={!!editPatient}
+          onOpenChange={(open) => !open && setEditPatient(null)}
+          onSuccess={handleEditSuccess}
+        />
+
+        {/* Delete Confirmation */}
+        <DeleteConfirmModal
+          patient={deletePatient}
+          open={!!deletePatient}
+          onOpenChange={(open) => !open && setDeletePatient(null)}
+          onSuccess={handleDeleteSuccess}
+        />
       </motion.div>
     </PageContainer>
   );

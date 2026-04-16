@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 
-interface PatientWebSocketOptions {
+export interface PatientWebSocketOptions {
   patientId: string;
   onPredictionComplete?: (data: PredictionEventData) => void;
   onXAIReady?: (data: XAIEventData) => void;
@@ -11,7 +11,7 @@ interface PatientWebSocketOptions {
   onGradCAMReady?: (data: GradCAMEventData) => void;
 }
 
-interface PredictionEventData {
+export interface PredictionEventData {
   prediction_id: string;
   patient_id: string;
   status: string;
@@ -23,7 +23,7 @@ interface PredictionEventData {
   error?: string;
 }
 
-interface XAIEventData {
+export interface XAIEventData {
   prediction_id: string;
   patient_id?: string;
   status: string;
@@ -37,7 +37,7 @@ interface XAIEventData {
   error?: string;
 }
 
-interface SeverityEventData extends XAIEventData {
+export interface SeverityEventData extends XAIEventData {
   details: {
     risk_level: string;
     recommendations: string[];
@@ -46,7 +46,7 @@ interface SeverityEventData extends XAIEventData {
   };
 }
 
-interface GradCAMEventData extends XAIEventData {
+export interface GradCAMEventData extends XAIEventData {
   details: {
     left_eye?: string;
     right_eye?: string;
