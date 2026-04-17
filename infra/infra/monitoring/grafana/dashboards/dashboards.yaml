@@ -1,0 +1,21 @@
+# Grafana Dashboard Provisioning Configuration
+# For local installation (not Docker)
+# Place this file in:
+#   Linux: /etc/grafana/provisioning/dashboards/dashboards.yaml
+#   Windows: C:\Program Files\GrafanaLabs\grafana\conf\provisioning\dashboards\
+#   macOS: /usr/local/etc/grafana/provisioning/dashboards/
+
+apiVersion: 1
+
+providers:
+  - name: 'RetinaXAI Dashboards'
+    orgId: 1
+    folder: ''
+    folderUid: ''
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

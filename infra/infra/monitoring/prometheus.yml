@@ -1,26 +1,10 @@
 # Prometheus configuration for RetinaXAI MLOps monitoring
+# For local installation (not Docker)
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
-
-scrape_configs:
-  - job_name: 'mlops-service'
-    static_configs:
-      - targets: ['mlops-service:9101']
-    scrape_interval: 15s
-    metrics_path: /metrics
-
-  - job_name: 'backend-service'
-    static_configs:
-      - targets: ['backend-service:8000']
-    scrape_interval: 15s
-    metrics_path: /metrics
-    params:
-      format: ['prometheus']
-    
-  - job_name: 'node-exporter'
-    static_configs:
-      - targets: ['node-exporter:9100']
+  external_labels:
+    monitor: 'retinaxai-monitor'
 
 # Alertmanager configuration
 alerting:
@@ -28,9 +12,56 @@ alerting:
     - static_configs:
         - targets: []
 
+# Rule files
 rule_files:
-  - "rules.yml"
+  - "alert-rules.yml"
 
-# Remote write configuration (optional - for long-term storage)
-# remote_write:
-#   - url: "http://elasticsearch:9200/api/v1/namespaces/monitoring/services/prometheus-elasticsearch/writes"
+# Scrape configurations
+scrape_configs:
+  # ── Backend Service Metrics ─────────────────────────────────────────────────
+  - job_name: 'backend-service'
+    static_configs:
+      - targets: ['localhost:9102']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scheme: http
+
+  # ── MLOps Service Metrics ───────────────────────────────────────────────────
+  - job_name: 'mlops-service'
+    static_configs:
+      - targets: ['localhost:9101']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scheme: http
+
+  # ── LLMOps Service Metrics ──────────────────────────────────────────────────
+  - job_name: 'llmops-service'
+    static_configs:
+      - targets: ['localhost:9092']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scheme: http
+
+  # ── Node Exporter (System Metrics) ──────────────────────────────────────────
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['localhost:9100']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scheme: http
+
+  # ── GPU Metrics (nvidia-smi) ────────────────────────────────────────────────
+  - job_name: 'gpu-exporter'
+    static_configs:
+      - targets: ['localhost:9103']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scheme: http
+
+  # ── Prometheus Self-Monitoring ──────────────────────────────────────────────
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scheme: http
