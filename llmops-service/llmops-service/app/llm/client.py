@@ -6,7 +6,12 @@ from loguru import logger
 
 class LLMClient(ABC):
     @abstractmethod
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> str:
         pass
 
 
@@ -40,7 +45,12 @@ class GitHubLLMClient(LLMClient):
             )
         return self._client
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> str:
         from azure.ai.inference.models import SystemMessage, UserMessage
         from azure.core.exceptions import AzureError
 
@@ -61,7 +71,7 @@ class GitHubLLMClient(LLMClient):
                 messages=messages,
                 temperature=0.3,
                 top_p=0.9,
-                model=self.model,
+                model=model or self.model,
                 max_tokens=self.max_tokens,
             )
             return response.choices[0].message.content
@@ -105,7 +115,12 @@ class OllamaLLMClient(LLMClient):
             )
         return self._client
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> str:
         try:
             messages = []
             if system_prompt:
@@ -123,7 +138,12 @@ class MockLLMClient(LLMClient):
     def __init__(self, **kwargs) -> None:
         pass
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> str:
         return f"[Mock response for: {prompt[:50]}...]"
 
 

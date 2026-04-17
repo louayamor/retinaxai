@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     )
 
     llm_provider: LLMProvider = LLMProvider.GITHUB
-    llm_model: str = "openai/gpt-4.1-mini"
+    llm_model: str = "gpt-4o"
     llm_api_key: Optional[str] = Field(default=None, validation_alias="OPENAI_API_KEY")
     llm_base_url: Optional[str] = None
 

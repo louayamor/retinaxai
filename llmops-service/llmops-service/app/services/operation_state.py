@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
 
+from loguru import logger
+
 _operation_lock = Lock()
 _current_operation: dict | None = None
 
@@ -22,19 +24,21 @@ def _try_emit_ws(
     message: str,
     details: dict | None = None,
 ) -> None:
-    """Try to emit WebSocket event, silently fail if not available."""
+    """Try to emit WebSocket event without blocking caller flow."""
     try:
         from app.services.websocket_client import get_websocket_client
 
         ws_client = get_websocket_client()
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(
-            ws_client.send_llmops_event(event_type, status, progress, message, details)
+        coro = ws_client.send_llmops_event(
+            event_type, status, progress, message, details
         )
-        loop.close()
-    except Exception:
-        pass
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(coro)
+        except RuntimeError:
+            asyncio.run(coro)
+    except Exception as exc:
+        logger.warning(f"Failed to emit llmops operation event: {exc}")
 
 
 @dataclass

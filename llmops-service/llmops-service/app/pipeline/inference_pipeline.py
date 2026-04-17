@@ -145,7 +145,11 @@ class InferencePipeline:
             retrieved_context=retrieved_context,
         )
 
-        content = self.client.generate(user_prompt, REPORT_SYSTEM_PROMPT)
+        content = self.client.generate(
+            user_prompt,
+            REPORT_SYSTEM_PROMPT,
+            model=model_name,
+        )
         generation_time = time.time() - start_time
         logger.info(f"Generation complete ({generation_time:.2f}s)")
 
