@@ -29,7 +29,7 @@ import {
   SidebarMenuSubItem,
   SidebarRail
 } from '@/components/ui/sidebar';
-import { navItems } from '@/config/nav-config';
+import { navGroups, navItems } from '@/config/nav-config';
 import { useFilteredNavItems } from '@/hooks/use-nav';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { clearTokens, apiFetch } from '@/lib/auth';
@@ -57,9 +57,76 @@ function parseUserFromToken(token: string | null) {
   }
 }
 
+function NavItemComponent({
+  item,
+  pathname,
+}: {
+  item: typeof navItems[number];
+  pathname: string;
+}) {
+  const Icon = item.icon ? Icons[item.icon] : Icons.logo;
+
+  if (item.items && item.items.length > 0) {
+    return (
+      <Collapsible
+        key={item.title}
+        asChild
+        defaultOpen={pathname.startsWith(item.url)}
+        className='group/collapsible'
+      >
+        <SidebarMenuItem>
+          <CollapsibleTrigger asChild>
+            <SidebarMenuButton
+              tooltip={item.title}
+              isActive={pathname === item.url}
+              className='text-sm'
+            >
+              {item.icon && <Icon />}
+              <span>{item.title}</span>
+              <IconChevronRight className='ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90' />
+            </SidebarMenuButton>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <SidebarMenuSub>
+              {item.items.map((subItem) => (
+                <SidebarMenuSubItem key={subItem.title}>
+                    <SidebarMenuSubButton
+                      asChild
+                      isActive={pathname === subItem.url}
+                      className='text-sm'
+                    >
+                    <Link href={subItem.url}>
+                      <span>{subItem.title}</span>
+                    </Link>
+                  </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
+              ))}
+            </SidebarMenuSub>
+          </CollapsibleContent>
+        </SidebarMenuItem>
+      </Collapsible>
+    );
+  }
+
+  return (
+    <SidebarMenuItem key={item.title}>
+      <SidebarMenuButton
+        asChild
+        tooltip={item.title}
+        isActive={pathname === item.url}
+        className='text-sm'
+      >
+        <Link href={item.url}>
+          <Icon />
+          <span>{item.title}</span>
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
 export default function AppSidebar() {
   const pathname = usePathname();
-  const { isOpen } = useMediaQuery();
   const router = useRouter();
   const filteredItems = useFilteredNavItems(navItems);
   const [user, setUser] = React.useState<{ username: string; email: string } | null>(null);
@@ -71,16 +138,15 @@ export default function AppSidebar() {
   }, []);
 
   async function handleLogout() {
-    // Clear tokens first
     clearTokens();
-    
+
     try {
       await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });
     } catch {}
-    
+
     window.location.href = '/auth/login';
   }
 
@@ -91,74 +157,30 @@ export default function AppSidebar() {
           <Image
             src='/retinaxai-logo.svg'
             alt='RetinaXAI'
-            width={28}
-            height={28}
-            className='h-7 w-7 rounded-md'
+            width={100}
+            height={100}
+            className='h-9 w-9 rounded-md'
             priority
           />
-          <span className='font-semibold'>RetinaXAI</span>
+          <span className='font-semibold transition-opacity duration-200 group-data-[collapsible=icon]:opacity-0'>
+            RetinaXAI
+          </span>
         </div>
       </SidebarHeader>
 
       <SidebarContent className='overflow-x-hidden'>
-        <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
-          <SidebarMenu>
-            {filteredItems.map((item) => {
-              const Icon = item.icon ? Icons[item.icon] : Icons.logo;
-              return item?.items && item?.items?.length > 0 ? (
-                <Collapsible
-                  key={item.title}
-                  asChild
-                  defaultOpen={item.isActive}
-                  className='group/collapsible'
-                >
-                  <SidebarMenuItem>
-                    <CollapsibleTrigger asChild>
-                      <SidebarMenuButton
-                        tooltip={item.title}
-                        isActive={pathname === item.url}
-                      >
-                        {item.icon && <Icon />}
-                        <span>{item.title}</span>
-                        <IconChevronRight className='ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90' />
-                      </SidebarMenuButton>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <SidebarMenuSub>
-                        {item.items?.map((subItem) => (
-                          <SidebarMenuSubItem key={subItem.title}>
-                            <SidebarMenuSubButton
-                              asChild
-                              isActive={pathname === subItem.url}
-                            >
-                              <Link href={subItem.url}>
-                                <span>{subItem.title}</span>
-                              </Link>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                        ))}
-                      </SidebarMenuSub>
-                    </CollapsibleContent>
-                  </SidebarMenuItem>
-                </Collapsible>
-              ) : (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    tooltip={item.title}
-                    isActive={pathname === item.url}
-                  >
-                    <Link href={item.url}>
-                      <Icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              );
-            })}
-          </SidebarMenu>
-        </SidebarGroup>
+        {navGroups.map((group) => (
+          <SidebarGroup key={group.title}>
+            <SidebarGroupLabel className='text-[10px] uppercase tracking-wider text-muted-foreground'>
+              {group.title}
+            </SidebarGroupLabel>
+            <SidebarMenu>
+              {group.items.map((item) => (
+                <NavItemComponent key={item.title} item={item} pathname={pathname} />
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
 
       <SidebarFooter>
@@ -177,7 +199,7 @@ export default function AppSidebar() {
                   </Avatar>
                   <div className='grid flex-1 text-left text-sm leading-tight'>
                     <span className='truncate font-semibold'>{user?.username ?? 'Doctor'}</span>
-                    <span className='truncate text-xs'>{user?.email ?? ''}</span>
+                    <span className='truncate text-xs text-muted-foreground'>{user?.email ?? ''}</span>
                   </div>
                   <IconChevronsDown className='ml-auto size-4' />
                 </SidebarMenuButton>
@@ -191,7 +213,7 @@ export default function AppSidebar() {
                 <DropdownMenuLabel className='p-0 font-normal'>
                   <div className='px-1 py-1.5'>
                     <p className='text-sm font-medium'>{user?.username}</p>
-                    <p className='text-muted-foreground text-xs'>{user?.email}</p>
+                    <p className='text-xs text-muted-foreground'>{user?.email}</p>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />

@@ -2,21 +2,25 @@
 
 import { useEffect, useState } from 'react';
 import PageContainer from '@/components/layout/page-container';
+import { PageHero } from '@/components/ui/page-hero';
+import { PageSection, PageGrid } from '@/components/ui/page-section';
+import { StatsRow } from '@/components/ui/stats-row';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  Brain, 
-  Database, 
-  FileText, 
-  Loader2, 
-  RefreshCw, 
+import { StatsCard } from '@/components/ui/stats-card';
+import {
+  Brain,
+  Database,
+  Loader2,
+  RefreshCw,
   Sparkles,
   CheckCircle2,
   AlertCircle,
   Clock,
-  Zap
+  Zap,
+  FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -70,7 +74,7 @@ export default function LLMOpsPage() {
   };
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
     const interval = setInterval(fetchData, 15000);
     return () => clearInterval(interval);
   }, []);
@@ -103,234 +107,169 @@ export default function LLMOpsPage() {
   if (loading && !health) {
     return (
       <PageContainer>
-        <div className="flex items-center justify-center h-[60vh]">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div className='flex items-center justify-center h-[60vh]'>
+          <Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
         </div>
       </PageContainer>
     );
   }
 
   return (
-    <PageContainer>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">LLMOps Monitor</h1>
-            <p className="text-muted-foreground">LLM service, RAG pipeline, and explainability queue</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={fetchData}>
-            <RefreshCw className="h-4 w-4 mr-2" />
+    <PageContainer className='flex flex-col gap-6'>
+      <PageHero
+        title='LLMOps Monitor'
+        description='LLM service, RAG pipeline, and explainability queue'
+        actions={
+          <Button variant='outline' size='sm' onClick={fetchData} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-        </div>
+        }
+      />
 
-        <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="rag">RAG Pipeline</TabsTrigger>
-            <TabsTrigger value="xai">XAI Queue</TabsTrigger>
-          </TabsList>
-
-          {/* Overview Tab */}
-          <TabsContent value="overview" className="space-y-4">
-            {/* LLM Service Status */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Brain className="h-5 w-5" />
-                  LLM Service Status
-                </CardTitle>
-                <CardDescription>Current LLM provider and model</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="p-4 rounded-lg border">
-                    <p className="text-sm text-muted-foreground">Status</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <div className={`h-3 w-3 rounded-full ${getHealthColor(health?.status || 'unavailable')}`} />
-                      <span className="font-medium capitalize">{health?.status || 'Unknown'}</span>
-                    </div>
-                  </div>
-                  <div className="p-4 rounded-lg border">
-                    <p className="text-sm text-muted-foreground">Provider</p>
-                    <p className="font-medium mt-1">{health?.llm_provider || 'Unknown'}</p>
-                  </div>
-                  <div className="p-4 rounded-lg border">
-                    <p className="text-sm text-muted-foreground">Model</p>
-                    <p className="font-medium mt-1 font-mono text-sm">{health?.model || 'Unknown'}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Quick Stats */}
-            <div className="grid gap-4 md:grid-cols-3">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">RAG Documents</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{ragStatus?.total_documents || 0}</div>
-                  <p className="text-xs text-muted-foreground">in collection</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Active Operation</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {operation && operation.status !== 'idle' ? (
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <Loader2 className={`h-4 w-4 animate-spin ${operation.status === 'completed' ? 'text-green-500' : 'text-blue-500'}`} />
-                        <span className="font-medium capitalize">{operation.operation}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">{operation.message}</p>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="text-2xl font-bold">Idle</div>
-                      <p className="text-xs text-muted-foreground">No active operations</p>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">RAG Status</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center gap-2">
-                    {ragStatus?.status === 'ready' ? (
-                      <>
-                        <CheckCircle2 className="h-5 w-5 text-green-500" />
-                        <span className="text-green-500 font-medium">Ready</span>
-                      </>
-                    ) : ragStatus?.status === 'indexing' ? (
-                      <>
-                        <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />
-                        <span className="text-blue-500 font-medium">Indexing</span>
-                      </>
-                    ) : (
-                      <>
-                        <AlertCircle className="h-5 w-5 text-muted-foreground" />
-                        <span className="text-muted-foreground">Unknown</span>
-                      </>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+      <StatsRow columns={3}>
+        <Card>
+          <CardContent className='pt-6'>
+            <div className='flex items-center gap-2 text-sm text-muted-foreground mb-2'>LLM Status</div>
+            <div className='flex items-center gap-2'>
+              <div className={`h-3 w-3 rounded-full ${getHealthColor(health?.status || 'unavailable')}`} />
+              <span className='font-medium capitalize'>{health?.status || 'Unknown'}</span>
             </div>
-          </TabsContent>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className='pt-6'>
+            <div className='flex items-center gap-2 text-sm text-muted-foreground mb-2'>Provider</div>
+            <div className='font-medium'>{health?.llm_provider || 'Unknown'}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className='pt-6'>
+            <div className='flex items-center gap-2 text-sm text-muted-foreground mb-2'>Model</div>
+            <div className='font-medium font-mono text-sm'>{health?.model || 'Unknown'}</div>
+          </CardContent>
+        </Card>
+      </StatsRow>
 
-          {/* RAG Tab */}
-          <TabsContent value="rag" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Database className="h-5 w-5" />
-                  RAG Vector Store
-                </CardTitle>
-                <CardDescription>Document collection and indexing status</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="p-4 rounded-lg border bg-gradient-to-r from-cyan-50/50 to-blue-50/30">
-                    <p className="text-sm text-muted-foreground">Collection Name</p>
-                    <p className="font-medium mt-1 font-mono">{ragStatus?.collection_name || 'N/A'}</p>
-                  </div>
-                  <div className="p-4 rounded-lg border bg-gradient-to-r from-purple-50/50 to-pink-50/30">
-                    <p className="text-sm text-muted-foreground">Total Documents</p>
-                    <p className="font-medium mt-1 text-2xl">{ragStatus?.total_documents || 0}</p>
-                  </div>
-                </div>
+      <PageGrid columns={3}>
+        <StatsCard
+          title='RAG Documents'
+          value={ragStatus?.total_documents || 0}
+          icon={FileText}
+          subtitle='in collection'
+        />
+        <StatsCard
+          title='Active Operation'
+          value={operation && operation.status !== 'idle' ? operation.operation : 'Idle'}
+          icon={operation && operation.status !== 'idle' ? Loader2 : Sparkles}
+          color={operation?.status === 'completed' ? '#22c55e' : '#3b82f6'}
+          subtitle={operation?.message}
+        />
+        <StatsCard
+          title='RAG Status'
+          value={ragStatus?.status === 'ready' ? 'Ready' : ragStatus?.status === 'indexing' ? 'Indexing' : 'Unknown'}
+          icon={ragStatus?.status === 'ready' ? CheckCircle2 : AlertCircle}
+          color={ragStatus?.status === 'ready' ? '#22c55e' : ragStatus?.status === 'indexing' ? '#3b82f6' : '#6b7280'}
+        />
+      </PageGrid>
 
-                <div className="p-4 rounded-lg border">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Last Index Update</p>
-                      <p className="text-sm text-muted-foreground">
-                        {ragStatus?.last_updated ? new Date(ragStatus.last_updated).toLocaleString() : 'Never'}
-                      </p>
-                    </div>
-                    <Badge variant={ragStatus?.status === 'ready' ? 'default' : 'secondary'}>
-                      {ragStatus?.status || 'Unknown'}
-                    </Badge>
-                  </div>
-                </div>
+      <Tabs defaultValue='rag' className='space-y-4'>
+        <TabsList>
+          <TabsTrigger value='rag'>RAG Pipeline</TabsTrigger>
+          <TabsTrigger value='xai'>XAI Queue</TabsTrigger>
+        </TabsList>
 
-                <Button onClick={handleReindex} disabled={reindexing} className="w-full">
-                  {reindexing ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Reindexing...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Trigger Full Reindex
-                    </>
-                  )}
-                </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* XAI Tab */}
-          <TabsContent value="xai" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="h-5 w-5" />
-                  Explainability Queue
-                </CardTitle>
-                <CardDescription>Current XAI operation status</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {operation && operation.status !== 'idle' ? (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between p-4 rounded-lg border">
-                      <div className="space-y-1">
-                        <p className="font-medium capitalize">{operation.operation}</p>
-                        <p className="text-sm text-muted-foreground">{operation.message}</p>
-                      </div>
-                      <Badge className={operation.status === 'completed' ? 'bg-green-500' : 'bg-blue-500'}>
-                        {operation.status}
-                      </Badge>
-                    </div>
-                    
-                    {operation.status === 'running' && (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-sm">
-                          <span>Progress</span>
-                          <span>{Math.round(operation.progress * 100)}%</span>
-                        </div>
-                        <div className="h-2 bg-muted rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-blue-500 transition-all duration-300"
-                            style={{ width: `${operation.progress * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="text-sm text-muted-foreground">
-                      <Clock className="h-4 w-4 inline mr-1" />
-                      Started: {new Date(operation.started_at).toLocaleString()}
-                    </div>
-                  </div>
+        <TabsContent value='rag'>
+          <PageSection
+            title='RAG Vector Store'
+            description='Document collection and indexing status'
+            icon={<Database className='h-5 w-5' />}
+            headerAction={
+              <Button onClick={handleReindex} disabled={reindexing}>
+                {reindexing ? (
+                  <Loader2 className='h-4 w-4 mr-2 animate-spin' />
                 ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Zap className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p>No active XAI operations</p>
-                    <p className="text-sm">XAI explanations are generated on-demand via predictions</p>
+                  <RefreshCw className='h-4 w-4 mr-2' />
+                )}
+                Reindex
+              </Button>
+            }
+          >
+            <div className='grid gap-4 md:grid-cols-2'>
+              <div className='p-4 rounded-lg border'>
+                <p className='text-sm text-muted-foreground'>Collection Name</p>
+                <p className='font-medium font-mono mt-1'>{ragStatus?.collection_name || 'N/A'}</p>
+              </div>
+              <div className='p-4 rounded-lg border'>
+                <p className='text-sm text-muted-foreground'>Total Documents</p>
+                <p className='font-medium mt-1 text-2xl'>{ragStatus?.total_documents || 0}</p>
+              </div>
+            </div>
+
+            <div className='mt-4 p-4 rounded-lg border'>
+              <div className='flex items-center justify-between'>
+                <div>
+                  <p className='font-medium'>Last Index Update</p>
+                  <p className='text-sm text-muted-foreground'>
+                    {ragStatus?.last_updated ? new Date(ragStatus.last_updated).toLocaleString() : 'Never'}
+                  </p>
+                </div>
+                <Badge variant={ragStatus?.status === 'ready' ? 'default' : 'secondary'}>
+                  {ragStatus?.status || 'Unknown'}
+                </Badge>
+              </div>
+            </div>
+          </PageSection>
+        </TabsContent>
+
+        <TabsContent value='xai'>
+          <PageSection
+            title='Explainability Queue'
+            description='Current XAI operation status'
+            icon={<Sparkles className='h-5 w-5' />}
+          >
+            {operation && operation.status !== 'idle' ? (
+              <div className='space-y-4'>
+                <div className='flex items-center justify-between p-4 rounded-lg border'>
+                  <div className='space-y-1'>
+                    <p className='font-medium capitalize'>{operation.operation}</p>
+                    <p className='text-sm text-muted-foreground'>{operation.message}</p>
+                  </div>
+                  <Badge className={operation.status === 'completed' ? 'bg-green-500' : 'bg-blue-500'}>
+                    {operation.status}
+                  </Badge>
+                </div>
+
+                {operation.status === 'running' && (
+                  <div className='space-y-2'>
+                    <div className='flex items-center justify-between text-sm'>
+                      <span>Progress</span>
+                      <span>{Math.round(operation.progress * 100)}%</span>
+                    </div>
+                    <div className='h-3 bg-muted rounded-full overflow-hidden'>
+                      <div
+                        className='h-full bg-blue-500 transition-all'
+                        style={{ width: `${operation.progress * 100}%` }}
+                      />
+                    </div>
                   </div>
                 )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </div>
+
+                <div className='text-sm text-muted-foreground'>
+                  <Clock className='h-4 w-4 inline mr-1' />
+                  Started: {new Date(operation.started_at).toLocaleString()}
+                </div>
+              </div>
+            ) : (
+              <div className='text-center py-8'>
+                <Zap className='h-8 w-8 mx-auto mb-2 text-muted-foreground opacity-50' />
+                <p className='text-muted-foreground'>No active XAI operations</p>
+                <p className='text-sm text-muted-foreground mt-1'>XAI explanations are generated on-demand via predictions</p>
+              </div>
+            )}
+          </PageSection>
+        </TabsContent>
+      </Tabs>
     </PageContainer>
   );
 }

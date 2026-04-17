@@ -14,7 +14,10 @@ import {
   type OperationStatus
 } from '@/lib/api';
 import PageContainer from '@/components/layout/page-container';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { PageHero } from '@/components/ui/page-hero';
+import { PageSection } from '@/components/ui/page-section';
+import { StatsRow } from '@/components/ui/stats-row';
+import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -22,42 +25,23 @@ import {
   Loader2,
   RefreshCw,
   Search,
-  Eye,
-  AlertCircle,
-  CheckCircle2,
   Database,
   Sparkles,
   WifiOff,
-  Bot,
   Calendar,
   FileCheck,
   Clock,
-  AlertTriangle
+  Activity
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Report, ReportStatus } from '@/types';
-import { fadeInUp, slideInUp, staggerItemFast, buttonTap, statusPulse } from '@/lib/animations';
+import { fadeInUp, slideInUp, statusPulse } from '@/lib/animations';
 import { ReportCard } from '@/components/reports/ReportCard';
 import { ReportFilters } from '@/components/reports/ReportFilters';
 import { StatsCard } from '@/components/ui/stats-card';
-import Image from 'next/image';
 import { useWebSocket } from '@/hooks/use-websocket';
 
 type FilterStatus = 'all' | 'completed' | 'pending' | 'running' | 'failed';
-
-const STATUS_COLORS: Record<ReportStatus, string> = {
-  pending: 'bg-yellow-500',
-  running: 'bg-blue-500',
-  completed: 'bg-green-500',
-  failed: 'bg-red-500'
-};
-
-const STATUS_LABELS: Record<ReportStatus, string> = {
-  pending: 'Pending',
-  running: 'Generating',
-  completed: 'Completed',
-  failed: 'Failed'
-};
 
 export default function ReportsPage() {
   const [reports, setReports] = useState<Report[]>([]);
@@ -66,12 +50,10 @@ export default function ReportsPage() {
   const [patientNames, setPatientNames] = useState<Record<string, string>>({});
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
   const shouldReduceMotion = useReducedMotion();
-  
-  // Filter states
+
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
-  
-  // RAG state
+
   const [ragStatus, setRagStatus] = useState<{
     status: string;
     schema_version?: string;
@@ -85,13 +67,11 @@ export default function ReportsPage() {
 
   const { connected, subscribe } = useWebSocket();
 
-  // WebSocket subscription for operation status
   useEffect(() => {
     const unsub = subscribe('llmops_event', (data) => {
       const event = data as { event: string; data: { status: string; progress: number; message: string; details?: Record<string, unknown> } };
-      const { status, progress, message, details } = event.data;
-      
-      // Update operation state from WebSocket
+      const { status, message, progress, details } = event.data;
+
       if (details?.state) {
         setOperation({
           state: details.state as string,
@@ -101,7 +81,6 @@ export default function ReportsPage() {
         });
       }
 
-      // Show toast notifications
       if (status === 'completed') {
         toast.success(message || 'Operation completed');
       } else if (status === 'failed') {
@@ -116,27 +95,26 @@ export default function ReportsPage() {
     };
   }, [subscribe]);
 
-  // Initial load
   useEffect(() => {
-    loadReports();
-    loadRagStatus();
+    void loadReports();
+    void loadRagStatus();
   }, []);
 
   const loadRagStatus = async () => {
     try {
       setRagLoading(true);
       setLlmopsDown(false);
-      
+
       try {
         await checkLlmoopsHealth();
       } catch {
         setLlmopsDown(true);
         return;
       }
-      
+
       const status = await getRagStatus();
       setRagStatus(status);
-      
+
       try {
         const op = await getOperationStatus();
         setOperation(op);
@@ -170,10 +148,10 @@ export default function ReportsPage() {
       setReportsLoading(true);
       const response = await listAllReports(1, 50);
       setReports(response.items);
-      
+
       const patientIds = [...new Set(response.items.map((r) => r.patient_id))];
       const names: Record<string, string> = { ...patientNames };
-      
+
       for (const pid of patientIds) {
         if (!names[pid]) {
           try {
@@ -210,15 +188,13 @@ export default function ReportsPage() {
     }
   };
 
-  // Filter reports based on search and status
   const filteredReports = reports.filter((report) => {
-    const matchesSearch = !search || 
+    const matchesSearch = !search ||
       patientNames[report.patient_id]?.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === 'all' || report.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
-  // Calculate stats
   const totalReports = reports.length;
   const completedReports = reports.filter(r => r.status === 'completed').length;
   const pendingReports = reports.filter(r => r.status === 'pending' || r.status === 'running').length;
@@ -226,77 +202,54 @@ export default function ReportsPage() {
   const successRate = totalReports > 0 ? Math.round((completedReports / totalReports) * 100) : 0;
 
   return (
-    <PageContainer>
+    <PageContainer className='flex flex-col gap-6'>
       <motion.div
         variants={shouldReduceMotion ? {} : fadeInUp}
-        initial="hidden"
-        animate="visible"
-        className="flex flex-col gap-8"
+        initial='hidden'
+        animate='visible'
+        className='flex flex-col gap-6'
       >
-        {/* Hero with Medical Image */}
-        <motion.div
-          variants={shouldReduceMotion ? {} : slideInUp}
-          className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0a2e3e] via-[#0d3a4c] to-[#104a5e] p-10 text-white"
-        >
-          <div className="absolute right-0 top-0 h-full w-1/3 opacity-20">
-            <Image
-              src="https://images.unsplash.com/photo-1579684385127-1ef15d508118?w=800&q=80"
-              alt="Medical Technology"
-              fill
-              className="object-cover"
-              unoptimized
-            />
-          </div>
-          {/* Decorative accent shapes */}
-          <div className="absolute -bottom-20 -left-20 h-40 w-40 rounded-full bg-[var(--brand-teal)]/10 blur-3xl" />
-          <div className="absolute top-10 right-20 h-24 w-24 rounded-full bg-[var(--brand-gold)]/10 blur-2xl" />
-          
-          <div className="relative z-10">
-            <h1 className="mb-2 text-3xl font-bold tracking-tight">Clinical Reports</h1>
-            <p className="max-w-xl text-lg text-white/70">
-              AI-generated clinical reports powered by LLM with retrieval-augmented generation
-            </p>
-          </div>
-        </motion.div>
+        <PageHero
+          title='Clinical Reports'
+          description='AI-generated clinical reports powered by LLM with retrieval-augmented generation'
+          imageUrl='https://images.unsplash.com/photo-1579684385127-1ef15d508118?w=800&q=80'
+        />
 
-        {/* Stats Row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatsRow columns={4}>
           <StatsCard
-            title="Total Reports"
+            title='Total Reports'
             value={totalReports}
             icon={FileText}
-            subtitle="All time"
+            subtitle='All time'
           />
           <StatsCard
-            title="Completed"
+            title='Completed'
             value={completedReports}
             icon={FileCheck}
-            color="#22c55e"
+            color='#22c55e'
           />
           <StatsCard
-            title="In Progress"
+            title='In Progress'
             value={pendingReports}
             icon={Clock}
-            color="#3b82f6"
+            color='#3b82f6'
           />
           <StatsCard
-            title="Success Rate"
+            title='Success Rate'
             value={`${successRate}%`}
-            icon={CheckCircle2}
+            icon={Activity}
             color={successRate >= 80 ? '#22c55e' : successRate >= 50 ? '#eab308' : '#ef4444'}
           />
-        </div>
+        </StatsRow>
 
-        {/* Operation Status Card */}
         {operation && operation.state !== 'idle' && (
           <motion.div variants={shouldReduceMotion ? {} : slideInUp}>
             <Card className={operation.state === 'error' ? 'border-destructive bg-red-50' : 'border-primary'}>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  {operation.state === 'indexing' && <motion.div variants={shouldReduceMotion ? {} : statusPulse}><Database className="h-5 w-5" /></motion.div>}
-                  {operation.state === 'retrieving' && <motion.div variants={shouldReduceMotion ? {} : statusPulse}><Search className="h-5 w-5" /></motion.div>}
-                  {operation.state === 'generating' && <motion.div variants={shouldReduceMotion ? {} : statusPulse}><Sparkles className="h-5 w-5" /></motion.div>}
-                  {operation.state === 'error' && <AlertCircle className="h-5 w-5 text-destructive" />}
+                <CardTitle className='flex items-center gap-2'>
+                  {operation.state === 'indexing' && <Database className='h-5 w-5' />}
+                  {operation.state === 'retrieving' && <Search className='h-5 w-5' />}
+                  {operation.state === 'generating' && <Sparkles className='h-5 w-5' />}
                   {operation.state === 'indexing' && 'Indexing RAG'}
                   {operation.state === 'retrieving' && 'Retrieving Context'}
                   {operation.state === 'generating' && 'Generating Report'}
@@ -310,87 +263,52 @@ export default function ReportsPage() {
           </motion.div>
         )}
 
-        {/* RAG Status Card - Service Down */}
         {llmopsDown ? (
           <motion.div variants={shouldReduceMotion ? {} : slideInUp}>
-            <Card className="border-destructive">
+            <Card className='border-destructive'>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-destructive">
-                  <WifiOff className="h-5 w-5" />
+                <CardTitle className='flex items-center gap-2 text-destructive'>
+                  <WifiOff className='h-5 w-5' />
                   LLMOps Service Unavailable
                 </CardTitle>
                 <CardDescription>
                   The LLMOps service is currently down or unreachable.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-4">
-                  <div className="h-2 w-2 animate-pulse rounded-full bg-destructive" />
-                  <span className="text-sm text-muted-foreground">
-                    Attempting to reconnect...
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={loadRagStatus}
-                    disabled={ragLoading}
-                  >
-                    <RefreshCw className={`mr-2 h-4 w-4 ${ragLoading ? 'animate-spin' : ''}`} />
-                    Retry
-                  </Button>
-                </div>
-              </CardContent>
             </Card>
           </motion.div>
         ) : (
-          <motion.div variants={shouldReduceMotion ? {} : slideInUp}>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Database className="h-5 w-5" />
-                    RAG Index
-                  </CardTitle>
-                  <CardDescription>
-                    Current state of the Retrieval-Augmented Generation index
-                  </CardDescription>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={loadRagStatus}
-                    disabled={ragLoading}
-                  >
-                    <RefreshCw className={`mr-2 h-4 w-4 ${ragLoading ? 'animate-spin' : ''}`} />
-                    Refresh
-                  </Button>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={handleReindex}
-                    disabled={reindexing}
-                  >
-                    {reindexing ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Sparkles className="mr-2 h-4 w-4" />
-                    )}
-                    Reindex
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
+          <PageSection
+            title='RAG Index'
+            description='Current state of the Retrieval-Augmented Generation index'
+            icon={<Database className='h-5 w-5' />}
+            headerAction={
+              <div className='flex gap-2'>
+                <Button variant='outline' size='sm' onClick={loadRagStatus} disabled={ragLoading}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${ragLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+                <Button size='sm' onClick={handleReindex} disabled={reindexing}>
+                  {reindexing ? (
+                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  ) : (
+                    <Sparkles className='mr-2 h-4 w-4' />
+                  )}
+                  Reindex
+                </Button>
+              </div>
+            }
+          >
             {ragLoading && !ragStatus ? (
-              <div className="py-4 text-center">
-                <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+              <div className='py-4 text-center'>
+                <Loader2 className='mx-auto h-6 w-6 animate-spin text-muted-foreground' />
               </div>
             ) : ragStatus ? (
-              <div className="grid gap-4 md:grid-cols-4">
+              <div className='grid gap-4 md:grid-cols-4'>
                 <div>
-                  <p className="text-sm text-muted-foreground">Status</p>
+                  <p className='text-sm text-muted-foreground'>Status</p>
                   <Badge
-                    variant="outline"
+                    variant='outline'
                     className={
                       ragStatus.status === 'ok'
                         ? 'bg-green-500 text-white'
@@ -403,42 +321,37 @@ export default function ReportsPage() {
                   </Badge>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Artifacts</p>
-                  <p className="text-2xl font-bold">{ragStatus.artifact_count}</p>
+                  <p className='text-sm text-muted-foreground'>Artifacts</p>
+                  <p className='text-2xl font-bold'>{ragStatus.artifact_count}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Schema Version</p>
-                  <p className="font-mono text-sm">{ragStatus.schema_version || '—'}</p>
+                  <p className='text-sm text-muted-foreground'>Schema Version</p>
+                  <p className='font-mono text-sm'>{ragStatus.schema_version || '—'}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Run ID</p>
-                  <p className="font-mono text-sm truncate">{ragStatus.run_id || '—'}</p>
+                  <p className='text-sm text-muted-foreground'>Run ID</p>
+                  <p className='font-mono text-sm truncate'>{ragStatus.run_id || '—'}</p>
                 </div>
               </div>
             ) : (
-              <p className="text-muted-foreground">Unable to load RAG status</p>
+              <p className='text-muted-foreground'>Unable to load RAG status</p>
             )}
-          </CardContent>
-        </Card>
-        </motion.div>
+          </PageSection>
         )}
 
-        {/* Reports List with Filters */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-4">
-            <div>
-              <CardTitle>Clinical Reports</CardTitle>
-              <CardDescription>
-                {filteredReports.length} of {reports.length} reports
-              </CardDescription>
-            </div>
-            <Button variant="outline" size="sm" onClick={loadReports}>
-              <RefreshCw className="mr-2 h-4 w-4" />
+        <PageSection
+          title='Clinical Reports'
+          description={`${filteredReports.length} of ${reports.length} reports`}
+          icon={<FileText className='h-5 w-5' />}
+          padding='none'
+          headerAction={
+            <Button variant='outline' size='sm' onClick={loadReports}>
+              <RefreshCw className='mr-2 h-4 w-4' />
               Refresh
             </Button>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Filters */}
+          }
+        >
+          <div className='space-y-4 p-4 md:p-6'>
             <ReportFilters
               search={search}
               onSearchChange={setSearch}
@@ -446,35 +359,27 @@ export default function ReportsPage() {
               onStatusChange={setStatusFilter}
             />
 
-            {/* Reports Grid */}
             {reportsLoading ? (
-              <div className="py-8 text-center">
-                <Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" />
-                <p className="mt-2 text-muted-foreground">Loading reports...</p>
+              <div className='py-8 text-center'>
+                <Loader2 className='mx-auto h-8 w-8 animate-spin text-muted-foreground' />
+                <p className='mt-2 text-sm text-muted-foreground'>Loading reports...</p>
               </div>
             ) : filteredReports.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12">
-                <div className="relative mb-4">
-                  <FileText className="h-16 w-16 text-muted-foreground/30" />
-                  <div className="absolute -top-2 -right-2 h-8 w-8 rounded-full bg-[var(--brand-teal)]/20 flex items-center justify-center">
-                    <Search className="h-4 w-4 text-[var(--brand-teal)]" />
-                  </div>
-                </div>
-                <p className="text-muted-foreground text-center">
-                  {search || statusFilter !== 'all' 
+              <div className='flex flex-col items-center justify-center py-12'>
+                <FileText className='mb-4 h-16 w-16 text-muted-foreground/30' />
+                <p className='text-muted-foreground text-center'>
+                  {search || statusFilter !== 'all'
                     ? 'No reports match your filters'
-                    : 'No reports generated yet'
-                  }
+                    : 'No reports generated yet'}
                 </p>
-                <p className="text-sm text-muted-foreground/70 mt-1">
-                  {search || statusFilter !== 'all' 
+                <p className='text-sm text-muted-foreground/70 mt-1'>
+                  {search || statusFilter !== 'all'
                     ? 'Try adjusting your search or filters'
-                    : 'Generate reports from completed predictions'
-                  }
+                    : 'Generate reports from completed predictions'}
                 </p>
               </div>
             ) : (
-              <div className="grid gap-4">
+              <div className='grid gap-4'>
                 {filteredReports.map((report) => (
                   <ReportCard
                     key={report.id}
@@ -486,8 +391,8 @@ export default function ReportsPage() {
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </PageSection>
       </motion.div>
     </PageContainer>
   );

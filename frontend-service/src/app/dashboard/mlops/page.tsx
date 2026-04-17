@@ -2,15 +2,18 @@
 
 import { useEffect, useState } from 'react';
 import PageContainer from '@/components/layout/page-container';
+import { PageHero } from '@/components/ui/page-hero';
+import { PageSection, PageGrid } from '@/components/ui/page-section';
+import { StatsRow } from '@/components/ui/stats-row';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { StatsCard } from '@/components/ui/stats-card';
 import {
   Activity,
   Brain,
   AlertTriangle,
   CheckCircle2,
-  Clock,
   RefreshCw,
   Database,
   TrendingUp,
@@ -66,13 +69,6 @@ interface Metrics {
 }
 
 const PIPELINES = ['imaging', 'clinical'];
-
-const MetricRow = ({ label, value }: { label: string; value: string }) => (
-  <div className="flex justify-between text-xs">
-    <span className="text-muted-foreground">{label}</span>
-    <span className="font-medium">{value}</span>
-  </div>
-);
 
 export default function MLOpsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -134,7 +130,7 @@ export default function MLOpsPage() {
       } else {
         toast.warning(`No retraining needed (PSI: ${data.psi?.toFixed(3) || 'N/A'})`);
       }
-      fetchData();
+      void fetchData();
     } catch {
       toast.error('Failed to trigger retraining');
     } finally {
@@ -182,8 +178,8 @@ export default function MLOpsPage() {
   if (loading && !metrics) {
     return (
       <PageContainer>
-        <div className="flex items-center justify-center h-[60vh]">
-          <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" />
+        <div className='flex items-center justify-center h-[60vh]'>
+          <div className='animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full' />
         </div>
       </PageContainer>
     );
@@ -193,249 +189,228 @@ export default function MLOpsPage() {
   const overallDrift = Object.values(driftStatus).some(d => d.status === 'drift_detected');
 
   return (
-    <PageContainer>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">MLOps Monitor</h1>
-            <p className="text-sm text-muted-foreground">Training pipelines, drift detection, and model performance</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={fetchData}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
-        </div>
+    <PageContainer className='flex flex-col gap-6'>
+      <PageHero
+        title='MLOps Monitor'
+        description='Training pipelines, drift detection, and model performance'
+      />
 
-        {/* Summary Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Card className="p-3">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-              <Activity className="h-3 w-3" /> Active Jobs
-            </div>
-            <div className="text-xl font-bold">{activeJobs}<span className="text-sm font-normal text-muted-foreground">/{jobs.length}</span></div>
-          </Card>
-          <Card className="p-3">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-              <Database className="h-3 w-3" /> Feature Store
-            </div>
-            <div className="text-xl font-bold">{features.length}</div>
-          </Card>
-          <Card className="p-3">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-              <TrendingUp className="h-3 w-3" /> Drift Status
-            </div>
-            <div className="flex items-center gap-1">
-              {overallDrift ? (
-                <><AlertTriangle className="h-4 w-4 text-red-500" /><span className="text-sm font-medium text-red-500">Drifted</span></>
-              ) : (
-                <><CheckCircle2 className="h-4 w-4 text-green-500" /><span className="text-sm font-medium text-green-500">Stable</span></>
-              )}
-            </div>
-          </Card>
-          <Card className="p-3">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-              <Brain className="h-3 w-3" /> Imaging Acc
-            </div>
-            <div className="text-xl font-bold">
-              {metrics?.imaging?.accuracy != null ? `${(metrics.imaging.accuracy * 100).toFixed(1)}%` : 'N/A'}
-            </div>
-          </Card>
-        </div>
+      <StatsRow columns={4}>
+        <StatsCard
+          title='Active Jobs'
+          value={`${activeJobs}/${jobs.length}`}
+          icon={Activity}
+          subtitle='Training jobs'
+        />
+        <StatsCard
+          title='Feature Store'
+          value={features.length}
+          icon={Database}
+          subtitle='Stored features'
+        />
+        <StatsCard
+          title='Drift Status'
+          value={overallDrift ? 'Drifted' : 'Stable'}
+          icon={overallDrift ? AlertTriangle : CheckCircle2}
+          color={overallDrift ? '#ef4444' : '#22c55e'}
+        />
+        <StatsCard
+          title='Imaging Accuracy'
+          value={metrics?.imaging?.accuracy != null ? `${(metrics.imaging.accuracy * 100).toFixed(1)}%` : 'N/A'}
+          icon={Brain}
+          color='#3b82f6'
+        />
+      </StatsRow>
 
-        {/* Model Metrics - Compact Grid */}
-        <div className="grid grid-cols-2 gap-3">
-          {metrics?.imaging && (
-            <Card className="p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <Brain className="h-4 w-4 text-blue-600" />
-                <span className="font-semibold text-sm">EfficientNet-B3 (Imaging)</span>
-              </div>
-              <div className="grid grid-cols-3 gap-1">
-                <MetricRow label="Acc" value={metrics.imaging.accuracy != null ? `${(metrics.imaging.accuracy * 100).toFixed(1)}%` : 'N/A'} />
-                <MetricRow label="Kappa" value={metrics.imaging.quadratic_weighted_kappa?.toFixed(2) || 'N/A'} />
-                <MetricRow label="AUC" value={metrics.imaging.roc_auc_macro != null ? `${(metrics.imaging.roc_auc_macro * 100).toFixed(1)}%` : 'N/A'} />
-                <MetricRow label="Prec" value={metrics.imaging.precision_macro != null ? `${(metrics.imaging.precision_macro * 100).toFixed(1)}%` : 'N/A'} />
-                <MetricRow label="Rec" value={metrics.imaging.recall_macro != null ? `${(metrics.imaging.recall_macro * 100).toFixed(1)}%` : 'N/A'} />
-                <MetricRow label="Samples" value={metrics.imaging.num_samples?.toString() || 'N/A'} />
-              </div>
-            </Card>
-          )}
-          {metrics?.clinical && (
-            <Card className="p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <Brain className="h-4 w-4 text-purple-600" />
-                <span className="font-semibold text-sm">XGBoost (Clinical)</span>
-              </div>
-              <div className="grid grid-cols-3 gap-1">
-                <MetricRow label="Acc" value={metrics.clinical.accuracy != null ? `${(metrics.clinical.accuracy * 100).toFixed(1)}%` : 'N/A'} />
-                <MetricRow label="Kappa" value={metrics.clinical.quadratic_weighted_kappa?.toFixed(2) || 'N/A'} />
-                <MetricRow label="AUC" value={metrics.clinical.roc_auc_macro != null ? `${(metrics.clinical.roc_auc_macro * 100).toFixed(1)}%` : 'N/A'} />
-                <MetricRow label="Prec" value={metrics.clinical.precision_macro != null ? `${(metrics.clinical.precision_macro * 100).toFixed(1)}%` : 'N/A'} />
-                <MetricRow label="Rec" value={metrics.clinical.recall_macro != null ? `${(metrics.clinical.recall_macro * 100).toFixed(1)}%` : 'N/A'} />
-                <MetricRow label="Samples" value={metrics.clinical.num_samples?.toString() || 'N/A'} />
-              </div>
-            </Card>
-          )}
-        </div>
-
-        {/* Radar Chart */}
-        {getMetricsRadarData().length > 0 && (
-          <Card className="p-3">
-            <CardHeader className="p-0 mb-2">
-              <CardTitle className="text-sm">Model Performance Comparison</CardTitle>
+      <PageGrid columns={2}>
+        {metrics?.imaging && (
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Brain className='h-5 w-5 text-blue-600' />
+                EfficientNet-B3 (Imaging)
+              </CardTitle>
             </CardHeader>
-            <div className="h-[180px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart data={getMetricsRadarData()}>
-                  <PolarGrid />
-                  <PolarAngleAxis dataKey="metric" tick={{ fontSize: 10 }} />
-                  <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 8 }} />
-                  <Radar name="Imaging" dataKey="imaging" stroke="#2563eb" fill="#2563eb" fillOpacity={0.2} />
-                  <Radar name="Clinical" dataKey="clinical" stroke="#9333ea" fill="#9333ea" fillOpacity={0.2} />
-                  <Legend wrapperStyle={{ fontSize: 10 }} />
-                  <Tooltip />
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
+            <CardContent>
+              <div className='grid grid-cols-3 gap-4'>
+                <div>
+                  <p className='text-sm text-muted-foreground'>Accuracy</p>
+                  <p className='text-xl font-bold'>
+                    {metrics.imaging.accuracy != null ? `${(metrics.imaging.accuracy * 100).toFixed(1)}%` : 'N/A'}
+                  </p>
+                </div>
+                <div>
+                  <p className='text-sm text-muted-foreground'>Kappa</p>
+                  <p className='text-xl font-bold'>{metrics.imaging.quadratic_weighted_kappa?.toFixed(2) || 'N/A'}</p>
+                </div>
+                <div>
+                  <p className='text-sm text-muted-foreground'>AUC</p>
+                  <p className='text-xl font-bold'>
+                    {metrics.imaging.roc_auc_macro != null ? `${(metrics.imaging.roc_auc_macro * 100).toFixed(1)}%` : 'N/A'}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
           </Card>
         )}
-
-        {/* Training Jobs & Drift Status - Side by Side */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {/* Training Jobs */}
-          <Card className="p-3">
-            <CardHeader className="p-0 mb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Activity className="h-4 w-4" />
-                Training Jobs
-                <Badge variant="secondary" className="ml-auto text-xs">{jobs.length}</Badge>
+        {metrics?.clinical && (
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Brain className='h-5 w-5 text-purple-600' />
+                XGBoost (Clinical)
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
-              {jobs.length === 0 ? (
-                <p className="text-xs text-muted-foreground py-4 text-center">No training jobs</p>
-              ) : (
-                <div className="space-y-1 max-h-[200px] overflow-y-auto">
-                  {jobs.slice(0, 8).map((job) => (
-                    <div key={job.job_id} className="flex items-center justify-between p-2 rounded border text-xs">
-                      <div>
-                        <span className="font-mono text-[10px]">{job.job_id.slice(0, 8)}</span>
-                        <span className="text-muted-foreground ml-1 capitalize">{job.pipeline}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground text-[10px]">
-                          {job.started_at ? new Date(job.started_at).toLocaleDateString() : 'Pending'}
-                        </span>
-                        <Badge className={`${getStatusColor(job.status)} text-[10px] py-0`}>{job.status}</Badge>
-                      </div>
-                    </div>
-                  ))}
+            <CardContent>
+              <div className='grid grid-cols-3 gap-4'>
+                <div>
+                  <p className='text-sm text-muted-foreground'>Accuracy</p>
+                  <p className='text-xl font-bold'>
+                    {metrics.clinical.accuracy != null ? `${(metrics.clinical.accuracy * 100).toFixed(1)}%` : 'N/A'}
+                  </p>
                 </div>
-              )}
+                <div>
+                  <p className='text-sm text-muted-foreground'>Kappa</p>
+                  <p className='text-xl font-bold'>{metrics.clinical.quadratic_weighted_kappa?.toFixed(2) || 'N/A'}</p>
+                </div>
+                <div>
+                  <p className='text-sm text-muted-foreground'>AUC</p>
+                  <p className='text-xl font-bold'>
+                    {metrics.clinical.roc_auc_macro != null ? `${(metrics.clinical.roc_auc_macro * 100).toFixed(1)}%` : 'N/A'}
+                  </p>
+                </div>
+              </div>
             </CardContent>
           </Card>
+        )}
+      </PageGrid>
 
-          {/* Drift Status */}
-          <Card className="p-3">
-            <CardHeader className="p-0 mb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <TrendingUp className="h-4 w-4" />
-                Drift Status
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0 space-y-2">
-              {PIPELINES.map((pipeline) => {
-                const status = driftStatus[pipeline];
-                return (
-                  <div key={pipeline} className="p-2 rounded border">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="capitalize text-xs font-medium">{pipeline}</span>
-                      <Badge className={`${getStatusColor(status?.status || 'unknown')} text-[10px] py-0`}>
-                        {status?.status || 'Unknown'}
-                      </Badge>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1 text-xs">
-                      <div><span className="text-muted-foreground">PSI:</span> <span className="font-medium">{status?.overall_psi?.toFixed(3) || 'N/A'}</span></div>
-                      <div><span className="text-muted-foreground">Threshold:</span> <span className="font-medium">{status?.psi_threshold?.toFixed(1) || '0.3'}</span></div>
-                    </div>
-                    {status?.features_drifted && status.features_drifted.length > 0 && (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {status.features_drifted.slice(0, 3).map((f) => (
-                          <Badge key={f} variant="outline" className="text-[10px] py-0">{f}</Badge>
-                        ))}
-                      </div>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full mt-1 h-6 text-xs"
-                      onClick={() => handleRetrain(pipeline)}
-                      disabled={retraining === pipeline}
-                    >
-                      {retraining === pipeline ? <div className="animate-spin h-3 w-3 border border-primary border-t-transparent rounded-full" /> : <RefreshCw className="h-3 w-3" />}
-                      <span className="ml-1">Retrain</span>
-                    </Button>
+      {getMetricsRadarData().length > 0 && (
+        <PageSection title='Model Performance Comparison'>
+          <div className='h-[300px]'>
+            <ResponsiveContainer width='100%' height='100%'>
+              <RadarChart data={getMetricsRadarData()}>
+                <PolarGrid />
+                <PolarAngleAxis dataKey='metric' />
+                <PolarRadiusAxis domain={[0, 100]} />
+                <Radar name='Imaging' dataKey='imaging' stroke='#2563eb' fill='#2563eb' fillOpacity={0.2} />
+                <Radar name='Clinical' dataKey='clinical' stroke='#9333ea' fill='#9333ea' fillOpacity={0.2} />
+                <Legend />
+                <Tooltip />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        </PageSection>
+      )}
+
+      <PageGrid columns={2}>
+        <PageSection title='Training Jobs' icon={<Activity className='h-5 w-5' />}>
+          {jobs.length === 0 ? (
+            <p className='text-sm text-muted-foreground py-4 text-center'>No training jobs</p>
+          ) : (
+            <div className='space-y-2'>
+              {jobs.slice(0, 8).map((job) => (
+                <div key={job.job_id} className='flex items-center justify-between p-3 rounded-lg border'>
+                  <div>
+                    <span className='font-mono text-sm'>{job.job_id.slice(0, 8)}</span>
+                    <span className='text-muted-foreground ml-2 capitalize text-sm'>{job.pipeline}</span>
                   </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Drift History & Features - Side by Side */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {/* Drift History Chart */}
-          <Card className="p-3">
-            <CardHeader className="p-0 mb-2">
-              <CardTitle className="text-sm">Drift History (PSI)</CardTitle>
-            </CardHeader>
-            <div className="h-[140px]">
-              {getDriftChartData().length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={getDriftChartData()}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="timestamp" tick={{ fontSize: 8 }} />
-                    <YAxis domain={[0, 1]} tick={{ fontSize: 8 }} />
-                    <Tooltip wrapperStyle={{ fontSize: 10 }} />
-                    <Legend wrapperStyle={{ fontSize: 10 }} />
-                    <Line type="monotone" dataKey="imaging" stroke="#2563eb" strokeWidth={1.5} name="Imaging" dot={false} />
-                    <Line type="monotone" dataKey="clinical" stroke="#9333ea" strokeWidth={1.5} name="Clinical" dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="text-xs text-muted-foreground flex items-center justify-center h-full">No drift history</p>
-              )}
-            </div>
-          </Card>
-
-          {/* Feature Store */}
-          <Card className="p-3">
-            <CardHeader className="p-0 mb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Database className="h-4 w-4" />
-                Feature Store
-                <Badge variant="secondary" className="ml-auto text-xs">{features.length}</Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {features.length === 0 ? (
-                <p className="text-xs text-muted-foreground py-4 text-center">No features in store</p>
-              ) : (
-                <div className="space-y-1 max-h-[140px] overflow-y-auto">
-                  {features.slice(0, 10).map((feat, i) => (
-                    <div key={i} className="flex items-center justify-between p-1.5 rounded border text-xs">
-                      <span className="font-mono text-[10px] truncate max-w-[120px]">{feat.key}</span>
-                      <span className="text-muted-foreground text-[10px] truncate max-w-[80px]">
-                        {feat.created_at ? new Date(feat.created_at).toLocaleDateString() : 'N/A'}
-                      </span>
-                    </div>
-                  ))}
+                  <div className='flex items-center gap-2'>
+                    <span className='text-muted-foreground text-sm'>
+                      {job.started_at ? new Date(job.started_at).toLocaleDateString() : 'Pending'}
+                    </span>
+                    <Badge className={getStatusColor(job.status)}>{job.status}</Badge>
+                  </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+              ))}
+            </div>
+          )}
+        </PageSection>
+
+        <PageSection title='Drift Status' icon={<TrendingUp className='h-5 w-5' />}>
+          <div className='space-y-3'>
+            {PIPELINES.map((pipeline) => {
+              const status = driftStatus[pipeline];
+              return (
+                <div key={pipeline} className='p-3 rounded-lg border'>
+                  <div className='flex items-center justify-between mb-2'>
+                    <span className='capitalize text-sm font-medium'>{pipeline}</span>
+                    <Badge className={getStatusColor(status?.status || 'unknown')}>
+                      {status?.status || 'Unknown'}
+                    </Badge>
+                  </div>
+                  <div className='grid grid-cols-2 gap-2 text-sm'>
+                    <div><span className='text-muted-foreground'>PSI:</span> <span className='font-medium'>{status?.overall_psi?.toFixed(3) || 'N/A'}</span></div>
+                    <div><span className='text-muted-foreground'>Threshold:</span> <span className='font-medium'>{status?.psi_threshold?.toFixed(1) || '0.3'}</span></div>
+                  </div>
+                  {status?.features_drifted && status.features_drifted.length > 0 && (
+                    <div className='mt-2 flex flex-wrap gap-1'>
+                      {status.features_drifted.slice(0, 3).map((f) => (
+                        <Badge key={f} variant='outline'>{f}</Badge>
+                      ))}
+                    </div>
+                  )}
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    className='w-full mt-2'
+                    onClick={() => void handleRetrain(pipeline)}
+                    disabled={retraining === pipeline}
+                  >
+                    {retraining === pipeline ? (
+                      <RefreshCw className='h-4 w-4 animate-spin' />
+                    ) : (
+                      <>
+                        <RefreshCw className='h-4 w-4 mr-2' />
+                        Retrain
+                      </>
+                    )}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </PageSection>
+      </PageGrid>
+
+      <PageGrid columns={2}>
+        <PageSection title='Drift History (PSI)'>
+          <div className='h-[200px]'>
+            {getDriftChartData().length > 0 ? (
+              <ResponsiveContainer width='100%' height='100%'>
+                <LineChart data={getDriftChartData()}>
+                  <CartesianGrid strokeDasharray='3 3' />
+                  <XAxis dataKey='timestamp' />
+                  <YAxis domain={[0, 1]} />
+                  <Tooltip />
+                  <Legend />
+                  <Line type='monotone' dataKey='imaging' stroke='#2563eb' strokeWidth={2} name='Imaging' dot={false} />
+                  <Line type='monotone' dataKey='clinical' stroke='#9333ea' strokeWidth={2} name='Clinical' dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className='text-sm text-muted-foreground flex items-center justify-center h-full'>No drift history</p>
+            )}
+          </div>
+        </PageSection>
+
+        <PageSection title='Feature Store' icon={<Database className='h-5 w-5' />} headerAction={<Badge variant='secondary'>{features.length}</Badge>}>
+          {features.length === 0 ? (
+            <p className='text-sm text-muted-foreground py-4 text-center'>No features in store</p>
+          ) : (
+            <div className='space-y-2 max-h-[200px] overflow-y-auto'>
+              {features.slice(0, 10).map((feat, i) => (
+                <div key={i} className='flex items-center justify-between p-2 rounded border'>
+                  <span className='font-mono text-sm truncate max-w-[150px]'>{feat.key}</span>
+                  <span className='text-muted-foreground text-sm'>
+                    {feat.created_at ? new Date(feat.created_at).toLocaleDateString() : 'N/A'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </PageSection>
+      </PageGrid>
     </PageContainer>
   );
 }

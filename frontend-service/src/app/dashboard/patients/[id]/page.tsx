@@ -49,8 +49,8 @@ import { toast } from 'sonner';
 import type { Patient, MRIScan, OCTReport, Prediction, Report, PaginatedResponse } from '@/types';
 import { fadeInUp, slideInUp, staggerItem } from '@/lib/animations';
 import Image from 'next/image';
-import MedicalReport from '@/components/medical-report';
-import XAIExplanation from '@/components/xai-explanation';
+import MedicalReport from '@/components/features/reports/medical-report';
+import XAIExplanation from '@/components/features/xai/xai-explanation';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
 const GRADE_LABELS = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative'];

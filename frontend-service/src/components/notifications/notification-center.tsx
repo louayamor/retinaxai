@@ -134,10 +134,10 @@ export function NotificationCenter() {
     <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors"
+        className="relative p-2 rounded-lg hover:bg-sidebar-accent transition-colors"
         aria-label="Notifications"
       >
-        <Bell className="w-5 h-5 text-gray-600" />
+        <Bell className="w-5 h-5 text-sidebar-foreground" />
         {unreadCount > 0 && (
           <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-medium">
             {unreadCount > 9 ? '9+' : unreadCount}
@@ -146,9 +146,9 @@ export function NotificationCenter() {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border border-gray-200 z-50 overflow-hidden">
-          <div className="p-3 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-            <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+        <div className="absolute right-0 mt-2 w-96 bg-sidebar text-sidebar-foreground rounded-lg shadow-xl border border-sidebar-border z-50 overflow-hidden">
+          <div className="p-3 border-b border-sidebar-border flex justify-between items-center bg-sidebar-accent">
+            <h3 className="font-semibold text-sidebar-foreground flex items-center gap-2">
               <Bell className="w-4 h-4" />
               Notifications
             </h3>
@@ -156,7 +156,7 @@ export function NotificationCenter() {
               {unreadCount > 0 && (
                 <button
                   onClick={handleMarkAllRead}
-                  className="p-1.5 rounded hover:bg-gray-200 text-gray-600"
+                  className="p-1.5 rounded hover:bg-sidebar/80 text-sidebar-foreground"
                   title="Mark all as read"
                 >
                   <Check className="w-4 h-4" />
@@ -165,7 +165,7 @@ export function NotificationCenter() {
               {notifications.length > 0 && (
                 <button
                   onClick={handleClearAll}
-                  className="p-1.5 rounded hover:bg-gray-200 text-gray-600"
+                  className="p-1.5 rounded hover:bg-sidebar/80 text-sidebar-foreground"
                   title="Clear all"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -173,7 +173,7 @@ export function NotificationCenter() {
               )}
               <button
                 onClick={() => setIsOpen(false)}
-                className="p-1.5 rounded hover:bg-gray-200 text-gray-600 ml-1"
+                className="p-1.5 rounded hover:bg-sidebar/80 text-sidebar-foreground ml-1"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -182,12 +182,12 @@ export function NotificationCenter() {
 
           <div className="max-h-96 overflow-y-auto">
             {loading ? (
-              <div className="p-8 text-center text-gray-500 flex items-center justify-center gap-2">
+              <div className="p-8 text-center text-sidebar-foreground/70 flex items-center justify-center gap-2">
                 <Loader2 className="w-5 h-5 animate-spin" />
                 Loading...
               </div>
             ) : notifications.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">
+              <div className="p-8 text-center text-sidebar-foreground/70">
                 No notifications yet
               </div>
             ) : (
@@ -195,8 +195,8 @@ export function NotificationCenter() {
                 <div
                   key={notif.id}
                   onClick={() => handleClickNotif(notif)}
-                  className={`p-3 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
-                    !notif.read ? 'bg-blue-50/50' : ''
+                  className={`p-3 border-b border-sidebar-border/50 cursor-pointer hover:bg-sidebar-accent transition-colors ${
+                    !notif.read ? 'bg-sidebar-accent/30' : ''
                   }`}
                 >
                   <div className="flex items-start gap-3">
@@ -204,13 +204,13 @@ export function NotificationCenter() {
                       {getNotificationTypeIcon(notif.type)}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">
+                      <p className="text-sm font-medium text-sidebar-foreground truncate">
                         {notif.title || notif.message.split('.')[0]}
                       </p>
-                      <p className="text-sm text-gray-600 line-clamp-2">
+                      <p className="text-sm text-sidebar-foreground/70 line-clamp-2">
                         {notif.message}
                       </p>
-                      <p className="text-xs text-gray-400 mt-1">
+                      <p className="text-xs text-sidebar-foreground/50 mt-1">
                         {new Date(notif.timestamp).toLocaleString()}
                       </p>
                     </div>
@@ -224,10 +224,10 @@ export function NotificationCenter() {
           </div>
           
           {notifications.length > 0 && (
-            <div className="p-2 border-t border-gray-200 bg-gray-50 text-center">
+            <div className="p-2 border-t border-sidebar-border bg-sidebar-accent text-center">
               <button 
                 onClick={loadNotifications}
-                className="text-xs text-gray-500 hover:text-gray-700"
+                className="text-xs text-sidebar-foreground/70 hover:text-sidebar-foreground"
               >
                 Refresh
               </button>

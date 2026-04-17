@@ -8,7 +8,7 @@ import {
 import Image from 'next/image';
 import React from 'react';
 import ScrollRestorer from '@/components/scroll-restorer';
-import { OverviewStats } from '@/components/overview-stats';
+import { OverviewStats } from '@/components/features/overview/overview-stats';
 
 const services = [
   'Contoura LASIK',

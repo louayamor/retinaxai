@@ -1,0 +1,19 @@
+<svg width="1200" height="320" viewBox="0 0 1200 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="320" fill="white"/>
+  <g transform="translate(40,40)">
+    <path d="M20 120C46 72 97 40 160 40C223 40 274 72 300 120C274 168 223 200 160 200C97 200 46 168 20 120Z" fill="#ECFEFF" stroke="#0F766E" stroke-width="10"/>
+    <circle cx="160" cy="120" r="48" fill="#06B6D4"/>
+    <circle cx="160" cy="120" r="18" fill="#0F172A"/>
+    <circle cx="236" cy="88" r="10" fill="#14B8A6"/>
+    <circle cx="260" cy="120" r="8" fill="#14B8A6"/>
+    <circle cx="236" cy="152" r="10" fill="#14B8A6"/>
+    <line x1="205" y1="105" x2="230" y2="92" stroke="#14B8A6" stroke-width="5" stroke-linecap="round"/>
+    <line x1="210" y1="120" x2="248" y2="120" stroke="#14B8A6" stroke-width="5" stroke-linecap="round"/>
+    <line x1="205" y1="136" x2="230" y2="148" stroke="#14B8A6" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(380,92)">
+    <text x="0" y="70" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="84" font-weight="700" fill="#0F172A">Retina</text>
+    <text x="308" y="70" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="84" font-weight="700" fill="#0F766E">XAI</text>
+    <text x="2" y="112" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="28" font-weight="500" fill="#155E75">AI-assisted retinal diagnostics</text>
+  </g>
+</svg>

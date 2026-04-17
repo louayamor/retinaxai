@@ -1,0 +1,18 @@
+<svg width="1200" height="320" viewBox="0 0 1200 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="320" fill="#F8FAFC"/>
+  <g transform="translate(54,58)">
+    <rect x="0" y="0" width="204" height="204" rx="42" fill="white" stroke="#0F766E" stroke-width="10"/>
+    <circle cx="102" cy="102" r="64" fill="#ECFEFF" stroke="#0891B2" stroke-width="8"/>
+    <circle cx="102" cy="102" r="30" fill="#0F172A"/>
+    <path d="M42 102C57 72 78 56 102 56C126 56 147 72 162 102C147 132 126 148 102 148C78 148 57 132 42 102Z" stroke="#0F766E" stroke-width="8" fill="none"/>
+    <circle cx="150" cy="76" r="8" fill="#14B8A6"/>
+    <circle cx="168" cy="102" r="6" fill="#14B8A6"/>
+    <line x1="132" y1="90" x2="147" y2="80" stroke="#14B8A6" stroke-width="5" stroke-linecap="round"/>
+    <line x1="136" y1="102" x2="160" y2="102" stroke="#14B8A6" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(300,96)">
+    <text x="0" y="72" font-family="Manrope, Inter, Segoe UI, Arial, sans-serif" font-size="90" font-weight="800" fill="#0F172A" letter-spacing="-1">Retina<tspan fill="#0891B2">XAI</tspan></text>
+    <rect x="0" y="92" width="548" height="6" rx="3" fill="#14B8A6"/>
+    <text x="0" y="140" font-family="Manrope, Inter, Segoe UI, Arial, sans-serif" font-size="30" font-weight="600" fill="#155E75">Explainable AI for retinal intelligence</text>
+  </g>
+</svg>

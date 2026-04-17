@@ -21,9 +21,9 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Persisting the sidebar state in the cookie.
   const cookieStore = await cookies();
   const defaultOpen = cookieStore.get('sidebar_state')?.value === 'true';
+
   return (
     <KBar>
       <SidebarProvider defaultOpen={defaultOpen}>
@@ -31,9 +31,9 @@ export default async function DashboardLayout({
           <AppSidebar />
           <SidebarInset>
             <Header />
-            {/* page main content */}
-            {children}
-            {/* page main content ends */}
+            <main className='flex-1 overflow-auto'>
+              {children}
+            </main>
           </SidebarInset>
           <InfoSidebar side='right' />
         </InfobarProvider>

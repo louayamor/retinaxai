@@ -2,30 +2,27 @@
 
 import { useEffect, useState } from 'react';
 import PageContainer from '@/components/layout/page-container';
+import { PageHero } from '@/components/ui/page-hero';
+import { PageSection, PageGrid } from '@/components/ui/page-section';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
   RadarChart,
   PolarGrid,
   PolarAngleAxis,
   PolarRadiusAxis,
   Radar,
   Legend,
+  ResponsiveContainer,
 } from 'recharts';
-import { Loader2, Play, RefreshCw, Square } from 'lucide-react';
-import Image from 'next/image';
+import { Loader2, Play, RefreshCw, Square, CheckCircle2, WifiOff } from 'lucide-react';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { TrainingProgress } from '@/components/training-progress';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { RefreshButton } from '@/components/ui/page-header';
 
 const MLOPS_BASE = process.env.NEXT_PUBLIC_MLOPS_URL || 'http://localhost:8004';
 
@@ -53,20 +50,6 @@ interface JobStatus {
   error: string | null;
 }
 
-interface TrainingEvent {
-  event: string;
-  data: {
-    job_id: string;
-    pipeline: string;
-    stage: string;
-    status: string;
-    progress: number;
-    message?: string;
-    metrics?: { accuracy: number; qwk: number };
-    error?: string;
-  };
-}
-
 export default function ModelsPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
@@ -90,15 +73,14 @@ export default function ModelsPage() {
       if (status === 'completed') {
         toast.success(message || 'Training completed successfully!');
         setTraining(null);
-        fetchMetrics();
-        fetchStatus();
+        void fetchMetrics();
+        void fetchStatus();
       } else if (status === 'failed') {
         toast.error(error || message || 'Training failed');
         setTraining(null);
       } else if (status === 'started' || status === 'running') {
         toast(message || `Stage: ${stage}`, { icon: '🔄' });
       }
-      console.log('[WS] Training event received:', eventData);
     });
 
     return () => {
@@ -132,6 +114,12 @@ export default function ModelsPage() {
     }
   };
 
+  const fetchData = async () => {
+    setLoading(true);
+    await Promise.all([fetchMetrics(), fetchStatus()]);
+    setLoading(false);
+  };
+
   const triggerTraining = async (pipeline: 'imaging' | 'clinical') => {
     setTraining(pipeline);
     try {
@@ -159,7 +147,7 @@ export default function ModelsPage() {
       if (res.ok) {
         toast.info('Training stop requested');
         setTraining(null);
-        fetchStatus();
+        void fetchStatus();
       }
     } catch (err) {
       console.error('Failed to stop training:', err);
@@ -167,8 +155,8 @@ export default function ModelsPage() {
   };
 
   useEffect(() => {
-    fetchMetrics();
-    fetchStatus();
+    void fetchMetrics();
+    void fetchStatus();
   }, []);
 
   const radarData = [
@@ -191,107 +179,90 @@ export default function ModelsPage() {
 
   const isTraining = jobStatus?.status === 'running' || jobStatus?.status === 'pending';
 
+  if (loading && !metrics) {
+    return (
+      <PageContainer>
+        <div className='flex items-center justify-center h-[60vh]'>
+          <Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
+        </div>
+      </PageContainer>
+    );
+  }
+
   return (
-    <PageContainer>
-      <div className='flex flex-col gap-8'>
-      {/* Hero */}
-      <div className='relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0a2e3e] via-[#0d3a4c] to-[#104a5e] p-10 text-white'>
-        <div className='absolute right-0 top-0 h-full w-1/3 opacity-10'>
-          <Image
-            src='https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=800&q=80'
-            alt='Model Performance'
-            fill
-            className='object-cover'
-            unoptimized
-          />
-        </div>
-        <div className='relative z-10'>
-          <h1 className='text-3xl font-bold tracking-tight mb-2'>AI Models</h1>
-          <p className='text-white/70 text-lg max-w-xl'>
-            Model performance, training and evaluation metrics of EfficientNet-B3 + XGBoost
-          </p>
-        </div>
-      </div>
+    <PageContainer className='flex flex-col gap-6'>
+      <PageHero
+        title='AI Models'
+        description='Model performance, training and evaluation metrics of EfficientNet-B3 + XGBoost'
+        imageUrl='https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=800&q=80'
+      />
 
-      {/* Training Controls */}
-      <Card className='shadow-md'>
-        <CardHeader>
-          <CardTitle>Training Pipeline</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className='flex flex-wrap gap-4 items-center'>
-            <Button
-              onClick={() => triggerTraining('imaging')}
-              disabled={isTraining || training === 'imaging'}
-              className='bg-[var(--brand-teal)] hover:bg-[#1a9a9a]'
-            >
-              {training === 'imaging' ? (
-                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-              ) : (
-                <Play className='mr-2 h-4 w-4' />
-              )}
-              Train Imaging
-            </Button>
-            <Button
-              onClick={() => triggerTraining('clinical')}
-              disabled={isTraining || training === 'clinical'}
-              variant='outline'
-            >
-              {training === 'clinical' ? (
-                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-              ) : (
-                <Play className='mr-2 h-4 w-4' />
-              )}
-              Train Clinical
-            </Button>
-            <Button
-              onClick={() => { fetchMetrics(); fetchStatus(); }}
-              variant='ghost'
-              size='icon'
-            >
-              <RefreshCw className='h-4 w-4' />
-            </Button>
-            {isTraining && (
-              <Button
-                onClick={stopTraining}
-                variant='destructive'
-                size='sm'
-              >
-                <Square className='mr-2 h-4 w-4' />
-                Stop
-              </Button>
+      <PageSection
+        title='Training Pipeline'
+        icon={<Play className='h-5 w-5' />}
+        headerAction={<RefreshButton onClick={fetchData} loading={loading} />}
+      >
+        <div className='flex flex-wrap gap-4 items-center'>
+          <Button
+            onClick={() => void triggerTraining('imaging')}
+            disabled={isTraining || training === 'imaging'}
+            className='bg-[var(--brand-teal)] hover:bg-[#1a9a9a]'
+          >
+            {training === 'imaging' ? (
+              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+            ) : (
+              <Play className='mr-2 h-4 w-4' />
             )}
-            {isTraining && (
-              <Badge variant='secondary' className='ml-auto'>
-                <Loader2 className='mr-1 h-3 w-3 animate-spin' />
-                {jobStatus?.pipeline} — {jobStatus?.status}
-              </Badge>
+            Train Imaging
+          </Button>
+          <Button
+            onClick={() => void triggerTraining('clinical')}
+            disabled={isTraining || training === 'clinical'}
+            variant='outline'
+          >
+            {training === 'clinical' ? (
+              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+            ) : (
+              <Play className='mr-2 h-4 w-4' />
             )}
-            {!connected && (
-              <Badge variant='outline' className='ml-2 text-orange-500'>
-                Offline
-              </Badge>
-            )}
+            Train Clinical
+          </Button>
+          {isTraining && (
+            <Button onClick={stopTraining} variant='destructive' size='sm'>
+              <Square className='mr-2 h-4 w-4' />
+              Stop
+            </Button>
+          )}
+          {isTraining && (
+            <Badge variant='secondary' className='ml-auto'>
+              <Loader2 className='mr-1 h-3 w-3 animate-spin' />
+              {jobStatus?.pipeline} — {jobStatus?.status}
+            </Badge>
+          )}
+          {!connected && (
+            <Badge variant='outline' className='ml-2 text-orange-500'>
+              <WifiOff className='mr-1 h-3 w-3' />
+              Offline
+            </Badge>
+          )}
+        </div>
+        {trainingProgress && (
+          <div className='mt-4 p-4 bg-muted/50 rounded-lg'>
+            <TrainingProgress
+              stage={trainingProgress.stage}
+              progress={trainingProgress.progress}
+              status={trainingProgress.status}
+              message={trainingProgress.message}
+            />
           </div>
-          {trainingProgress && (
-            <div className='mt-4 p-4 bg-muted/50 rounded-lg'>
-              <TrainingProgress
-                stage={trainingProgress.stage}
-                progress={trainingProgress.progress}
-                status={trainingProgress.status}
-                message={trainingProgress.message}
-              />
-            </div>
-          )}
-          {jobStatus?.error && (
-            <p className='text-sm text-destructive mt-4'>{jobStatus.error}</p>
-          )}
-        </CardContent>
-      </Card>
+        )}
+        {jobStatus?.error && (
+          <p className='text-sm text-destructive mt-4'>{jobStatus.error}</p>
+        )}
+      </PageSection>
 
-      {/* Model Cards */}
-      <div className='grid gap-6 md:grid-cols-2'>
-        <Card className='shadow-md'>
+      <PageGrid columns={2}>
+        <Card>
           <CardHeader>
             <CardTitle className='flex items-center gap-2'>
               Imaging Model
@@ -328,7 +299,7 @@ export default function ModelsPage() {
           </CardContent>
         </Card>
 
-        <Card className='shadow-md'>
+        <Card>
           <CardHeader>
             <CardTitle className='flex items-center gap-2'>
               Clinical Model
@@ -364,15 +335,11 @@ export default function ModelsPage() {
             )}
           </CardContent>
         </Card>
-      </div>
+      </PageGrid>
 
-      {/* Comparison Chart */}
-      <Card className='shadow-md'>
-        <CardHeader>
-          <CardTitle>Model Comparison</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width='100%' height={300}>
+      <PageSection title='Model Comparison'>
+        <div className='h-[300px]'>
+          <ResponsiveContainer width='100%' height='100%'>
             <RadarChart data={radarData}>
               <PolarGrid />
               <PolarAngleAxis dataKey='metric' />
@@ -392,15 +359,13 @@ export default function ModelsPage() {
                 fillOpacity={0.4}
               />
               <Legend />
-              <Tooltip />
             </RadarChart>
           </ResponsiveContainer>
-        </CardContent>
-      </Card>
+        </div>
+      </PageSection>
 
-      {/* Health & Status */}
-      <div className='grid gap-6 md:grid-cols-2'>
-        <Card className='shadow-md'>
+      <PageGrid columns={2}>
+        <Card>
           <CardHeader>
             <CardTitle>MLOps Service</CardTitle>
           </CardHeader>
@@ -424,7 +389,8 @@ export default function ModelsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className='shadow-md'>
+
+        <Card>
           <CardHeader>
             <CardTitle>Quick Stats</CardTitle>
           </CardHeader>
@@ -449,8 +415,7 @@ export default function ModelsPage() {
             </div>
           </CardContent>
         </Card>
-      </div>
-    </div>
+      </PageGrid>
     </PageContainer>
   );
 }

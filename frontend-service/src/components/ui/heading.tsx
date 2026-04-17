@@ -4,7 +4,7 @@ import type { InfobarContent } from '@/components/ui/infobar';
 
 interface HeadingProps {
   title: string;
-  description: string;
+  description?: string;
   infoContent?: InfobarContent;
 }
 
@@ -23,7 +23,7 @@ export const Heading: React.FC<HeadingProps> = ({
           </div>
         )}
       </div>
-      <p className='text-muted-foreground text-sm'>{description}</p>
+      {description && <p className='text-muted-foreground text-sm'>{description}</p>}
     </div>
   );
 };

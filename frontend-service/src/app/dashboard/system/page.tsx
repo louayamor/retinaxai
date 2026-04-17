@@ -2,8 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import PageContainer from '@/components/layout/page-container';
+import { PageHero } from '@/components/ui/page-hero';
+import { PageSection, PageGrid } from '@/components/ui/page-section';
+import { StatsRow } from '@/components/ui/stats-row';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   Server,
   Activity,
@@ -64,12 +68,6 @@ interface DashboardStats {
 const GRADE_LABELS = ['No DR', 'Mild', 'Moderate', 'Severe', 'Prolif DR'];
 const GRADE_COLORS = ['#10b981', '#06b6d4', '#f59e0b', '#f97316', '#f43f5e'];
 
-const MiniBar = ({ value, max, color }: { value: number; max: number; color: string }) => (
-  <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-    <div className="h-full rounded-full" style={{ width: `${Math.min(100, (value / max) * 100)}%`, backgroundColor: color }} />
-  </div>
-);
-
 export default function SystemStatsPage() {
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
@@ -123,9 +121,9 @@ export default function SystemStatsPage() {
   };
 
   useEffect(() => {
-    fetchData();
-    fetchSystemMetrics();
-    const interval = setInterval(() => { fetchData(); fetchSystemMetrics(); }, 30000);
+    void fetchData();
+    void fetchSystemMetrics();
+    const interval = setInterval(() => { void fetchData(); void fetchSystemMetrics(); }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -148,253 +146,278 @@ export default function SystemStatsPage() {
   if (loading && !dashboardStats && !systemMetrics) {
     return (
       <PageContainer>
-        <div className="flex items-center justify-center h-[60vh]">
-          <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" />
+        <div className='flex items-center justify-center h-[60vh]'>
+          <div className='animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full' />
         </div>
       </PageContainer>
     );
   }
 
   return (
-    <PageContainer>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">System Monitor</h1>
-            <p className="text-sm text-muted-foreground">Infrastructure, services, and database statistics</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => { fetchData(); fetchSystemMetrics(); }}>
-            <RefreshCw className="h-4 w-4 mr-2" />
+    <PageContainer className='flex flex-col gap-6'>
+      <PageHero
+        title='System Monitor'
+        description='Infrastructure, services, and database statistics'
+        actions={
+          <Button variant='outline' size='sm' onClick={() => { void fetchData(); void fetchSystemMetrics(); }}>
+            <RefreshCw className='h-4 w-4 mr-2' />
             Refresh
           </Button>
-        </div>
+        }
+      />
 
-        {/* Service Health */}
-        <Card className="p-3">
-          <CardHeader className="p-0 mb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Server className="h-4 w-4" />
-              Service Health
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="grid grid-cols-3 gap-2">
-              {Object.entries(serviceHealth).map(([service, health]) => (
-                <div key={service} className="flex items-center justify-between p-2 rounded border text-xs">
-                  <span className="capitalize font-medium">{service}</span>
-                  <div className="flex items-center gap-1">
-                    {health.status === 'healthy' ? (
-                      <CheckCircle2 className="h-3 w-3 text-green-500" />
-                    ) : (
-                      <XCircle className="h-3 w-3 text-red-500" />
-                    )}
-                    <span className="text-muted-foreground">{health.response_time ? `${health.response_time}ms` : '-'}</span>
-                  </div>
-                </div>
-              ))}
+      <PageSection
+        title='Service Health'
+        icon={<Server className='h-5 w-5' />}
+      >
+        <div className='grid grid-cols-3 gap-4'>
+          {Object.entries(serviceHealth).map(([service, health]) => (
+            <div key={service} className='flex items-center justify-between p-3 rounded-lg border'>
+              <span className='capitalize font-medium'>{service}</span>
+              <div className='flex items-center gap-2'>
+                {health.status === 'healthy' ? (
+                  <CheckCircle2 className='h-4 w-4 text-green-500' />
+                ) : (
+                  <XCircle className='h-4 w-4 text-red-500' />
+                )}
+                <span className='text-sm text-muted-foreground'>{health.response_time ? `${health.response_time}ms` : '-'}</span>
+              </div>
             </div>
+          ))}
+        </div>
+      </PageSection>
+
+      {systemMetrics && (
+        <PageGrid columns={4}>
+          <Card>
+            <CardContent className='pt-6'>
+              <div className='flex items-center gap-2 text-sm text-muted-foreground mb-2'>
+                <Cpu className='h-4 w-4' /> CPU
+              </div>
+              <div className={`text-2xl font-bold ${getUsageColor(systemMetrics.cpu.usage_percent)}`}>
+                {systemMetrics.cpu.usage_percent.toFixed(1)}%
+              </div>
+              <div className='w-full h-2 bg-muted rounded-full overflow-hidden mt-2'>
+                <div
+                  className='h-full rounded-full transition-all'
+                  style={{ width: `${systemMetrics.cpu.usage_percent}%`, backgroundColor: getBarColor(systemMetrics.cpu.usage_percent) }}
+                />
+              </div>
+              <p className='text-xs text-muted-foreground mt-1'>Load: {systemMetrics.load.toFixed(2)}</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className='pt-6'>
+              <div className='flex items-center gap-2 text-sm text-muted-foreground mb-2'>
+                <Activity className='h-4 w-4' /> Memory
+              </div>
+              <div className={`text-2xl font-bold ${getUsageColor(systemMetrics.memory.usage_percent)}`}>
+                {systemMetrics.memory.usage_percent.toFixed(1)}%
+              </div>
+              <div className='w-full h-2 bg-muted rounded-full overflow-hidden mt-2'>
+                <div
+                  className='h-full rounded-full transition-all'
+                  style={{ width: `${systemMetrics.memory.usage_percent}%`, backgroundColor: getBarColor(systemMetrics.memory.usage_percent) }}
+                />
+              </div>
+              <p className='text-xs text-muted-foreground mt-1'>{systemMetrics.memory.used_gb.toFixed(1)}/{systemMetrics.memory.total_gb.toFixed(1)} GB</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className='pt-6'>
+              <div className='flex items-center gap-2 text-sm text-muted-foreground mb-2'>
+                <HardDrive className='h-4 w-4' /> Disk
+              </div>
+              <div className={`text-2xl font-bold ${getUsageColor(systemMetrics.disk.usage_percent)}`}>
+                {systemMetrics.disk.usage_percent.toFixed(1)}%
+              </div>
+              <div className='w-full h-2 bg-muted rounded-full overflow-hidden mt-2'>
+                <div
+                  className='h-full rounded-full transition-all'
+                  style={{ width: `${systemMetrics.disk.usage_percent}%`, backgroundColor: getBarColor(systemMetrics.disk.usage_percent) }}
+                />
+              </div>
+              <p className='text-xs text-muted-foreground mt-1'>{systemMetrics.disk.used_gb.toFixed(0)}/{systemMetrics.disk.total_gb.toFixed(0)} GB</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className='pt-6'>
+              <div className='flex items-center gap-2 text-sm text-muted-foreground mb-2'>
+                <Wifi className='h-4 w-4' /> Network
+              </div>
+              <div className='text-2xl font-bold text-blue-500'>↓{systemMetrics.network.rx_mbps.toFixed(1)}</div>
+              <p className='text-xs text-muted-foreground'>↑{systemMetrics.network.tx_mbps.toFixed(1)} Mbps</p>
+            </CardContent>
+          </Card>
+        </PageGrid>
+      )}
+
+      {gpuInfo.length > 0 && (
+        <PageSection title='GPU' icon={<Gauge className='h-5 w-5' />}>
+          <div className='grid grid-cols-2 md:grid-cols-3 gap-4'>
+            {gpuInfo.map((gpu, i) => (
+              <Card key={i}>
+                <CardHeader className='pb-2'>
+                  <CardTitle className='text-sm flex items-center justify-between'>
+                    <span className='truncate'>{gpu.name}</span>
+                    <span className={`font-bold ${getUsageColor(gpu.utilization_pct)}`}>{gpu.utilization_pct.toFixed(0)}%</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-2'>
+                  <div className='w-full h-2 bg-muted rounded-full overflow-hidden'>
+                    <div
+                      className='h-full rounded-full'
+                      style={{ width: `${gpu.memory_pct}%`, backgroundColor: '#8b5cf6' }}
+                    />
+                  </div>
+                  <div className='flex justify-between text-sm'>
+                    <span className='text-muted-foreground'>VRAM</span>
+                    <span>{gpu.memory_used_gb.toFixed(1)}/{gpu.memory_total_gb.toFixed(0)} GB</span>
+                  </div>
+                  <div className='flex justify-between text-sm'>
+                    <span className='flex items-center gap-1 text-muted-foreground'>
+                      <Thermometer className='h-3 w-3 text-orange-400' />{gpu.temperature_c.toFixed(0)}°C
+                    </span>
+                    <span className='flex items-center gap-1 text-muted-foreground'>
+                      <Zap className='h-3 w-3 text-yellow-400' />{gpu.power_w.toFixed(1)}W
+                    </span>
+                    <span className='flex items-center gap-1 text-muted-foreground'>
+                      <Wind className='h-3 w-3 text-cyan-400' />{gpu.clock_sm_mhz.toFixed(0)}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </PageSection>
+      )}
+
+      <PageGrid columns={4}>
+        <Card>
+          <CardContent className='pt-6'>
+            <div className='flex items-center gap-2 text-sm text-muted-foreground mb-2'>
+              <Users className='h-4 w-4' /> Patients
+            </div>
+            <div className='text-2xl font-bold'>{dashboardStats?.totals?.patients || 0}</div>
+            <p className='text-sm text-muted-foreground'>+{dashboardStats?.recent_activity?.new_patients || 0} this week</p>
           </CardContent>
         </Card>
 
-        {/* System Resources */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {systemMetrics && (
-            <>
-              <Card className="p-3">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                  <Cpu className="h-3 w-3" /> CPU
-                </div>
-                <div className={`text-xl font-bold ${getUsageColor(systemMetrics.cpu.usage_percent)}`}>
-                  {systemMetrics.cpu.usage_percent.toFixed(1)}%
-                </div>
-                <div className="text-[10px] text-muted-foreground">Load: {systemMetrics.load.toFixed(2)}</div>
-                <MiniBar value={systemMetrics.cpu.usage_percent} max={100} color={getBarColor(systemMetrics.cpu.usage_percent)} />
-              </Card>
-              <Card className="p-3">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                  <Activity className="h-3 w-3" /> Memory
-                </div>
-                <div className={`text-xl font-bold ${getUsageColor(systemMetrics.memory.usage_percent)}`}>
-                  {systemMetrics.memory.usage_percent.toFixed(1)}%
-                </div>
-                <div className="text-[10px] text-muted-foreground">{systemMetrics.memory.used_gb.toFixed(1)}/{systemMetrics.memory.total_gb.toFixed(1)} GB</div>
-                <MiniBar value={systemMetrics.memory.usage_percent} max={100} color={getBarColor(systemMetrics.memory.usage_percent)} />
-              </Card>
-              <Card className="p-3">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                  <HardDrive className="h-3 w-3" /> Disk
-                </div>
-                <div className={`text-xl font-bold ${getUsageColor(systemMetrics.disk.usage_percent)}`}>
-                  {systemMetrics.disk.usage_percent.toFixed(1)}%
-                </div>
-                <div className="text-[10px] text-muted-foreground">{systemMetrics.disk.used_gb.toFixed(0)}/{systemMetrics.disk.total_gb.toFixed(0)} GB</div>
-                <MiniBar value={systemMetrics.disk.usage_percent} max={100} color={getBarColor(systemMetrics.disk.usage_percent)} />
-              </Card>
-              <Card className="p-3">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                  <Wifi className="h-3 w-3" /> Network
-                </div>
-                <div className="text-xl font-bold text-blue-500">↓{systemMetrics.network.rx_mbps.toFixed(1)}</div>
-                <div className="text-[10px] text-muted-foreground">↑{systemMetrics.network.tx_mbps.toFixed(1)} Mbps</div>
-              </Card>
-            </>
-          )}
-        </div>
+        <Card>
+          <CardContent className='pt-6'>
+            <div className='flex items-center gap-2 text-sm text-muted-foreground mb-2'>
+              <Activity className='h-4 w-4' /> Predictions
+            </div>
+            <div className='text-2xl font-bold'>{dashboardStats?.totals?.predictions || 0}</div>
+            <p className='text-sm text-muted-foreground'>+{dashboardStats?.recent_activity?.new_predictions || 0} this week</p>
+          </CardContent>
+        </Card>
 
-        {/* GPU */}
-        {gpuInfo.length > 0 && (
-          <Card className="p-3">
-            <CardHeader className="p-0 mb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Gauge className="h-4 w-4" />
-                GPU
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                {gpuInfo.map((gpu, i) => (
-                  <div key={i} className="p-2 rounded border text-xs">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium text-[10px] truncate">{gpu.name}</span>
-                      <span className={`font-bold ${getUsageColor(gpu.utilization_pct)}`}>{gpu.utilization_pct.toFixed(0)}%</span>
-                    </div>
-                    <div className="space-y-0.5">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="text-muted-foreground">VRAM</span>
-                        <span>{gpu.memory_used_gb.toFixed(1)}/{gpu.memory_total_gb.toFixed(0)} GB</span>
-                      </div>
-                      <MiniBar value={gpu.memory_pct} max={100} color="#8b5cf6" />
-                      <div className="flex justify-between text-[10px] mt-1">
-                        <span className="flex items-center gap-0.5"><Thermometer className="h-2.5 w-2.5 text-orange-400" />{gpu.temperature_c.toFixed(0)}°C</span>
-                        <span className="flex items-center gap-0.5"><Zap className="h-2.5 w-2.5 text-yellow-400" />{gpu.power_w.toFixed(1)}W</span>
-                        <span className="flex items-center gap-0.5"><Wind className="h-2.5 w-2.5 text-cyan-400" />{gpu.clock_sm_mhz.toFixed(0)}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        <Card>
+          <CardContent className='pt-6'>
+            <div className='flex items-center gap-2 text-sm text-muted-foreground mb-2'>
+              <FileText className='h-4 w-4' /> Reports
+            </div>
+            <div className='text-2xl font-bold'>{dashboardStats?.totals?.reports || 0}</div>
+            <p className='text-sm text-muted-foreground'>+{dashboardStats?.recent_activity?.new_reports || 0} this week</p>
+          </CardContent>
+        </Card>
 
-        {/* Database Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Card className="p-3">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-              <Users className="h-3 w-3" /> Patients
+        <Card>
+          <CardContent className='pt-6'>
+            <div className='flex items-center gap-2 text-sm text-muted-foreground mb-2'>
+              <Gauge className='h-4 w-4' /> Avg Confidence
             </div>
-            <div className="text-xl font-bold">{dashboardStats?.totals?.patients || 0}</div>
-            <div className="text-[10px] text-muted-foreground">+{dashboardStats?.recent_activity?.new_patients || 0} this week</div>
-          </Card>
-          <Card className="p-3">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-              <Activity className="h-3 w-3" /> Predictions
-            </div>
-            <div className="text-xl font-bold">{dashboardStats?.totals?.predictions || 0}</div>
-            <div className="text-[10px] text-muted-foreground">+{dashboardStats?.recent_activity?.new_predictions || 0} this week</div>
-          </Card>
-          <Card className="p-3">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-              <FileText className="h-3 w-3" /> Reports
-            </div>
-            <div className="text-xl font-bold">{dashboardStats?.totals?.reports || 0}</div>
-            <div className="text-[10px] text-muted-foreground">+{dashboardStats?.recent_activity?.new_reports || 0} this week</div>
-          </Card>
-          <Card className="p-3">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-              <Gauge className="h-3 w-3" /> Avg Confidence
-            </div>
-            <div className="text-xl font-bold">
+            <div className='text-2xl font-bold'>
               {dashboardStats?.avg_confidence != null ? `${(dashboardStats.avg_confidence * 100).toFixed(1)}%` : 'N/A'}
             </div>
-          </Card>
-        </div>
+          </CardContent>
+        </Card>
+      </PageGrid>
 
-        {/* DR Distribution & Demographics */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {/* DR Distribution */}
-          <Card className="p-3">
-            <CardHeader className="p-0 mb-2">
-              <CardTitle className="text-sm">DR Grades</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {severityData.length > 0 ? (
-                <div className="flex items-end justify-between gap-1 h-[80px]">
-                  {severityData.map((item, i) => (
-                    <div key={i} className="flex flex-col items-center gap-1 flex-1">
-                      <div className="text-[10px] font-medium">{item.value}</div>
-                      <div className="w-full rounded-t" style={{ height: `${Math.max(4, (item.value / Math.max(...severityData.map(d => d.value))) * 60)}px`, backgroundColor: item.color, opacity: 0.8 }} />
-                      <div className="text-[8px] text-muted-foreground text-center leading-tight">{item.name}</div>
+      <PageGrid columns={3}>
+        <PageSection title='DR Grades'>
+          {severityData.length > 0 ? (
+            <div className='h-[150px]'>
+              <ResponsiveContainer width='100%' height='100%'>
+                <PieChart>
+                  <Pie
+                    data={severityData}
+                    dataKey='value'
+                    nameKey='name'
+                    cx='50%'
+                    cy='50%'
+                    outerRadius={60}
+                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    labelLine={false}
+                  >
+                    {severityData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className='text-sm text-muted-foreground text-center py-8'>No data</p>
+          )}
+        </PageSection>
+
+        <PageSection title='Age Distribution'>
+          {dashboardStats?.age_distribution && Object.keys(dashboardStats.age_distribution).length > 0 ? (
+            <div className='space-y-2 max-h-[150px] overflow-y-auto'>
+              {Object.entries(dashboardStats.age_distribution).map(([age, count]) => (
+                <div key={age} className='flex items-center justify-between text-sm'>
+                  <span className='text-muted-foreground w-16'>{age}</span>
+                  <div className='flex-1 mx-2'>
+                    <div className='w-full h-2 bg-muted rounded-full overflow-hidden'>
+                      <div
+                        className='h-full bg-blue-500 rounded-full'
+                        style={{ width: `${(count / (dashboardStats.totals?.patients || 1)) * 100}%` }}
+                      />
                     </div>
-                  ))}
+                  </div>
+                  <span className='text-muted-foreground w-8 text-right'>{count}</span>
                 </div>
-              ) : (
-                <p className="text-xs text-muted-foreground text-center py-4">No data</p>
-              )}
-            </CardContent>
-          </Card>
+              ))}
+            </div>
+          ) : (
+            <p className='text-sm text-muted-foreground text-center py-8'>No data</p>
+          )}
+        </PageSection>
 
-          {/* Age Distribution */}
-          <Card className="p-3">
-            <CardHeader className="p-0 mb-2">
-              <CardTitle className="text-sm">Age Distribution</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {dashboardStats?.age_distribution && Object.keys(dashboardStats.age_distribution).length > 0 ? (
-                <div className="space-y-1 max-h-[80px] overflow-y-auto">
-                  {Object.entries(dashboardStats.age_distribution).map(([age, count]) => (
-                    <div key={age} className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground w-12">{age}</span>
-                      <div className="flex-1 mx-2">
-                        <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
-                          <div className="h-full bg-blue-500 rounded-full" style={{ width: `${(count / (dashboardStats.totals?.patients || 1)) * 100}%` }} />
-                        </div>
-                      </div>
-                      <span className="text-muted-foreground w-4 text-right">{count}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground text-center py-4">No data</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Gender Distribution */}
-          <Card className="p-3">
-            <CardHeader className="p-0 mb-2">
-              <CardTitle className="text-sm">Gender Distribution</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {dashboardStats?.gender_distribution && Object.keys(dashboardStats.gender_distribution).length > 0 ? (
-                <div className="h-[80px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={Object.entries(dashboardStats.gender_distribution).map(([k, v]) => ({ name: k, value: v }))}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={20}
-                        outerRadius={35}
-                        label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                        labelLine={false}
-                      >
-                        <Cell fill="#8b5cf6" />
-                        <Cell fill="#06b6d4" />
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground text-center py-4">No data</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+        <PageSection title='Gender Distribution'>
+          {dashboardStats?.gender_distribution && Object.keys(dashboardStats.gender_distribution).length > 0 ? (
+            <div className='h-[150px]'>
+              <ResponsiveContainer width='100%' height='100%'>
+                <PieChart>
+                  <Pie
+                    data={Object.entries(dashboardStats.gender_distribution).map(([k, v]) => ({ name: k, value: v }))}
+                    dataKey='value'
+                    nameKey='name'
+                    cx='50%'
+                    cy='50%'
+                    innerRadius={30}
+                    outerRadius={60}
+                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    labelLine={false}
+                  >
+                    <Cell fill='#8b5cf6' />
+                    <Cell fill='#06b6d4' />
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className='text-sm text-muted-foreground text-center py-8'>No data</p>
+          )}
+        </PageSection>
+      </PageGrid>
     </PageContainer>
   );
 }

@@ -10,14 +10,14 @@ import { NotificationCenter } from '@/components/notifications/notification-cent
 
 export default function Header() {
   return (
-    <header className='flex h-24 shrink-0 items-center justify-between gap-4 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-20'>
-      <div className='flex items-center gap-4 px-8'>
-        <SidebarTrigger className='-ml-1 h-10 w-10' />
-        <Separator orientation='vertical' className='mr-4 h-6' />
+    <header className='flex h-20 shrink-0 items-center justify-between gap-4 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-16 bg-sidebar text-sidebar-foreground px-4'>
+      <div className='flex items-center gap-2'>
+        <SidebarTrigger className='h-8 w-8' />
+        <Separator orientation='vertical' className='h-5' />
         <Breadcrumbs />
       </div>
 
-      <div className='flex items-center gap-4 px-8'>
+      <div className='flex items-center gap-2'>
         <div className='hidden md:flex'>
           <SearchInput />
         </div>
@@ -26,9 +26,9 @@ export default function Header() {
         <Image
           src='https://www.samayahospital.ae/home/images/logo.png'
           alt='Samaya Specialized Center'
-          width={48}
-          height={48}
-          className='h-12 w-auto'
+          width={40}
+          height={40}
+          className='h-10 w-auto'
           unoptimized
         />
         <UserNav />
