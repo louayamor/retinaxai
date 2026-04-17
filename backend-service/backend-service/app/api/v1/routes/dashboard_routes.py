@@ -7,10 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import CurrentUser
 from app.db.session import get_db
-from app.models.mri_scan import MRIScan
 from app.models.patient import Patient
 from app.models.prediction import Prediction, PredictionStatus
 from app.models.report import Report
+from app.models.oct_report import OCTReport
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -26,7 +26,7 @@ async def get_dashboard_stats(
     total_patients = await db.scalar(select(func.count(Patient.id)))
     total_predictions = await db.scalar(select(func.count(Prediction.id)))
     total_reports = await db.scalar(select(func.count(Report.id)))
-    total_scans = await db.scalar(select(func.count(MRIScan.id)))
+    total_scans = await db.scalar(select(func.count(OCTReport.id)))
 
     # Prediction status distribution
     prediction_status_result = await db.execute(
@@ -42,20 +42,33 @@ async def get_dashboard_stats(
     )
     report_status_counts = {row[0].value: row[1] for row in report_status_result.all()}
 
-    # Predictions by severity (from output_payload)
+    # Predictions by severity (from output_payload OR oct_reports dr_grade)
+    severity_counts = {}
+    
+    # First try from predictions table
     severity_result = await db.execute(
         select(Prediction.output_payload).where(Prediction.output_payload.isnot(None))
     )
-    severity_counts = {}
     for row in severity_result.all():
         payload = row[0]
         if isinstance(payload, dict):
-            # MLOps returns combined_grade at top level, not predicted_class
             combined_grade = payload.get("combined_grade")
             if combined_grade is not None:
                 severity_counts[combined_grade] = (
                     severity_counts.get(combined_grade, 0) + 1
                 )
+    
+    # If no predictions, use oct_reports dr_grade as fallback
+    if not severity_counts:
+        dr_grade_result = await db.execute(
+            select(OCTReport.dr_grade).where(OCTReport.dr_grade.isnot(None))
+        )
+        for (dr_grade,) in dr_grade_result.all():
+            if dr_grade:
+                # Map dr_grade strings to numeric (0=No DR, etc.)
+                grade_map = {"No DR": 0, "Mild": 1, "Moderate": 2, "Severe": 3, "Proliferative DR": 4}
+                grade_num = grade_map.get(dr_grade, 0)
+                severity_counts[grade_num] = severity_counts.get(grade_num, 0) + 1
 
     # Predictions over time (last 30 days)
     thirty_days_ago = datetime.utcnow() - timedelta(days=30)
