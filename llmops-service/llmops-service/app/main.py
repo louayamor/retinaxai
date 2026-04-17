@@ -29,6 +29,7 @@ from app.core.middleware import APIKeyMiddleware, RateLimitMiddleware
 from app.pipeline.report_generator import generate_report_handler
 from app.services.job_manager import get_job_manager
 from app.services.operation_state import set_operation
+from app.services.prometheus_metrics import start_metrics_server
 from app.vectorstore.chroma_store import ChromaStore
 
 # Track startup time for health checks
@@ -136,6 +137,9 @@ async def lifespan(app: FastAPI):
     logger.info(f"Environment: {settings.app_env}")
     logger.info(f"LLM Provider: {settings.llm_provider}")
     logger.info(f"LLM Model: {settings.llm_model}")
+
+    # Start Prometheus metrics server
+    start_metrics_server(port=settings.prometheus_metrics_port)
 
     # Validate directories
     dir_results = validate_directories()
