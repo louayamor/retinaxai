@@ -88,13 +88,13 @@ Services available at:
 cd backend-service
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn backend-service.app.main:app --reload --port 8000
+uvicorn uvicorn app.main:app --reload
 
 # 2. MLOps Service
 cd mlops-service
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn mlops-service.app.api.app:app --reload --port 8004
+python -m main serve
 
 # 3. LLMOps Service
 cd llmops-service

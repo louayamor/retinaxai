@@ -112,3 +112,24 @@ shared/
 mlflow.db
 mlruns/
 *.db
+
+# Service venvs
+backend-service/.venv/
+backend-service/backend-service/.venv/
+backend-service/backend-service/logs/
+mlops-service/.venv/
+mlops-service/mlops-service/.venv/
+mlops-service/mlops-service/logs/
+llmops-service/.venv/
+llmops-service/llmops-service/.venv/
+llmops-service/llmops-service/logs/
+
+# Downloaded binaries
+node_exporter-1.7.0.linux-amd64/
+node_exporter-1.7.0.linux-amd64.tar.gz
+
+# Infra template
+infra/template.py
+
+# Tmp log files
+/tmp/*.log
