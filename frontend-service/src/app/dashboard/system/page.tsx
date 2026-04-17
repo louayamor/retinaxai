@@ -2,110 +2,121 @@
 
 import { useEffect, useState } from 'react';
 import PageContainer from '@/components/layout/page-container';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { 
-  Database, 
-  Server, 
-  Activity, 
-  Loader2, 
+import {
+  Server,
+  Activity,
   RefreshCw,
   Users,
   FileText,
-  Scan,
+  Cpu,
+  HardDrive,
+  Wifi,
+  Gauge,
+  Thermometer,
+  Zap,
+  Wind,
   CheckCircle2,
   XCircle,
-  Clock
 } from 'lucide-react';
-import { toast } from 'sonner';
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+} from 'recharts';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-const MLOPS_BASE = process.env.NEXT_PUBLIC_MLOPS_URL || 'http://localhost:8004';
-const LLMOPS_BASE = process.env.NEXT_PUBLIC_LLMOPS_URL || 'http://localhost:8002';
 
-interface ServiceHealth {
-  status: 'healthy' | 'unhealthy';
-  response_time?: number;
-  error?: string;
+interface SystemMetrics {
+  cpu: { usage_percent: number };
+  memory: { total_gb: number; used_gb: number; available_gb: number; usage_percent: number };
+  disk: { total_gb: number; used_gb: number; free_gb: number; usage_percent: number };
+  load: number;
+  network: { rx_mbps: number; tx_mbps: number };
+}
+
+interface GpuInfo {
+  name: string;
+  utilization_pct: number;
+  memory_used_gb: number;
+  memory_total_gb: number;
+  memory_pct: number;
+  temperature_c: number;
+  power_w: number;
+  fan_speed_pct: number;
+  clock_sm_mhz: number;
+  clock_mem_mhz: number;
 }
 
 interface DashboardStats {
-  totals: {
-    patients: number;
-    predictions: number;
-    reports: number;
-    scans: number;
-  };
-  prediction_status: Record<string, number>;
-  report_status: Record<string, number>;
+  totals: { patients: number; predictions: number; reports: number; scans: number };
   severity_distribution: Record<number, number>;
   predictions_timeline: Array<{ date: string; predictions: number }>;
   age_distribution: Record<string, number>;
   gender_distribution: Record<string, number>;
-  recent_activity: {
-    new_patients: number;
-    new_predictions: number;
-    new_reports: number;
-  };
+  recent_activity: { new_patients: number; new_predictions: number; new_reports: number };
   avg_confidence: number | null;
 }
 
+const GRADE_LABELS = ['No DR', 'Mild', 'Moderate', 'Severe', 'Prolif DR'];
+const GRADE_COLORS = ['#10b981', '#06b6d4', '#f59e0b', '#f97316', '#f43f5e'];
+
+const MiniBar = ({ value, max, color }: { value: number; max: number; color: string }) => (
+  <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+    <div className="h-full rounded-full" style={{ width: `${Math.min(100, (value / max) * 100)}%`, backgroundColor: color }} />
+  </div>
+);
+
 export default function SystemStatsPage() {
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
-  const [serviceHealth, setServiceHealth] = useState<Record<string, ServiceHealth>>({});
+  const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
+  const [gpuInfo, setGpuInfo] = useState<GpuInfo[]>([]);
+  const [serviceHealth, setServiceHealth] = useState<Record<string, { status: string; response_time?: number }>>({});
   const [loading, setLoading] = useState(true);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchSystemMetrics = async () => {
     try {
-      const [dashboardRes] = await Promise.all([
-        fetch(`${BASE}/api/v1/dashboard/stats`, { credentials: 'include' }).then(r => r.json()).catch(() => null),
-      ]);
+      const res = await fetch(`${BASE}/api/v1/system/metrics`);
+      if (res.ok) setSystemMetrics(await res.json());
+    } catch {}
+    try {
+      const res = await fetch(`${BASE}/api/v1/system/gpu`);
+      if (res.ok) {
+        const data = await res.json();
+        setGpuInfo(data.gpus || []);
+      }
+    } catch {}
+  };
 
+  const fetchData = async () => {
+    try {
+      const dashboardRes = await fetch(`${BASE}/api/v1/dashboard/stats`, { credentials: 'include' }).then(r => r.json()).catch(() => null);
       setDashboardStats(dashboardRes);
 
-      const health: Record<string, ServiceHealth> = {};
-      
-      // Check backend
-      try {
-        const start = Date.now();
-        const backendRes = await fetch(`${BASE}/health`, { credentials: 'include' });
-        health.backend = { 
-          status: backendRes.ok ? 'healthy' : 'unhealthy',
-          response_time: Date.now() - start 
-        };
-      } catch {
-        health.backend = { status: 'unhealthy', error: 'Connection failed' };
-      }
+      const health: Record<string, { status: string; response_time?: number }> = {};
+      const services = [
+        { name: 'backend', url: `${BASE}/health` },
+        { name: 'mlops', url: '/health', base: process.env.NEXT_PUBLIC_MLOPS_URL || 'http://localhost:8004' },
+        { name: 'llmops', url: '/health', base: process.env.NEXT_PUBLIC_LLMOPS_URL || 'http://localhost:8002' },
+      ];
 
-      // Check MLOps
-      try {
-        const start = Date.now();
-        const mlopsRes = await fetch(`${MLOPS_BASE}/api/health`);
-        health.mlops = { 
-          status: mlopsRes.ok ? 'healthy' : 'unhealthy',
-          response_time: Date.now() - start 
-        };
-      } catch {
-        health.mlops = { status: 'unhealthy', error: 'Connection failed' };
-      }
-
-      // Check LLMOps
-      try {
-        const start = Date.now();
-        const llmopsRes = await fetch(`${LLMOPS_BASE}/health`);
-        health.llmops = { 
-          status: llmopsRes.ok ? 'healthy' : 'unhealthy',
-          response_time: Date.now() - start 
-        };
-      } catch {
-        health.llmops = { status: 'unhealthy', error: 'Connection failed' };
+      for (const svc of services) {
+        const base = svc.base || BASE;
+        try {
+          const start = Date.now();
+          const res = await fetch(`${base}${svc.url}`, { credentials: 'include' });
+          health[svc.name] = { status: res.ok ? 'healthy' : 'unhealthy', response_time: Date.now() - start };
+        } catch {
+          health[svc.name] = { status: 'unhealthy' };
+        }
       }
 
       setServiceHealth(health);
     } catch (error) {
-      console.error('Failed to fetch system stats:', error);
+      console.error('Failed to fetch data:', error);
     } finally {
       setLoading(false);
     }
@@ -113,24 +124,32 @@ export default function SystemStatsPage() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000);
+    fetchSystemMetrics();
+    const interval = setInterval(() => { fetchData(); fetchSystemMetrics(); }, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  const getHealthIcon = (status?: string) => {
-    if (status === 'healthy') return <CheckCircle2 className="h-5 w-5 text-green-500" />;
-    if (status === 'unhealthy') return <XCircle className="h-5 w-5 text-red-500" />;
-    return <Clock className="h-5 w-5 text-muted-foreground" />;
+  const getUsageColor = (pct: number) => {
+    if (pct >= 90) return 'text-red-500';
+    if (pct >= 70) return 'text-yellow-500';
+    return 'text-green-500';
   };
 
-  const GRADE_LABELS = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR'];
-  const GRADE_COLORS = ['bg-emerald-500', 'bg-cyan-500', 'bg-amber-500', 'bg-orange-500', 'bg-rose-500'];
+  const getBarColor = (pct: number) => {
+    if (pct >= 90) return '#ef4444';
+    if (pct >= 70) return '#f59e0b';
+    return '#10b981';
+  };
 
-  if (loading && !dashboardStats) {
+  const severityData = dashboardStats?.severity_distribution
+    ? Object.entries(dashboardStats.severity_distribution).map(([k, v]) => ({ name: GRADE_LABELS[Number(k)], value: v, color: GRADE_COLORS[Number(k)] }))
+    : [];
+
+  if (loading && !dashboardStats && !systemMetrics) {
     return (
       <PageContainer>
         <div className="flex items-center justify-center h-[60vh]">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" />
         </div>
       </PageContainer>
     );
@@ -138,37 +157,38 @@ export default function SystemStatsPage() {
 
   return (
     <PageContainer>
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">System Statistics</h1>
-            <p className="text-muted-foreground">Database metrics and service health</p>
+            <h1 className="text-2xl font-bold tracking-tight">System Monitor</h1>
+            <p className="text-sm text-muted-foreground">Infrastructure, services, and database statistics</p>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchData}>
+          <Button variant="outline" size="sm" onClick={() => { fetchData(); fetchSystemMetrics(); }}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
         </div>
 
         {/* Service Health */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Server className="h-5 w-5" />
+        <Card className="p-3">
+          <CardHeader className="p-0 mb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Server className="h-4 w-4" />
               Service Health
             </CardTitle>
-            <CardDescription>Real-time status of all microservices</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 md:grid-cols-3">
+          <CardContent className="p-0">
+            <div className="grid grid-cols-3 gap-2">
               {Object.entries(serviceHealth).map(([service, health]) => (
-                <div key={service} className="p-4 rounded-lg border">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium capitalize">{service}</span>
-                    {getHealthIcon(health.status)}
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    {health.response_time ? `${health.response_time}ms` : health.error || 'Unknown'}
+                <div key={service} className="flex items-center justify-between p-2 rounded border text-xs">
+                  <span className="capitalize font-medium">{service}</span>
+                  <div className="flex items-center gap-1">
+                    {health.status === 'healthy' ? (
+                      <CheckCircle2 className="h-3 w-3 text-green-500" />
+                    ) : (
+                      <XCircle className="h-3 w-3 text-red-500" />
+                    )}
+                    <span className="text-muted-foreground">{health.response_time ? `${health.response_time}ms` : '-'}</span>
                   </div>
                 </div>
               ))}
@@ -176,198 +196,204 @@ export default function SystemStatsPage() {
           </CardContent>
         </Card>
 
-        {/* Database Totals */}
-        <div className="grid gap-4 md:grid-cols-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Users className="h-4 w-4" />
-                Total Patients
+        {/* System Resources */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {systemMetrics && (
+            <>
+              <Card className="p-3">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                  <Cpu className="h-3 w-3" /> CPU
+                </div>
+                <div className={`text-xl font-bold ${getUsageColor(systemMetrics.cpu.usage_percent)}`}>
+                  {systemMetrics.cpu.usage_percent.toFixed(1)}%
+                </div>
+                <div className="text-[10px] text-muted-foreground">Load: {systemMetrics.load.toFixed(2)}</div>
+                <MiniBar value={systemMetrics.cpu.usage_percent} max={100} color={getBarColor(systemMetrics.cpu.usage_percent)} />
+              </Card>
+              <Card className="p-3">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                  <Activity className="h-3 w-3" /> Memory
+                </div>
+                <div className={`text-xl font-bold ${getUsageColor(systemMetrics.memory.usage_percent)}`}>
+                  {systemMetrics.memory.usage_percent.toFixed(1)}%
+                </div>
+                <div className="text-[10px] text-muted-foreground">{systemMetrics.memory.used_gb.toFixed(1)}/{systemMetrics.memory.total_gb.toFixed(1)} GB</div>
+                <MiniBar value={systemMetrics.memory.usage_percent} max={100} color={getBarColor(systemMetrics.memory.usage_percent)} />
+              </Card>
+              <Card className="p-3">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                  <HardDrive className="h-3 w-3" /> Disk
+                </div>
+                <div className={`text-xl font-bold ${getUsageColor(systemMetrics.disk.usage_percent)}`}>
+                  {systemMetrics.disk.usage_percent.toFixed(1)}%
+                </div>
+                <div className="text-[10px] text-muted-foreground">{systemMetrics.disk.used_gb.toFixed(0)}/{systemMetrics.disk.total_gb.toFixed(0)} GB</div>
+                <MiniBar value={systemMetrics.disk.usage_percent} max={100} color={getBarColor(systemMetrics.disk.usage_percent)} />
+              </Card>
+              <Card className="p-3">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                  <Wifi className="h-3 w-3" /> Network
+                </div>
+                <div className="text-xl font-bold text-blue-500">↓{systemMetrics.network.rx_mbps.toFixed(1)}</div>
+                <div className="text-[10px] text-muted-foreground">↑{systemMetrics.network.tx_mbps.toFixed(1)} Mbps</div>
+              </Card>
+            </>
+          )}
+        </div>
+
+        {/* GPU */}
+        {gpuInfo.length > 0 && (
+          <Card className="p-3">
+            <CardHeader className="p-0 mb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Gauge className="h-4 w-4" />
+                GPU
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{dashboardStats?.totals?.patients || 0}</div>
-              <p className="text-xs text-muted-foreground">
-                +{dashboardStats?.recent_activity?.new_patients || 0} this week
-              </p>
+            <CardContent className="p-0">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                {gpuInfo.map((gpu, i) => (
+                  <div key={i} className="p-2 rounded border text-xs">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium text-[10px] truncate">{gpu.name}</span>
+                      <span className={`font-bold ${getUsageColor(gpu.utilization_pct)}`}>{gpu.utilization_pct.toFixed(0)}%</span>
+                    </div>
+                    <div className="space-y-0.5">
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-muted-foreground">VRAM</span>
+                        <span>{gpu.memory_used_gb.toFixed(1)}/{gpu.memory_total_gb.toFixed(0)} GB</span>
+                      </div>
+                      <MiniBar value={gpu.memory_pct} max={100} color="#8b5cf6" />
+                      <div className="flex justify-between text-[10px] mt-1">
+                        <span className="flex items-center gap-0.5"><Thermometer className="h-2.5 w-2.5 text-orange-400" />{gpu.temperature_c.toFixed(0)}°C</span>
+                        <span className="flex items-center gap-0.5"><Zap className="h-2.5 w-2.5 text-yellow-400" />{gpu.power_w.toFixed(1)}W</span>
+                        <span className="flex items-center gap-0.5"><Wind className="h-2.5 w-2.5 text-cyan-400" />{gpu.clock_sm_mhz.toFixed(0)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Activity className="h-4 w-4" />
-                Total Predictions
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{dashboardStats?.totals?.predictions || 0}</div>
-              <p className="text-xs text-muted-foreground">
-                +{dashboardStats?.recent_activity?.new_predictions || 0} this week
-              </p>
-            </CardContent>
+        )}
+
+        {/* Database Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card className="p-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+              <Users className="h-3 w-3" /> Patients
+            </div>
+            <div className="text-xl font-bold">{dashboardStats?.totals?.patients || 0}</div>
+            <div className="text-[10px] text-muted-foreground">+{dashboardStats?.recent_activity?.new_patients || 0} this week</div>
           </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <FileText className="h-4 w-4" />
-                Total Reports
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{dashboardStats?.totals?.reports || 0}</div>
-              <p className="text-xs text-muted-foreground">
-                +{dashboardStats?.recent_activity?.new_reports || 0} this week
-              </p>
-            </CardContent>
+          <Card className="p-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+              <Activity className="h-3 w-3" /> Predictions
+            </div>
+            <div className="text-xl font-bold">{dashboardStats?.totals?.predictions || 0}</div>
+            <div className="text-[10px] text-muted-foreground">+{dashboardStats?.recent_activity?.new_predictions || 0} this week</div>
           </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Scan className="h-4 w-4" />
-                Total OCT Scans
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{dashboardStats?.totals?.scans || 0}</div>
-              <p className="text-xs text-muted-foreground">MRI scans in system</p>
-            </CardContent>
+          <Card className="p-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+              <FileText className="h-3 w-3" /> Reports
+            </div>
+            <div className="text-xl font-bold">{dashboardStats?.totals?.reports || 0}</div>
+            <div className="text-[10px] text-muted-foreground">+{dashboardStats?.recent_activity?.new_reports || 0} this week</div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+              <Gauge className="h-3 w-3" /> Avg Confidence
+            </div>
+            <div className="text-xl font-bold">
+              {dashboardStats?.avg_confidence != null ? `${(dashboardStats.avg_confidence * 100).toFixed(1)}%` : 'N/A'}
+            </div>
           </Card>
         </div>
 
-        {/* DR Grade Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle>DR Grade Distribution</CardTitle>
-            <CardDescription>Predictions by severity level</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-              {GRADE_LABELS.map((label, idx) => {
-                const count = dashboardStats?.severity_distribution?.[idx] || 0;
-                const total = Object.values(dashboardStats?.severity_distribution || {}).reduce((a, b) => a + b, 0);
-                const pct = total > 0 ? (count / total * 100).toFixed(1) : '0';
-                return (
-                  <div key={idx} className="flex flex-col items-center gap-2 rounded-xl border p-4">
-                    <div className={`h-3 w-full rounded-full ${GRADE_COLORS[idx]}`} style={{ opacity: 0.8 }} />
-                    <div className="text-center">
-                      <p className="text-2xl font-bold">{count}</p>
-                      <p className="text-sm text-muted-foreground">{label}</p>
-                      <Badge variant="secondary" className="mt-1">{pct}%</Badge>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Demographics */}
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* Age Distribution */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Age Distribution</CardTitle>
+        {/* DR Distribution & Demographics */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* DR Distribution */}
+          <Card className="p-3">
+            <CardHeader className="p-0 mb-2">
+              <CardTitle className="text-sm">DR Grades</CardTitle>
             </CardHeader>
-            <CardContent>
-              {dashboardStats?.age_distribution && Object.keys(dashboardStats.age_distribution).length > 0 ? (
-                <div className="space-y-2">
-                  {Object.entries(dashboardStats.age_distribution).map(([age, count]) => (
-                    <div key={age} className="flex items-center justify-between">
-                      <span className="text-sm">{age}</span>
-                      <div className="flex items-center gap-2">
-                        <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-blue-500"
-                            style={{ width: `${(count / (dashboardStats.totals?.patients || 1)) * 100}%` }}
-                          />
-                        </div>
-                        <span className="text-sm text-muted-foreground w-8">{count}</span>
-                      </div>
+            <CardContent className="p-0">
+              {severityData.length > 0 ? (
+                <div className="flex items-end justify-between gap-1 h-[80px]">
+                  {severityData.map((item, i) => (
+                    <div key={i} className="flex flex-col items-center gap-1 flex-1">
+                      <div className="text-[10px] font-medium">{item.value}</div>
+                      <div className="w-full rounded-t" style={{ height: `${Math.max(4, (item.value / Math.max(...severityData.map(d => d.value))) * 60)}px`, backgroundColor: item.color, opacity: 0.8 }} />
+                      <div className="text-[8px] text-muted-foreground text-center leading-tight">{item.name}</div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">No age data available</p>
+                <p className="text-xs text-muted-foreground text-center py-4">No data</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Age Distribution */}
+          <Card className="p-3">
+            <CardHeader className="p-0 mb-2">
+              <CardTitle className="text-sm">Age Distribution</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {dashboardStats?.age_distribution && Object.keys(dashboardStats.age_distribution).length > 0 ? (
+                <div className="space-y-1 max-h-[80px] overflow-y-auto">
+                  {Object.entries(dashboardStats.age_distribution).map(([age, count]) => (
+                    <div key={age} className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground w-12">{age}</span>
+                      <div className="flex-1 mx-2">
+                        <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full bg-blue-500 rounded-full" style={{ width: `${(count / (dashboardStats.totals?.patients || 1)) * 100}%` }} />
+                        </div>
+                      </div>
+                      <span className="text-muted-foreground w-4 text-right">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground text-center py-4">No data</p>
               )}
             </CardContent>
           </Card>
 
           {/* Gender Distribution */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Gender Distribution</CardTitle>
+          <Card className="p-3">
+            <CardHeader className="p-0 mb-2">
+              <CardTitle className="text-sm">Gender Distribution</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-0">
               {dashboardStats?.gender_distribution && Object.keys(dashboardStats.gender_distribution).length > 0 ? (
-                <div className="space-y-2">
-                  {Object.entries(dashboardStats.gender_distribution).map(([gender, count]) => (
-                    <div key={gender} className="flex items-center justify-between">
-                      <span className="text-sm capitalize">{gender.toLowerCase()}</span>
-                      <div className="flex items-center gap-2">
-                        <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-purple-500"
-                            style={{ width: `${(count / (dashboardStats.totals?.patients || 1)) * 100}%` }}
-                          />
-                        </div>
-                        <span className="text-sm text-muted-foreground w-8">{count}</span>
-                      </div>
-                    </div>
-                  ))}
+                <div className="h-[80px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={Object.entries(dashboardStats.gender_distribution).map(([k, v]) => ({ name: k, value: v }))}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={20}
+                        outerRadius={35}
+                        label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                        labelLine={false}
+                      >
+                        <Cell fill="#8b5cf6" />
+                        <Cell fill="#06b6d4" />
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">No gender data available</p>
+                <p className="text-xs text-muted-foreground text-center py-4">No data</p>
               )}
             </CardContent>
           </Card>
         </div>
-
-        {/* Predictions Timeline */}
-        {dashboardStats?.predictions_timeline && dashboardStats.predictions_timeline.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Predictions Over Time (Last 30 Days)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[200px]">
-                <div className="grid grid-cols-7 gap-1">
-                  {dashboardStats.predictions_timeline.slice(-14).map((day, idx) => (
-                    <div key={idx} className="text-center">
-                      <div 
-                        className="mx-auto rounded bg-blue-500"
-                        style={{ 
-                          height: `${Math.max(4, (day.predictions / 10) * 40)}px`,
-                          opacity: 0.5 + (day.predictions / 20)
-                        }}
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      </p>
-                      <p className="text-xs font-medium">{day.predictions}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Average Confidence */}
-        {dashboardStats?.avg_confidence && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Average Model Confidence</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-4">
-                <div className="text-4xl font-bold">{(dashboardStats.avg_confidence * 100).toFixed(1)}%</div>
-                <div className="text-sm text-muted-foreground">
-                  Average confidence score across all successful predictions
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
       </div>
     </PageContainer>
   );

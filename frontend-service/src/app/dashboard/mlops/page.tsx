@@ -2,22 +2,18 @@
 
 import { useEffect, useState } from 'react';
 import PageContainer from '@/components/layout/page-container';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  Activity, 
-  Server, 
-  Brain, 
-  TrendingUp, 
-  AlertTriangle, 
+import {
+  Activity,
+  Brain,
+  AlertTriangle,
   CheckCircle2,
   Clock,
-  Loader2,
   RefreshCw,
   Database,
-  Gauge
+  TrendingUp,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -28,8 +24,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
   RadarChart,
   PolarGrid,
   PolarAngleAxis,
@@ -46,15 +40,16 @@ interface Job {
   status: string;
   started_at: string | null;
   completed_at: string | null;
-  metrics?: { accuracy?: number; loss?: number; val_accuracy?: number };
+  metrics?: { accuracy?: number };
   error?: string;
 }
 
 interface DriftStatus {
   pipeline: string;
-  status: 'stable' | 'warning' | 'drifted';
+  status: string;
   psi_threshold: number;
-  current_psi?: number;
+  overall_psi?: number;
+  drift_detected?: boolean;
   last_checked: string;
   features_drifted?: string[];
 }
@@ -68,10 +63,16 @@ interface Feature {
 interface Metrics {
   imaging?: { accuracy?: number; quadratic_weighted_kappa?: number; roc_auc_macro?: number; precision_macro?: number; recall_macro?: number; num_samples?: number };
   clinical?: { accuracy?: number; quadratic_weighted_kappa?: number; roc_auc_macro?: number; precision_macro?: number; recall_macro?: number; num_samples?: number };
-  training?: { total_runs?: number; active_jobs?: number };
 }
 
 const PIPELINES = ['imaging', 'clinical'];
+
+const MetricRow = ({ label, value }: { label: string; value: string }) => (
+  <div className="flex justify-between text-xs">
+    <span className="text-muted-foreground">{label}</span>
+    <span className="font-medium">{value}</span>
+  </div>
+);
 
 export default function MLOpsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -83,16 +84,15 @@ export default function MLOpsPage() {
   const [retraining, setRetraining] = useState<string | null>(null);
 
   const fetchData = async () => {
-    setLoading(true);
     try {
-      const [statusRes, driftRes, featuresRes, metricsRes] = await Promise.all([
-        fetch(`${MLOPS_BASE}/api/status`).then(r => r.json()).catch(() => ({ job: null, jobs: [] })),
-        fetch(`${MLOPS_BASE}/api/drift/history`).then(r => r.json()).catch(() => ({ history: [] })),
-        fetch(`${MLOPS_BASE}/api/features/list`).then(r => r.json()).catch(() => ({ features: [], total: 0 })),
-        fetch(`${MLOPS_BASE}/api/metrics`).then(r => r.json()).catch(() => ({})),
+      const [jobsRes, driftRes, featuresRes, metricsRes] = await Promise.all([
+        fetch(`${MLOPS_BASE}/api/train/jobs`).then(r => r.json()).catch(() => ({ jobs: [], total: 0 })),
+        fetch(`${MLOPS_BASE}/drift/history`).then(r => r.json()).catch(() => ({ history: [] })),
+        fetch(`${MLOPS_BASE}/features/list`).then(r => r.json()).catch(() => ({ features: [], total: 0 })),
+        fetch(`${MLOPS_BASE}/metrics`).then(r => r.json()).catch(() => ({})),
       ]);
 
-      setJobs(statusRes.jobs || []);
+      setJobs(jobsRes.jobs || []);
       setDriftHistory(driftRes.history || []);
       setFeatures(featuresRes.features || []);
       setMetrics(metricsRes);
@@ -100,7 +100,7 @@ export default function MLOpsPage() {
       const driftStatusMap: Record<string, DriftStatus> = {};
       for (const pipeline of PIPELINES) {
         try {
-          const res = await fetch(`${MLOPS_BASE}/api/drift/status/${pipeline}`);
+          const res = await fetch(`${MLOPS_BASE}/drift/status/${pipeline}`);
           driftStatusMap[pipeline] = await res.json();
         } catch {
           driftStatusMap[pipeline] = { pipeline, status: 'stable', psi_threshold: 0.3, last_checked: new Date().toISOString() };
@@ -123,15 +123,19 @@ export default function MLOpsPage() {
   const handleRetrain = async (pipeline: string) => {
     setRetraining(pipeline);
     try {
-      const res = await fetch(`${MLOPS_BASE}/api/automation/drift-retrain`, {
+      const res = await fetch(`${MLOPS_BASE}/automation/drift-retrain`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pipeline }),
       });
       const data = await res.json();
-      toast.success(`Retraining triggered: ${data.job_id}`);
+      if (data.job_id) {
+        toast.success(`Retraining triggered: ${data.job_id}`);
+      } else {
+        toast.warning(`No retraining needed (PSI: ${data.psi?.toFixed(3) || 'N/A'})`);
+      }
       fetchData();
-    } catch (error) {
+    } catch {
       toast.error('Failed to trigger retraining');
     } finally {
       setRetraining(null);
@@ -145,7 +149,8 @@ export default function MLOpsPage() {
       case 'failed': return 'bg-red-500';
       case 'stable': return 'bg-green-500';
       case 'warning': return 'bg-yellow-500';
-      case 'drifted': return 'bg-red-500';
+      case 'drifted':
+      case 'drift_detected': return 'bg-red-500';
       default: return 'bg-gray-500';
     }
   };
@@ -166,11 +171,11 @@ export default function MLOpsPage() {
     const im = metrics.imaging || {};
     const cl = metrics.clinical || {};
     return [
-      { metric: 'Accuracy', imaging: im.accuracy ? im.accuracy * 100 : 0, clinical: cl.accuracy ? cl.accuracy * 100 : 0 },
+      { metric: 'Acc', imaging: im.accuracy ? im.accuracy * 100 : 0, clinical: cl.accuracy ? cl.accuracy * 100 : 0 },
       { metric: 'Kappa', imaging: im.quadratic_weighted_kappa ? im.quadratic_weighted_kappa * 100 : 0, clinical: cl.quadratic_weighted_kappa ? cl.quadratic_weighted_kappa * 100 : 0 },
       { metric: 'AUC', imaging: im.roc_auc_macro ? im.roc_auc_macro * 100 : 0, clinical: cl.roc_auc_macro ? cl.roc_auc_macro * 100 : 0 },
-      { metric: 'Precision', imaging: im.precision_macro ? im.precision_macro * 100 : 0, clinical: cl.precision_macro ? cl.precision_macro * 100 : 0 },
-      { metric: 'Recall', imaging: im.recall_macro ? im.recall_macro * 100 : 0, clinical: cl.recall_macro ? cl.recall_macro * 100 : 0 },
+      { metric: 'Prec', imaging: im.precision_macro ? im.precision_macro * 100 : undefined, clinical: cl.precision_macro ? cl.precision_macro * 100 : undefined },
+      { metric: 'Rec', imaging: im.recall_macro ? im.recall_macro * 100 : undefined, clinical: cl.recall_macro ? cl.recall_macro * 100 : undefined },
     ];
   };
 
@@ -178,19 +183,22 @@ export default function MLOpsPage() {
     return (
       <PageContainer>
         <div className="flex items-center justify-center h-[60vh]">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" />
         </div>
       </PageContainer>
     );
   }
 
+  const activeJobs = jobs.filter(j => j.status === 'running').length;
+  const overallDrift = Object.values(driftStatus).some(d => d.status === 'drift_detected');
+
   return (
     <PageContainer>
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">MLOps Monitor</h1>
-            <p className="text-muted-foreground">Training pipelines, drift detection, and model performance</p>
+            <h1 className="text-2xl font-bold tracking-tight">MLOps Monitor</h1>
+            <p className="text-sm text-muted-foreground">Training pipelines, drift detection, and model performance</p>
           </div>
           <Button variant="outline" size="sm" onClick={fetchData}>
             <RefreshCw className="h-4 w-4 mr-2" />
@@ -198,284 +206,235 @@ export default function MLOpsPage() {
           </Button>
         </div>
 
-        <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="training">Training</TabsTrigger>
-            <TabsTrigger value="drift">Drift Detection</TabsTrigger>
-            <TabsTrigger value="features">Feature Store</TabsTrigger>
-          </TabsList>
-
-          {/* Overview Tab */}
-          <TabsContent value="overview" className="space-y-4">
-            {/* Model Metrics */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Gauge className="h-5 w-5" />
-                  Model Performance Metrics
-                </CardTitle>
-                <CardDescription>Current production model performance</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-4 md:grid-cols-2">
-                  {/* Imaging Model */}
-                  <div className="space-y-3 p-4 rounded-lg border bg-gradient-to-r from-blue-50/50 to-cyan-50/30">
-                    <h3 className="font-semibold flex items-center gap-2">
-                      <Brain className="h-4 w-4 text-blue-600" />
-                      EfficientNet-B3 (Imaging)
-                    </h3>
-                    {metrics?.imaging ? (
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div><span className="text-muted-foreground">Accuracy:</span> {(metrics.imaging.accuracy! * 100).toFixed(1)}%</div>
-                        <div><span className="text-muted-foreground">Kappa:</span> {metrics.imaging.quadratic_weighted_kappa?.toFixed(2)}</div>
-                        <div><span className="text-muted-foreground">AUC:</span> {(metrics.imaging.roc_auc_macro! * 100).toFixed(1)}%</div>
-                        <div><span className="text-muted-foreground">Samples:</span> {metrics.imaging.num_samples || 'N/A'}</div>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No metrics available</p>
-                    )}
-                  </div>
-                  {/* Clinical Model */}
-                  <div className="space-y-3 p-4 rounded-lg border bg-gradient-to-r from-purple-50/50 to-pink-50/30">
-                    <h3 className="font-semibold flex items-center gap-2">
-                      <Brain className="h-4 w-4 text-purple-600" />
-                      XGBoost (Clinical)
-                    </h3>
-                    {metrics?.clinical ? (
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div><span className="text-muted-foreground">Accuracy:</span> {(metrics.clinical.accuracy! * 100).toFixed(1)}%</div>
-                        <div><span className="text-muted-foreground">Kappa:</span> {metrics.clinical.quadratic_weighted_kappa?.toFixed(2)}</div>
-                        <div><span className="text-muted-foreground">AUC:</span> {(metrics.clinical.roc_auc_macro! * 100).toFixed(1)}%</div>
-                        <div><span className="text-muted-foreground">Samples:</span> {metrics.clinical.num_samples || 'N/A'}</div>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No metrics available</p>
-                    )}
-                  </div>
-                </div>
-                
-                {getMetricsRadarData().length > 0 && (
-                  <div className="mt-6 h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <RadarChart data={getMetricsRadarData()}>
-                        <PolarGrid />
-                        <PolarAngleAxis dataKey="metric" />
-                        <PolarRadiusAxis angle={30} domain={[0, 100]} />
-                        <Radar name="Imaging" dataKey="imaging" stroke="#2563eb" fill="#2563eb" fillOpacity={0.3} />
-                        <Radar name="Clinical" dataKey="clinical" stroke="#9333ea" fill="#9333ea" fillOpacity={0.3} />
-                        <Legend />
-                        <Tooltip />
-                      </RadarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Quick Stats */}
-            <div className="grid gap-4 md:grid-cols-3">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Active Training Jobs</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{jobs.filter(j => j.status === 'running').length}</div>
-                  <p className="text-xs text-muted-foreground">of {jobs.length} total jobs</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Feature Store</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{features.length}</div>
-                  <p className="text-xs text-muted-foreground">cached features</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Drift Status</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center gap-2">
-                    {Object.values(driftStatus).some(d => d.status === 'drifted') ? (
-                      <>
-                        <AlertTriangle className="h-5 w-5 text-red-500" />
-                        <span className="text-red-500 font-medium">Drifted</span>
-                      </>
-                    ) : Object.values(driftStatus).some(d => d.status === 'warning') ? (
-                      <>
-                        <AlertTriangle className="h-5 w-5 text-yellow-500" />
-                        <span className="text-yellow-500 font-medium">Warning</span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="h-5 w-5 text-green-500" />
-                        <span className="text-green-500 font-medium">Stable</span>
-                      </>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+        {/* Summary Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card className="p-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+              <Activity className="h-3 w-3" /> Active Jobs
             </div>
-          </TabsContent>
+            <div className="text-xl font-bold">{activeJobs}<span className="text-sm font-normal text-muted-foreground">/{jobs.length}</span></div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+              <Database className="h-3 w-3" /> Feature Store
+            </div>
+            <div className="text-xl font-bold">{features.length}</div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+              <TrendingUp className="h-3 w-3" /> Drift Status
+            </div>
+            <div className="flex items-center gap-1">
+              {overallDrift ? (
+                <><AlertTriangle className="h-4 w-4 text-red-500" /><span className="text-sm font-medium text-red-500">Drifted</span></>
+              ) : (
+                <><CheckCircle2 className="h-4 w-4 text-green-500" /><span className="text-sm font-medium text-green-500">Stable</span></>
+              )}
+            </div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+              <Brain className="h-3 w-3" /> Imaging Acc
+            </div>
+            <div className="text-xl font-bold">
+              {metrics?.imaging?.accuracy != null ? `${(metrics.imaging.accuracy * 100).toFixed(1)}%` : 'N/A'}
+            </div>
+          </Card>
+        </div>
 
-          {/* Training Tab */}
-          <TabsContent value="training" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Activity className="h-5 w-5" />
-                  Training Jobs
-                </CardTitle>
-                <CardDescription>Recent and active training pipelines</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {jobs.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Clock className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p>No training jobs found</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {jobs.slice(0, 10).map((job) => (
-                      <div key={job.job_id} className="flex items-center justify-between p-3 rounded-lg border">
-                        <div className="space-y-1">
-                          <div className="font-mono text-sm">{job.job_id.slice(0, 8)}...</div>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <span className="capitalize">{job.pipeline}</span>
-                            <span>•</span>
-                            <span>{job.started_at ? new Date(job.started_at).toLocaleString() : 'Pending'}</span>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <Badge className={getStatusColor(job.status)}>{job.status}</Badge>
-                          {job.metrics?.accuracy && (
-                            <p className="text-xs text-muted-foreground mt-1">Acc: {(job.metrics.accuracy * 100).toFixed(1)}%</p>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
+        {/* Model Metrics - Compact Grid */}
+        <div className="grid grid-cols-2 gap-3">
+          {metrics?.imaging && (
+            <Card className="p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Brain className="h-4 w-4 text-blue-600" />
+                <span className="font-semibold text-sm">EfficientNet-B3 (Imaging)</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                <MetricRow label="Acc" value={metrics.imaging.accuracy != null ? `${(metrics.imaging.accuracy * 100).toFixed(1)}%` : 'N/A'} />
+                <MetricRow label="Kappa" value={metrics.imaging.quadratic_weighted_kappa?.toFixed(2) || 'N/A'} />
+                <MetricRow label="AUC" value={metrics.imaging.roc_auc_macro != null ? `${(metrics.imaging.roc_auc_macro * 100).toFixed(1)}%` : 'N/A'} />
+                <MetricRow label="Prec" value={metrics.imaging.precision_macro != null ? `${(metrics.imaging.precision_macro * 100).toFixed(1)}%` : 'N/A'} />
+                <MetricRow label="Rec" value={metrics.imaging.recall_macro != null ? `${(metrics.imaging.recall_macro * 100).toFixed(1)}%` : 'N/A'} />
+                <MetricRow label="Samples" value={metrics.imaging.num_samples?.toString() || 'N/A'} />
+              </div>
             </Card>
-          </TabsContent>
+          )}
+          {metrics?.clinical && (
+            <Card className="p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Brain className="h-4 w-4 text-purple-600" />
+                <span className="font-semibold text-sm">XGBoost (Clinical)</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                <MetricRow label="Acc" value={metrics.clinical.accuracy != null ? `${(metrics.clinical.accuracy * 100).toFixed(1)}%` : 'N/A'} />
+                <MetricRow label="Kappa" value={metrics.clinical.quadratic_weighted_kappa?.toFixed(2) || 'N/A'} />
+                <MetricRow label="AUC" value={metrics.clinical.roc_auc_macro != null ? `${(metrics.clinical.roc_auc_macro * 100).toFixed(1)}%` : 'N/A'} />
+                <MetricRow label="Prec" value={metrics.clinical.precision_macro != null ? `${(metrics.clinical.precision_macro * 100).toFixed(1)}%` : 'N/A'} />
+                <MetricRow label="Rec" value={metrics.clinical.recall_macro != null ? `${(metrics.clinical.recall_macro * 100).toFixed(1)}%` : 'N/A'} />
+                <MetricRow label="Samples" value={metrics.clinical.num_samples?.toString() || 'N/A'} />
+              </div>
+            </Card>
+          )}
+        </div>
 
-          {/* Drift Tab */}
-          <TabsContent value="drift" className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
+        {/* Radar Chart */}
+        {getMetricsRadarData().length > 0 && (
+          <Card className="p-3">
+            <CardHeader className="p-0 mb-2">
+              <CardTitle className="text-sm">Model Performance Comparison</CardTitle>
+            </CardHeader>
+            <div className="h-[180px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={getMetricsRadarData()}>
+                  <PolarGrid />
+                  <PolarAngleAxis dataKey="metric" tick={{ fontSize: 10 }} />
+                  <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 8 }} />
+                  <Radar name="Imaging" dataKey="imaging" stroke="#2563eb" fill="#2563eb" fillOpacity={0.2} />
+                  <Radar name="Clinical" dataKey="clinical" stroke="#9333ea" fill="#9333ea" fillOpacity={0.2} />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                  <Tooltip />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+        )}
+
+        {/* Training Jobs & Drift Status - Side by Side */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Training Jobs */}
+          <Card className="p-3">
+            <CardHeader className="p-0 mb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Activity className="h-4 w-4" />
+                Training Jobs
+                <Badge variant="secondary" className="ml-auto text-xs">{jobs.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {jobs.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-4 text-center">No training jobs</p>
+              ) : (
+                <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                  {jobs.slice(0, 8).map((job) => (
+                    <div key={job.job_id} className="flex items-center justify-between p-2 rounded border text-xs">
+                      <div>
+                        <span className="font-mono text-[10px]">{job.job_id.slice(0, 8)}</span>
+                        <span className="text-muted-foreground ml-1 capitalize">{job.pipeline}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground text-[10px]">
+                          {job.started_at ? new Date(job.started_at).toLocaleDateString() : 'Pending'}
+                        </span>
+                        <Badge className={`${getStatusColor(job.status)} text-[10px] py-0`}>{job.status}</Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Drift Status */}
+          <Card className="p-3">
+            <CardHeader className="p-0 mb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <TrendingUp className="h-4 w-4" />
+                Drift Status
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0 space-y-2">
               {PIPELINES.map((pipeline) => {
                 const status = driftStatus[pipeline];
                 return (
-                  <Card key={pipeline}>
-                    <CardHeader>
-                      <CardTitle className="flex items-center justify-between">
-                        <span className="capitalize">{pipeline} Pipeline</span>
-                        <Badge className={getStatusColor(status?.status || 'unknown')}>
-                          {status?.status || 'Unknown'}
-                        </Badge>
-                      </CardTitle>
-                      <CardDescription>
-                        Last checked: {status?.last_checked ? new Date(status.last_checked).toLocaleString() : 'Never'}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-sm text-muted-foreground">Current PSI</p>
-                          <p className="text-2xl font-bold">{status?.current_psi?.toFixed(3) || 'N/A'}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-muted-foreground">Threshold</p>
-                          <p className="text-2xl font-bold">{status?.psi_threshold || 0.3}</p>
-                        </div>
+                  <div key={pipeline} className="p-2 rounded border">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="capitalize text-xs font-medium">{pipeline}</span>
+                      <Badge className={`${getStatusColor(status?.status || 'unknown')} text-[10px] py-0`}>
+                        {status?.status || 'Unknown'}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 text-xs">
+                      <div><span className="text-muted-foreground">PSI:</span> <span className="font-medium">{status?.overall_psi?.toFixed(3) || 'N/A'}</span></div>
+                      <div><span className="text-muted-foreground">Threshold:</span> <span className="font-medium">{status?.psi_threshold?.toFixed(1) || '0.3'}</span></div>
+                    </div>
+                    {status?.features_drifted && status.features_drifted.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {status.features_drifted.slice(0, 3).map((f) => (
+                          <Badge key={f} variant="outline" className="text-[10px] py-0">{f}</Badge>
+                        ))}
                       </div>
-                      {status?.features_drifted && status.features_drifted.length > 0 && (
-                        <div>
-                          <p className="text-sm font-medium mb-2">Drifted Features:</p>
-                          <div className="flex flex-wrap gap-1">
-                            {status.features_drifted.map((f) => (
-                              <Badge key={f} variant="outline" className="text-xs">{f}</Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      <Button 
-                        variant="outline" 
-                        className="w-full"
-                        onClick={() => handleRetrain(pipeline)}
-                        disabled={retraining === pipeline}
-                      >
-                        {retraining === pipeline ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-                        Trigger Retraining
-                      </Button>
-                    </CardContent>
-                  </Card>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full mt-1 h-6 text-xs"
+                      onClick={() => handleRetrain(pipeline)}
+                      disabled={retraining === pipeline}
+                    >
+                      {retraining === pipeline ? <div className="animate-spin h-3 w-3 border border-primary border-t-transparent rounded-full" /> : <RefreshCw className="h-3 w-3" />}
+                      <span className="ml-1">Retrain</span>
+                    </Button>
+                  </div>
                 );
               })}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Drift History & Features - Side by Side */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Drift History Chart */}
+          <Card className="p-3">
+            <CardHeader className="p-0 mb-2">
+              <CardTitle className="text-sm">Drift History (PSI)</CardTitle>
+            </CardHeader>
+            <div className="h-[140px]">
+              {getDriftChartData().length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={getDriftChartData()}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="timestamp" tick={{ fontSize: 8 }} />
+                    <YAxis domain={[0, 1]} tick={{ fontSize: 8 }} />
+                    <Tooltip wrapperStyle={{ fontSize: 10 }} />
+                    <Legend wrapperStyle={{ fontSize: 10 }} />
+                    <Line type="monotone" dataKey="imaging" stroke="#2563eb" strokeWidth={1.5} name="Imaging" dot={false} />
+                    <Line type="monotone" dataKey="clinical" stroke="#9333ea" strokeWidth={1.5} name="Clinical" dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-xs text-muted-foreground flex items-center justify-center h-full">No drift history</p>
+              )}
             </div>
+          </Card>
 
-            {/* Drift History Chart */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Drift History (PSI over time)</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={getDriftChartData()}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="timestamp" tick={{ fontSize: 12 }} />
-                      <YAxis domain={[0, 1]} />
-                      <Tooltip />
-                      <Legend />
-                      <Line type="monotone" dataKey="imaging" stroke="#2563eb" strokeWidth={2} name="Imaging" />
-                      <Line type="monotone" dataKey="clinical" stroke="#9333ea" strokeWidth={2} name="Clinical" />
-                    </LineChart>
-                  </ResponsiveContainer>
+          {/* Feature Store */}
+          <Card className="p-3">
+            <CardHeader className="p-0 mb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Database className="h-4 w-4" />
+                Feature Store
+                <Badge variant="secondary" className="ml-auto text-xs">{features.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {features.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-4 text-center">No features in store</p>
+              ) : (
+                <div className="space-y-1 max-h-[140px] overflow-y-auto">
+                  {features.slice(0, 10).map((feat, i) => (
+                    <div key={i} className="flex items-center justify-between p-1.5 rounded border text-xs">
+                      <span className="font-mono text-[10px] truncate max-w-[120px]">{feat.key}</span>
+                      <span className="text-muted-foreground text-[10px] truncate max-w-[80px]">
+                        {feat.created_at ? new Date(feat.created_at).toLocaleDateString() : 'N/A'}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Features Tab */}
-          <TabsContent value="features" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Database className="h-5 w-5" />
-                  Feature Store
-                </CardTitle>
-                <CardDescription>Cached feature values for inference</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {features.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Database className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p>No features in store</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                    {features.map((feat, i) => (
-                      <div key={i} className="flex items-center justify-between p-2 rounded border text-sm">
-                        <div>
-                          <span className="font-mono text-xs">{feat.key}</span>
-                          <span className="text-muted-foreground mx-2">:</span>
-                          <span className="text-xs">{feat.value}</span>
-                        </div>
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(feat.created_at).toLocaleString()}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </PageContainer>
   );

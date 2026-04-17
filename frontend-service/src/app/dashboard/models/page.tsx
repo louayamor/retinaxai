@@ -135,7 +135,7 @@ export default function ModelsPage() {
   const triggerTraining = async (pipeline: 'imaging' | 'clinical') => {
     setTraining(pipeline);
     try {
-      const res = await fetch(`${MLOPS_BASE}/train/${pipeline}`, {
+      const res = await fetch(`${MLOPS_BASE}/api/train/${pipeline}`, {
         method: 'POST',
       });
       if (res.ok) {
@@ -153,7 +153,7 @@ export default function ModelsPage() {
   const stopTraining = async () => {
     if (!jobStatus?.job_id) return;
     try {
-      const res = await fetch(`${MLOPS_BASE}/train/${jobStatus.job_id}/stop`, {
+      const res = await fetch(`${MLOPS_BASE}/api/train/${jobStatus.job_id}/stop`, {
         method: 'POST',
       });
       if (res.ok) {
