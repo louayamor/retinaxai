@@ -144,8 +144,28 @@ docker compose up -d
 | GET | `/api/v1/predictions/{id}` | Get a prediction |
 | POST | `/api/v1/reports/` | Generate a report |
 | GET | `/api/v1/reports/{id}` | Get a report |
+| GET | `/api/v1/explanations/{prediction_id}` | Get XAI explanation bundle |
 | GET | `/metrics` | Prometheus metrics |
 | GET | `/health` | Health check |
+
+---
+
+## XAI Contract Governance
+
+`/api/v1/explanations/{prediction_id}` is the canonical backend contract for persisted XAI results.
+
+- `risk_level` values are canonicalized to: `low`, `moderate`, `high`, `severe`.
+- Legacy incoming value `very_high` is normalized to `severe` at persistence boundary.
+- `gradcam_explanation` is returned as a nullable object with:
+  - `id`
+  - `left_eye_explanation`
+  - `right_eye_explanation`
+  - `highlighted_regions`
+  - `model_used`
+
+When evolving this contract, use a backward-compatible two-step rollout:
+1. Add/normalize backend fields while preserving old clients.
+2. Switch frontend consumers after validation, then remove legacy fallbacks.
 
 ---
 

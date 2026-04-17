@@ -409,7 +409,7 @@ interface XAISeverityResponse {
   prediction_id: string;
   content: string;
   summary: string;
-  risk_level: 'low' | 'moderate' | 'high' | 'very_high';
+  risk_level: 'low' | 'moderate' | 'high' | 'severe';
   recommendations: string[];
   model_used: string;
 }
@@ -594,7 +594,16 @@ export interface XAIResponse {
   prediction_id: string;
   explanation: XAIExplanation | null;
   severity_report: SeverityReport | null;
-  gradcam_explanation: null;
+  gradcam_explanation: {
+    id: string;
+    left_eye_explanation: string;
+    right_eye_explanation: string;
+    highlighted_regions: {
+      left_eye: string[];
+      right_eye: string[];
+    };
+    model_used: string;
+  } | null;
 }
 
 export async function getXAIExplanations(predictionId: string): Promise<XAIResponse> {

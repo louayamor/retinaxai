@@ -3,7 +3,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
@@ -18,6 +18,20 @@ from app.predictions.repository import PredictionRepository
 
 router = APIRouter(prefix="/explanations", tags=["explanations"])
 
+RISK_LEVEL_ALIASES: dict[str, str] = {
+    "very_high": "severe",
+}
+
+
+def _normalize_risk_level(risk_level: str | None) -> RiskLevel:
+    if not risk_level:
+        return RiskLevel.MODERATE
+    normalized = RISK_LEVEL_ALIASES.get(risk_level.lower(), risk_level.lower())
+    try:
+        return RiskLevel(normalized)
+    except ValueError:
+        return RiskLevel.MODERATE
+
 
 class StoreXAIRequest(BaseModel):
     prediction_id: str
@@ -30,7 +44,7 @@ class StoreXAIRequest(BaseModel):
     severity_content: str | None = None
     severity_summary: str | None = None
     severity_risk_level: str = "moderate"
-    severity_recommendations: list[str] = []
+    severity_recommendations: list[str] = Field(default_factory=list)
 
 
 class StoreXAIShapRequest(BaseModel):
@@ -99,15 +113,7 @@ async def store_xai_results(
         results["stored"].append("gradcam_explanation")
 
     if request.severity_content:
-        risk_level_str = (
-            request.severity_risk_level.lower()
-            if request.severity_risk_level
-            else "moderate"
-        )
-        try:
-            risk_enum = RiskLevel(risk_level_str)
-        except ValueError:
-            risk_enum = RiskLevel.MODERATE
+        risk_enum = _normalize_risk_level(request.severity_risk_level)
 
         severity = SeverityReport(
             id=uuid.uuid4(),
@@ -188,7 +194,7 @@ class XAIResponse(BaseModel):
     gradcam_explanation: dict | None = None
 
 
-@router.get("/{prediction_id}")
+@router.get("/{prediction_id}", response_model=XAIResponse)
 async def get_xai_explanations(
     prediction_id: str,
     db: AsyncSession = Depends(get_db),
@@ -205,6 +211,7 @@ async def get_xai_explanations(
         .options(
             selectinload(Prediction.explanation),
             selectinload(Prediction.severity_report),
+            selectinload(Prediction.gradcam_explanation),
         )
     )
     result = await db.execute(prediction_stmt)
@@ -238,6 +245,15 @@ async def get_xai_explanations(
             "risk_level": prediction.severity_report.risk_level.value,
             "recommendations": prediction.severity_report.recommendations,
             "model_used": prediction.severity_report.model_used,
+        }
+
+    if prediction.gradcam_explanation:
+        response["gradcam_explanation"] = {
+            "id": str(prediction.gradcam_explanation.id),
+            "left_eye_explanation": prediction.gradcam_explanation.left_eye_explanation,
+            "right_eye_explanation": prediction.gradcam_explanation.right_eye_explanation,
+            "highlighted_regions": prediction.gradcam_explanation.highlighted_regions,
+            "model_used": prediction.gradcam_explanation.model_used,
         }
 
     return response
