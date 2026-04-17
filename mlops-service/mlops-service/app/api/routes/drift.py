@@ -37,6 +37,8 @@ class DriftStatusResponse(BaseModel):
     status: str
     overall_psi: float
     drift_detected: bool
+    psi_threshold: float = DRIFT_THRESHOLD_PSI
+    features_drifted: list[str] = []
     last_checked: Optional[str] = None
 
 
@@ -108,11 +110,18 @@ async def get_drift_status(
 ) -> DriftStatusResponse:
     latest = service.get_latest_drift(pipeline)
 
+    features_drifted = []
+    if latest and latest.feature_results:
+        features_drifted = [
+            f.feature_name for f in latest.feature_results if f.drift_detected
+        ]
+
     return DriftStatusResponse(
         pipeline=pipeline,
         status=latest.status if latest else DriftStatus.UNKNOWN,
         overall_psi=latest.overall_psi if latest else 0.0,
         drift_detected=latest.drift_detected if latest else False,
+        features_drifted=features_drifted,
         last_checked=latest.generated_at if latest else None,
     )
 

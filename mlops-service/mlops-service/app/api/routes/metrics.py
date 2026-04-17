@@ -19,6 +19,8 @@ def get_metrics():
             accuracy=eyepacs.get("accuracy"),
             quadratic_weighted_kappa=eyepacs.get("quadratic_weighted_kappa"),
             roc_auc_macro=eyepacs.get("roc_auc_macro"),
+            precision_macro=eyepacs.get("precision_macro"),
+            recall_macro=eyepacs.get("recall_macro"),
             num_samples=eyepacs.get("num_samples"),
         )
 
@@ -30,6 +32,8 @@ def get_metrics():
             accuracy=data.get("accuracy"),
             quadratic_weighted_kappa=data.get("quadratic_weighted_kappa"),
             roc_auc_macro=data.get("roc_auc_macro"),
+            precision_macro=data.get("precision_macro"),
+            recall_macro=data.get("recall_macro"),
             num_samples=data.get("num_samples"),
         )
 

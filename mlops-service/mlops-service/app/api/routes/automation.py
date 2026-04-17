@@ -15,8 +15,6 @@ class AutomationStatusResponse(BaseModel):
 
 
 class DriftRetrainRequest(BaseModel):
-    reference_path: str
-    current_path: str
     pipeline: str = "both"
     psi_threshold: float = 0.3
 
@@ -72,13 +70,9 @@ async def drift_retrain(
 ) -> DriftRetrainResponse:
     service = _get_service(settings)
 
-    reference_path = Path(request.reference_path)
-    current_path = Path(request.current_path)
-
-    if not reference_path.is_absolute():
-        reference_path = settings.artifacts_root / reference_path
-    if not current_path.is_absolute():
-        current_path = settings.artifacts_root / current_path
+    artifacts = settings.artifacts_root
+    reference_path = artifacts / "data" / "clinical" / "reference.csv"
+    current_path = artifacts / "data" / "clinical" / "current.csv"
 
     result = service.trigger_drift_retraining(
         reference_csv=reference_path,

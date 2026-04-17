@@ -105,6 +105,8 @@ class ImagingMetrics(BaseModel):
     accuracy: Optional[float]
     quadratic_weighted_kappa: Optional[float]
     roc_auc_macro: Optional[float]
+    precision_macro: Optional[float]
+    recall_macro: Optional[float]
     num_samples: Optional[int]
 
 
@@ -112,6 +114,8 @@ class ClinicalMetrics(BaseModel):
     accuracy: Optional[float]
     quadratic_weighted_kappa: Optional[float]
     roc_auc_macro: Optional[float]
+    precision_macro: Optional[float]
+    recall_macro: Optional[float]
     num_samples: Optional[int]
 
 

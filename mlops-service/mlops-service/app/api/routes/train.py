@@ -1,4 +1,5 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel
 from app.api.schemas import TrainRequest, TrainResponse
 from app.api.dependencies import get_settings
 from app.config.settings import Settings
@@ -6,10 +7,23 @@ from app.services.orchestration.training_service import (
     create_job,
     run_pipeline_task,
     cancel_job,
+    _job_store,
 )
 from app.services.platform.resource_manager import ResourceManager
 
-router = APIRouter()
+router = APIRouter(prefix="/api")
+
+
+class JobListResponse(BaseModel):
+    jobs: list[dict]
+    total: int
+
+
+@router.get("/train/jobs", response_model=JobListResponse)
+def list_training_jobs():
+    jobs = list(_job_store.values())
+    jobs.sort(key=lambda j: j.get("started_at") or "", reverse=True)
+    return JobListResponse(jobs=jobs, total=len(jobs))
 
 
 @router.post("/train", response_model=TrainResponse)

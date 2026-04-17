@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 from app.entity.ocr_schema import ClinicalFindings, OCTReport, PatientInfo, RegionImage, ReportMetadata, RetinalThickness
-from app.pipeline.ocr_pipeline import OCRPipeline
+from app.domains.ocr.pipeline.ocr_pipeline import OCRPipeline
 
 
 def test_ocr_pipeline_export_uses_configured_paths(monkeypatch, temp_input_dir, temp_output_dir, temp_images_dir):
@@ -47,7 +47,7 @@ def test_ocr_pipeline_export_uses_configured_paths(monkeypatch, temp_input_dir, 
         captured["csv_path"] = str(path)
         captured["csv_index"] = index
 
-    monkeypatch.setattr("app.pipeline.ocr_pipeline.pd.DataFrame.to_csv", fake_to_csv)
+    monkeypatch.setattr("app.domains.ocr.pipeline.ocr_pipeline.pd.DataFrame.to_csv", fake_to_csv)
     monkeypatch.setattr(Path, "write_text", fake_write_text, raising=False)
 
     pipeline._export([report])

@@ -191,8 +191,8 @@ class FeatureStore:
                 features.append(
                     {
                         "key": key,
-                        "version": self._store.get_version(key),
-                        "last_access": self._store.get_last_access(key),
+                        "value": json.dumps(self._store.get(key)),
+                        "created_at": self._store.get_last_access(key) or datetime.utcnow().isoformat(),
                     }
                 )
             except FeatureNotFoundError:
