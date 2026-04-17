@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = 'add_auth_sessions'
-down_revision: str | None = 'add_ocr_patient_id'
+down_revision: str | None = '96e2434a5f94'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

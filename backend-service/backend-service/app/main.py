@@ -10,13 +10,17 @@ from app.core.config import settings
 from app.core.exceptions import AppException
 from app.core.logging import setup_logging
 from app.core.middleware.cors import add_cors_middleware
+from app.core.middleware.prometheus import PrometheusMiddleware
 from app.core.middleware.rate_limit import RateLimitMiddleware
 from app.core.middleware.request_id import RequestIDMiddleware
+from app.core.prometheus_metrics import start_metrics_server
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+
+    start_metrics_server(port=9102)
 
     if settings.APP_ENV == "development":
         _start_local_redis()
@@ -84,6 +88,7 @@ def create_app() -> FastAPI:
         max_requests=settings.RATE_LIMIT_MAX_REQUESTS,
         window_seconds=settings.RATE_LIMIT_WINDOW_SECONDS,
     )
+    app.add_middleware(PrometheusMiddleware)
 
     app.include_router(api_router)
     app.include_router(ws_router, tags=["websocket"])

@@ -9,9 +9,9 @@ from app.db.base import Base, TimestampMixin, UUIDMixin
 
 
 class ReportStatus(str, enum.Enum):
-    GENERATING = "generating"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    GENERATING = "GENERATING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class Report(Base, UUIDMixin, TimestampMixin):

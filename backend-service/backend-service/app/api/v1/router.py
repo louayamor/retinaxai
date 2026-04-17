@@ -12,6 +12,7 @@ from app.api.v1.routes.orchestration_routes import router as orchestration_route
 from app.api.v1.routes.patient_routes import router as patient_router
 from app.api.v1.routes.predict_routes import router as predict_router
 from app.api.v1.routes.report_routes import router as report_router
+from app.api.v1.routes.system_routes import router as system_router
 from app.api.v1.routes.user_routes import router as user_router
 
 api_router = APIRouter(prefix="/api/v1")
@@ -29,3 +30,4 @@ api_router.include_router(dashboard_router)
 api_router.include_router(notification_router)
 api_router.include_router(orchestration_router)
 api_router.include_router(explanation_router)
+api_router.include_router(system_router)
