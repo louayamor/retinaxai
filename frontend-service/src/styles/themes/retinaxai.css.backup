@@ -1,0 +1,191 @@
+[data-theme='retinaxai'] {
+  /* Samaya Hospital Brand Colors */
+  --background: oklch(0.99 0.003 180);
+  --foreground: oklch(0.16 0.025 195);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.16 0.025 195);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.16 0.025 195);
+  --primary: oklch(0.72 0.14 185);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.95 0.01 185);
+  --secondary-foreground: oklch(0.18 0.04 185);
+  --muted: oklch(0.96 0.005 185);
+  --muted-foreground: oklch(0.48 0.02 185);
+  --accent: oklch(0.76 0.12 80);
+  --accent-foreground: oklch(0.16 0.04 80);
+  --destructive: oklch(0.58 0.2 23.03);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.92 0.005 185);
+  --input: oklch(0.95 0.005 185);
+  --ring: oklch(0.72 0.14 185);
+  --chart-1: oklch(0.72 0.14 185);
+  --chart-2: oklch(0.76 0.12 80);
+  --chart-3: oklch(0.58 0.15 160);
+  --chart-4: oklch(0.65 0.12 230);
+  --chart-5: oklch(0.58 0.2 23.03);
+  --sidebar: #0f1a2d;
+  --sidebar-foreground: oklch(0.97 0.005 185);
+  --sidebar-primary: oklch(0.72 0.14 185);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: #12495f;
+  --sidebar-accent-foreground: oklch(0.97 0.005 185);
+  --sidebar-border: oklch(0.22 0.035 195);
+  --sidebar-ring: oklch(0.72 0.14 185);
+  /* Brand Colors - Teal (#20bdbe) and Gold (#c8a951) */
+  --brand-teal: #20bdbe;
+  --brand-teal-light: #20bdbe;
+  --brand-teal-dark: #1a9a9a;
+  --brand-gold: #c8a951;
+  --brand-gold-light: #c8a951;
+  --brand-gold-dark: #b09445;
+  --font-sans: 'Jost', sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: 'Jost', monospace;
+  --radius: 0.75rem;
+  --shadow-x: 0px;
+  --shadow-y: 4px;
+  --shadow-blur: 16px;
+  --shadow-spread: -2px;
+  --shadow-opacity: 0.06;
+  --shadow-color: hsl(185 30% 15%);
+  --shadow-2xs: 0px 2px 4px 0px hsl(185 30% 15% / 0.04);
+  --shadow-xs: 0px 2px 6px 0px hsl(185 30% 15% / 0.06);
+  --shadow-sm: 0px 2px 8px 0px hsl(185 30% 15% / 0.06),
+    0px 1px 3px -1px hsl(185 30% 15% / 0.06);
+  --shadow: 0px 4px 12px 0px hsl(185 30% 15% / 0.06),
+    0px 2px 4px -2px hsl(185 30% 15% / 0.06);
+  --shadow-md: 0px 4px 16px 0px hsl(185 30% 15% / 0.08),
+    0px 2px 6px -2px hsl(185 30% 15% / 0.08);
+  --shadow-lg: 0px 8px 24px 0px hsl(185 30% 15% / 0.08),
+    0px 4px 8px -4px hsl(185 30% 15% / 0.08);
+  --shadow-xl: 0px 12px 36px 0px hsl(185 30% 15% / 0.1),
+    0px 8px 12px -6px hsl(185 30% 15% / 0.1);
+  --shadow-2xl: 0px 16px 48px 0px hsl(185 30% 15% / 0.15);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+}
+
+[data-theme='retinaxai'].dark {
+  --background: oklch(0.12 0.025 195);
+  --foreground: oklch(0.97 0.005 185);
+  --card: oklch(0.16 0.025 195);
+  --card-foreground: oklch(0.97 0.005 185);
+  --popover: oklch(0.16 0.025 195);
+  --popover-foreground: oklch(0.97 0.005 185);
+  --primary: oklch(0.72 0.14 185);
+  --primary-foreground: oklch(0.08 0.02 195);
+  --secondary: oklch(0.22 0.03 195);
+  --secondary-foreground: oklch(0.97 0.005 185);
+  --muted: oklch(0.22 0.02 195);
+  --muted-foreground: oklch(0.62 0.02 185);
+  --accent: oklch(0.76 0.12 80);
+  --accent-foreground: oklch(0.12 0.03 80);
+  --destructive: oklch(0.64 0.2 23.91);
+  --destructive-foreground: oklch(0 0 0);
+  --border: oklch(0.24 0.03 195);
+  --input: oklch(0.26 0.03 195);
+  --ring: oklch(0.72 0.14 185);
+  --chart-1: oklch(0.72 0.14 185);
+  --chart-2: oklch(0.76 0.12 80);
+  --chart-3: oklch(0.58 0.15 160);
+  --chart-4: oklch(0.65 0.12 230);
+  --chart-5: oklch(0.64 0.2 23.91);
+  --sidebar: #0f1a2d;
+  --sidebar-foreground: oklch(0.97 0.005 185);
+  --sidebar-primary: oklch(0.72 0.14 185);
+  --sidebar-primary-foreground: oklch(0.08 0.02 195);
+  --sidebar-accent: oklch(0.18 0.03 195);
+  --sidebar-accent-foreground: oklch(0.97 0.005 185);
+  --sidebar-border: oklch(0.2 0.03 195);
+  --sidebar-ring: oklch(0.72 0.14 185);
+  /* Brand Colors - Teal (#20bdbe) and Gold (#c8a951) */
+  --brand-teal: #20bdbe;
+  --brand-teal-light: #20bdbe;
+  --brand-teal-dark: #1a9a9a;
+  --brand-gold: #c8a951;
+  --brand-gold-light: #c8a951;
+  --brand-gold-dark: #b09445;
+  --font-sans: 'Jost', sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: 'Jost', monospace;
+  --radius: 0.75rem;
+  --shadow-x: 0px;
+  --shadow-y: 4px;
+  --shadow-blur: 16px;
+  --shadow-spread: -2px;
+  --shadow-opacity: 0.25;
+  --shadow-color: hsl(185 30% 5%);
+  --shadow-2xs: 0px 2px 4px 0px hsl(185 30% 5% / 0.1);
+  --shadow-xs: 0px 2px 6px 0px hsl(185 30% 5% / 0.15);
+  --shadow-sm: 0px 4px 8px 0px hsl(185 30% 5% / 0.25),
+    0px 2px 4px -2px hsl(185 30% 5% / 0.25);
+  --shadow: 0px 4px 12px 0px hsl(185 30% 5% / 0.25),
+    0px 2px 4px -2px hsl(185 30% 5% / 0.25);
+  --shadow-md: 0px 8px 16px 0px hsl(185 30% 5% / 0.25),
+    0px 4px 6px -3px hsl(185 30% 5% / 0.25);
+  --shadow-lg: 0px 12px 24px 0px hsl(185 30% 5% / 0.25),
+    0px 6px 8px -4px hsl(185 30% 5% / 0.25);
+  --shadow-xl: 0px 16px 40px 0px hsl(185 30% 5% / 0.25),
+    0px 8px 12px -6px hsl(185 30% 5% / 0.25);
+  --shadow-2xl: 0px 20px 56px 0px hsl(185 30% 5% / 0.4);
+}
+
+[data-theme='retinaxai'] {
+  @theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
+    --font-sans: var(--font-sans);
+    --font-mono: var(--font-mono);
+    --font-serif: var(--font-serif);
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
+    --shadow-2xs: var(--shadow-2xs);
+    --shadow-xs: var(--shadow-xs);
+    --shadow-sm: var(--shadow-sm);
+    --shadow: var(--shadow);
+    --shadow-md: var(--shadow-md);
+    --shadow-lg: var(--shadow-lg);
+    --shadow-xl: var(--shadow-xl);
+    --shadow-2xl: var(--shadow-2xl);
+    /* Brand Colors as Tailwind utilities */
+    --color-brand-teal: var(--brand-teal);
+    --color-brand-teal-light: var(--brand-teal-light);
+    --color-brand-teal-dark: var(--brand-teal-dark);
+    --color-brand-gold: var(--brand-gold);
+    --color-brand-gold-light: var(--brand-gold-light);
+    --color-brand-gold-dark: var(--brand-gold-dark);
+  }
+}

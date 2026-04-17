@@ -57,26 +57,39 @@ export default function LLMOpsPage() {
 
   const fetchData = async () => {
     setLoading(true);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
     try {
-      const [healthRes, ragRes, opRes] = await Promise.all([
-        fetch(`${LLMOPS_BASE}/health`).then(r => r.json()).catch(() => ({ status: 'unavailable', llm_provider: 'unknown', model: 'unknown' })),
-        fetch(`${LLMOPS_BASE}/api/rag/status`).then(r => r.json()).catch(() => ({})),
-        fetch(`${LLMOPS_BASE}/api/operation`, { headers: { 'x-api-key': LLMOPS_API_KEY } }).then(r => r.json()).catch(() => null),
+      const results = await Promise.allSettled([
+        fetch(`${LLMOPS_BASE}/health`, { signal: controller.signal }),
+        fetch(`${LLMOPS_BASE}/api/rag/status`, { signal: controller.signal }),
+        fetch(`${LLMOPS_BASE}/api/operation`, { headers: { 'x-api-key': LLMOPS_API_KEY }, signal: controller.signal }),
       ]);
+
+      const healthRes = results[0].status === 'fulfilled' ? await results[0].value.json().catch(() => ({ status: 'unavailable', llm_provider: 'unknown', model: 'unknown' })) : { status: 'unavailable', llm_provider: 'unknown', model: 'unknown' };
+      const ragRes = results[1].status === 'fulfilled' ? await results[1].value.json().catch(() => ({})) : {};
+      const opRes = results[2].status === 'fulfilled' && results[2].value.ok ? await results[2].value.json().catch(() => null) : null;
+
       setHealth(healthRes);
       setRagStatus(ragRes);
       setOperation(opRes);
     } catch (error) {
       console.error('Failed to fetch LLMOps data:', error);
     } finally {
+      clearTimeout(timeout);
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    const timer = setTimeout(() => setLoading(false), 5000);
     void fetchData();
     const interval = setInterval(fetchData, 15000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, []);
 
   const handleReindex = async () => {

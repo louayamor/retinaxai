@@ -31,16 +31,30 @@ type PatientFormState = {
   ocr_patient_id: string;
 };
 
-const emptyForm: PatientFormState = {
+const generateMRN = () => {
+  const year = new Date().getFullYear();
+  return `MRN-${year}-`;
+};
+
+const generateOCRId = (existingPatients: Patient[]) => {
+  const existingIds = existingPatients
+    .map(p => p.ocr_patient_id)
+    .filter(id => id && !isNaN(Number(id)))
+    .map(Number);
+  const maxId = existingIds.length > 0 ? Math.max(...existingIds) : 0;
+  return String(maxId + 1);
+};
+
+const createEmptyForm = (patients: Patient[]): PatientFormState => ({
   first_name: '',
   last_name: '',
   age: '',
   gender: 'M',
-  medical_record_number: '',
+  medical_record_number: generateMRN(),
   phone: '',
   address: '',
-  ocr_patient_id: ''
-};
+  ocr_patient_id: generateOCRId(patients)
+});
 
 export default function PatientsPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -54,7 +68,7 @@ export default function PatientsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
-  const [form, setForm] = useState<PatientFormState>(emptyForm);
+  const [form, setForm] = useState<PatientFormState>(() => createEmptyForm([]));
   const [genderFilter, setGenderFilter] = useState<'all' | 'M' | 'F'>('all');
   const [editPatient, setEditPatient] = useState<Patient | null>(null);
   const [deletePatient, setDeletePatient] = useState<Patient | null>(null);
@@ -73,7 +87,11 @@ export default function PatientsPage() {
     setLoading(true);
     try {
       const data = await getPatients();
-      setPatients(Array.isArray(data) ? data : []);
+      const patientsArray = Array.isArray(data) ? data : [];
+      setPatients(patientsArray);
+      if (form.medical_record_number === generateMRN()) {
+        setForm(createEmptyForm(patientsArray));
+      }
     } catch (err) {
       console.error('Failed to fetch patients:', err);
       setPatients([]);
@@ -98,7 +116,7 @@ export default function PatientsPage() {
     };
 
   const resetForm = () => {
-    setForm(emptyForm);
+    setForm(createEmptyForm(patients));
   };
 
   const onSubmit = async () => {

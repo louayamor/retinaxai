@@ -211,6 +211,7 @@ def create_app() -> FastAPI:
             "/api/ready",
             "/api/rag",
             "/api/generate",
+            "/api/operation",
             "/api/xai/explain",
             "/api/xai/gradcam",
             "/api/xai/severity",

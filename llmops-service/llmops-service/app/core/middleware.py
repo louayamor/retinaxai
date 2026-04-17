@@ -34,7 +34,6 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             "/openapi.json",
             "/api/rag/status",
             "/api/rag/reindex",
-            "/api/operation",
         ]
 
     async def dispatch(self, request: Request, call_next):
