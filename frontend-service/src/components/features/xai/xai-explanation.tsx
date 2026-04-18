@@ -77,7 +77,10 @@ interface XAIExplanationProps {
   gradcamExplanation?: {
     left_eye_explanation?: string | null;
     right_eye_explanation?: string | null;
-    highlighted_regions?: Record<string, unknown> | null;
+    highlighted_regions?: {
+      left_eye?: string[];
+      right_eye?: string[];
+    } | null;
     model_used?: string | null;
   } | null;
 }
@@ -260,28 +263,62 @@ export default function XAIExplanation({
       )}
 
       {/* GradCAM Explanation */}
-      {(gradcamExplanation?.left_eye_explanation || gradcamExplanation?.right_eye_explanation) && (
+      {(gradcamExplanation?.left_eye_explanation || gradcamExplanation?.right_eye_explanation || (gradcamExplanation?.highlighted_regions?.left_eye?.length ?? 0) > 0 || (gradcamExplanation?.highlighted_regions?.right_eye?.length ?? 0) > 0) && (
         <Card className="border-violet-200 dark:border-violet-800">
           <CardHeader className="pb-2 bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-950/30 dark:to-purple-950/30">
             <div className="flex items-center gap-2">
               <Eye className="h-5 w-5 text-violet-600" />
-              <span className="font-semibold text-violet-900 dark:text-violet-100">Grad-CAM Visual Explanation</span>
+              <span className="font-semibold text-violet-900 dark:text-violet-100">Grad-CAM Regional Analysis</span>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {gradcamExplanation.left_eye_explanation && (
+            {(gradcamExplanation?.highlighted_regions?.left_eye?.length ?? 0) > 0 || (gradcamExplanation?.highlighted_regions?.right_eye?.length ?? 0) > 0 ? (
+              <div className="grid md:grid-cols-2 gap-4">
+                {(gradcamExplanation?.highlighted_regions?.left_eye?.length ?? 0) > 0 && (
+                  <div className="border rounded-lg p-4 bg-blue-50/50 dark:bg-blue-950/30">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Eye className="h-4 w-4 text-blue-600" />
+                      <h4 className="font-semibold text-blue-900 dark:text-blue-100">Left Eye (OS)</h4>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {gradcamExplanation?.highlighted_regions?.left_eye?.map((region: string, idx: number) => (
+                        <Badge key={idx} variant="outline" className="bg-blue-100/50 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200">
+                          {region.replace(/_/g, ' ')}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(gradcamExplanation?.highlighted_regions?.right_eye?.length ?? 0) > 0 && (
+                  <div className="border rounded-lg p-4 bg-purple-50/50 dark:bg-purple-950/30">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Eye className="h-4 w-4 text-purple-600" />
+                      <h4 className="font-semibold text-purple-900 dark:text-purple-100">Right Eye (OD)</h4>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {gradcamExplanation?.highlighted_regions?.right_eye?.map((region: string, idx: number) => (
+                        <Badge key={idx} variant="outline" className="bg-purple-100/50 dark:bg-purple-900/50 text-purple-800 dark:text-purple-200">
+                          {region.replace(/_/g, ' ')}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
+            {gradcamExplanation?.left_eye_explanation && (
               <div className="p-3 bg-blue-50/50 dark:bg-blue-950/30 rounded-lg">
                 <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">Left Eye (OS)</h4>
                 <p className="text-sm text-muted-foreground">{gradcamExplanation.left_eye_explanation}</p>
               </div>
             )}
-            {gradcamExplanation.right_eye_explanation && (
+            {gradcamExplanation?.right_eye_explanation && (
               <div className="p-3 bg-purple-50/50 dark:bg-purple-950/30 rounded-lg">
                 <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2">Right Eye (OD)</h4>
                 <p className="text-sm text-muted-foreground">{gradcamExplanation.right_eye_explanation}</p>
               </div>
             )}
-            {gradcamExplanation.model_used && (
+            {gradcamExplanation?.model_used && (
               <p className="text-xs text-muted-foreground text-right">
                 Generated with: {gradcamExplanation.model_used}
               </p>

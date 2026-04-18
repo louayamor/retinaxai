@@ -22,7 +22,7 @@ class GitHubLLMClient(LLMClient):
         model: str,
         endpoint: str = "https://models.github.ai/inference",
         timeout_seconds: int = 120,
-        max_tokens: int = 2000,
+        max_tokens: int = 4000,
     ):
         self.token = token
         self.model = model
@@ -96,7 +96,7 @@ class OllamaLLMClient(LLMClient):
         model: str,
         base_url: str = "http://localhost:11434",
         timeout_seconds: int = 120,
-        max_tokens: int = 2000,
+        max_tokens: int = 4000,
     ):
         self.model = model
         self.base_url = base_url
