@@ -335,19 +335,39 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
             <div>
               <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
                 <Eye className="h-5 w-5 text-violet-600" />
-                Detailed Analysis
+                Detailed GradCAM Analysis
               </h3>
               <div className="space-y-3">
                 {gradcam_explanation?.left_eye_explanation && (
-                  <div className="p-4 bg-blue-50/50 dark:bg-blue-950/30 rounded-lg">
-                    <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">Left Eye (OS)</h4>
-                    <p className="text-sm text-muted-foreground">{gradcam_explanation.left_eye_explanation}</p>
+                  <div className="border-2 border-blue-200 dark:border-blue-800 rounded-lg p-4 bg-blue-50/50 dark:bg-blue-950/30">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-semibold text-blue-900 dark:text-blue-100 flex items-center gap-2">
+                        <Eye className="h-4 w-4" />
+                        Left Eye (OS)
+                      </h4>
+                      <Badge variant="outline" className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
+                        {gradcam_explanation.highlighted_regions?.left_eye?.length || 0} regions
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground line-clamp-4">
+                      {gradcam_explanation.left_eye_explanation.split('\n').slice(0, 3).join('. ')}...
+                    </p>
                   </div>
                 )}
                 {gradcam_explanation?.right_eye_explanation && (
-                  <div className="p-4 bg-purple-50/50 dark:bg-purple-950/30 rounded-lg">
-                    <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2">Right Eye (OD)</h4>
-                    <p className="text-sm text-muted-foreground">{gradcam_explanation.right_eye_explanation}</p>
+                  <div className="border-2 border-purple-200 dark:border-purple-800 rounded-lg p-4 bg-purple-50/50 dark:bg-purple-950/30">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-semibold text-purple-900 dark:text-purple-100 flex items-center gap-2">
+                        <Eye className="h-4 w-4" />
+                        Right Eye (OD)
+                      </h4>
+                      <Badge variant="outline" className="bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300">
+                        {gradcam_explanation.highlighted_regions?.right_eye?.length || 0} regions
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground line-clamp-4">
+                      {gradcam_explanation.right_eye_explanation.split('\n').slice(0, 3).join('. ')}...
+                    </p>
                   </div>
                 )}
               </div>
