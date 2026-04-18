@@ -151,6 +151,9 @@ class JobManager:
         # Wait for workers to finish
         await asyncio.gather(*self._workers, return_exceptions=True)
 
+        # Release semaphore resources
+        # asyncio.Semaphore doesn't have close() method
+
         # Persist jobs
         await self._persist_jobs()
 

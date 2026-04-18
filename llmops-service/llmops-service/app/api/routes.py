@@ -217,6 +217,7 @@ class XAIPredictionRequest(BaseModel):
     dr_grade: str
     confidence: float
     clinical_features: dict | None = None
+    gradcam_regions: dict | None = None
 
 
 class XAIGradCAMRequest(BaseModel):
@@ -236,6 +237,7 @@ class XAISeverityRequest(BaseModel):
 async def explain_prediction(payload: XAIPredictionRequest) -> dict:
     """
     Generate natural language explanation of DR prediction.
+    Uses GradCAM regions for imaging-based predictions or SHAP for clinical features.
     """
     from app.pipeline.xai_pipeline import get_xai_pipeline
 
@@ -245,6 +247,7 @@ async def explain_prediction(payload: XAIPredictionRequest) -> dict:
         dr_grade=payload.dr_grade,
         confidence=payload.confidence,
         clinical_features=payload.clinical_features,
+        gradcam_regions=payload.gradcam_regions,
     )
 
 

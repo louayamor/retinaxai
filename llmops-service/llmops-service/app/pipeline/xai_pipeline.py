@@ -99,21 +99,53 @@ class XAIPipeline:
         dr_grade: str,
         confidence: float,
         clinical_features: dict | None = None,
+        gradcam_regions: dict | None = None,
     ) -> dict:
-        """Generate natural language explanation of DR prediction using SHAP values."""
+        """Generate natural language explanation of DR prediction using SHAP values or GradCAM regions."""
         await send_xai_event(
             event="xai.prediction",
             stage="prediction",
             status="started",
             progress=0,
-            message="Generating prediction explanation with SHAP...",
+            message="Generating prediction explanation...",
             prediction_id=prediction_id,
         )
 
         shap_values = None
         shap_explanation = None
+        imaging_explanation = None
 
-        if clinical_features:
+        if gradcam_regions and (gradcam_regions.get("left_eye") or gradcam_regions.get("right_eye")):
+            try:
+                from app.services.shap_service import get_shap_service
+
+                await send_xai_event(
+                    event="xai.prediction",
+                    stage="prediction",
+                    status="progress",
+                    progress=25,
+                    message="Calculating region-based feature contributions from GradCAM...",
+                    prediction_id=prediction_id,
+                )
+
+                shap_service = get_shap_service()
+                grade_int = int(dr_grade) if dr_grade.isdigit() else 2
+                imaging_explanation = shap_service.explain_imaging_prediction(
+                    regions=gradcam_regions,
+                    prediction_grade=grade_int,
+                    confidence=confidence,
+                )
+                shap_values = imaging_explanation.to_dict()
+                logger.info(f"Imaging explanation computed for prediction {prediction_id} using GradCAM regions")
+
+            except Exception as imaging_error:
+                logger.warning(
+                    f"Imaging explanation calculation failed, continuing without it: {imaging_error}"
+                )
+                shap_values = None
+                imaging_explanation = None
+
+        elif clinical_features:
             try:
                 from app.services.shap_service import get_shap_service
 
@@ -151,9 +183,14 @@ class XAIPipeline:
         )
 
         try:
-            prompt = self._build_prediction_prompt_with_shap(
-                dr_grade, confidence, clinical_features, shap_values
-            )
+            if imaging_explanation:
+                prompt = self._build_imaging_prompt_with_regions(
+                    dr_grade, confidence, gradcam_regions, shap_values
+                )
+            else:
+                prompt = self._build_prediction_prompt_with_shap(
+                    dr_grade, confidence, clinical_features, shap_values
+                )
             response = self.client.generate(prompt)
 
             await send_xai_event(
@@ -174,7 +211,11 @@ class XAIPipeline:
             }
             if shap_values:
                 result_details["shap_values"] = shap_values
-                result_details["top_features"] = shap_values.get("top_positive", [])
+                if imaging_explanation:
+                    result_details["explanation_type"] = "gradcam_regions"
+                    result_details["top_regions"] = shap_values.get("top_regions", [])
+                else:
+                    result_details["top_features"] = shap_values.get("top_positive", [])
 
             await send_xai_event(
                 event="xai.explanation_ready",
@@ -192,6 +233,7 @@ class XAIPipeline:
                 "model_used": settings.llm_model,
                 "status": "completed",
                 "shap_values": shap_values,
+                "explanation_type": "gradcam_regions" if imaging_explanation else "clinical_shap",
             }
         except Exception as e:
             await send_xai_event(
@@ -204,6 +246,64 @@ class XAIPipeline:
                 error=str(e),
             )
             raise
+
+    def _build_imaging_prompt_with_regions(
+        self,
+        dr_grade: str,
+        confidence: float,
+        gradcam_regions: dict | None,
+        shap_values: dict | None,
+    ) -> str:
+        """Build prompt for imaging-based explanation using GradCAM regions."""
+        grade_int = int(dr_grade) if dr_grade.isdigit() else 2
+        grade_label = (
+            ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"][grade_int]
+            if 0 <= grade_int <= 4
+            else "Moderate"
+        )
+
+        regions_context = ""
+        if gradcam_regions:
+            left_regions = gradcam_regions.get("left_eye", [])
+            right_regions = gradcam_regions.get("right_eye", [])
+            regions_context = f"""
+GradCAM Highlighted Anatomical Regions:
+- Left Eye: {", ".join(left_regions) if left_regions else "No highlighted regions"}
+- Right Eye: {", ".join(right_regions) if right_regions else "No highlighted regions"}
+"""
+
+        shap_context = ""
+        if shap_values:
+            top_regions = shap_values.get("top_regions", [])
+            if top_regions:
+                regions_str = ", ".join(
+                    [f"{r['name']} (contribution: {r['contribution']:.3f})" for r in top_regions[:3]]
+                )
+                shap_context = f"""
+Region Importance Analysis:
+{regions_str}
+"""
+
+        prompt = f"""You are a medical AI assistant explaining diabetic retinopathy (DR) prediction results from fundus imaging.
+
+Explain this prediction in patient-friendly terms addressing these key areas:
+
+1. DIAGNOSIS: The DR grade is {grade_int} ({grade_label}) with {confidence:.1%} confidence.
+
+2. IMAGING ANALYSIS:{regions_context}
+{shap_context}
+
+3. CLINICAL INTERPRETATION:
+Explain what these highlighted anatomical regions mean for the patient's eye health.
+Describe how the identified regions correlate with the DR grade.
+
+4. RECOMMENDATIONS:
+Provide appropriate follow-up actions based on the diagnosis.
+
+Keep the explanation professional but accessible to a non-medical patient.
+Focus on the GradCAM highlighted regions as key indicators for the diagnosis."""
+
+        return f"{REPORT_SYSTEM_PROMPT}\n\n{prompt}"
 
     async def explain_gradcam(
         self,

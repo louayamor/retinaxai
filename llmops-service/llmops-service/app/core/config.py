@@ -10,16 +10,8 @@ load_dotenv()
 
 
 def _get_service_root() -> Path:
-    """Get this service's root directory (where this config file lives).
-
-    If RETINAXAI_BASE_DIR is set, use that as base; otherwise derive from __file__.
-    """
-    import os
-
-    base_dir = os.environ.get("RETINAXAI_BASE_DIR")
-    if base_dir:
-        return Path(base_dir) / "llmops-service" / "llmops-service"
-    return Path(__file__).parent.parent
+    """Get this service's root directory (where this config file lives)."""
+    return Path(__file__).parent.parent.parent
 
 
 class LLMProvider(StrEnum):
@@ -123,12 +115,15 @@ class Settings(BaseSettings):
 
     @property
     def artifacts_root(self) -> Path:
-        """Path to MLOps artifacts (models, data)."""
+        """Path to MLOps artifacts (models, data).
+        
+        Uses MLLOPS_ARTIFACTS_ROOT env var if set, otherwise falls back to service-local.
+        """
         import os
 
-        base_dir = os.environ.get("RETINAXAI_BASE_DIR")
-        if base_dir:
-            return Path(base_dir) / "mlops-service" / "mlops-service" / "artifacts"
+        artifacts_env = os.environ.get("MLLOPS_ARTIFACTS_ROOT")
+        if artifacts_env:
+            return Path(artifacts_env)
         return _get_service_root() / "artifacts"
 
     @property
