@@ -337,7 +337,7 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
                 <Eye className="h-5 w-5 text-violet-600" />
                 Detailed GradCAM Analysis
               </h3>
-              <div className="space-y-3">
+              <div className="grid md:grid-cols-2 gap-4">
                 {gradcam_explanation?.left_eye_explanation && (
                   <div className="border-2 border-blue-200 dark:border-blue-800 rounded-lg p-4 bg-blue-50/50 dark:bg-blue-950/30">
                     <div className="flex items-center justify-between mb-3">
@@ -349,9 +349,15 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
                         {gradcam_explanation.highlighted_regions?.left_eye?.length || 0} regions
                       </Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground line-clamp-4">
-                      {gradcam_explanation.left_eye_explanation.split('\n').slice(0, 3).join('. ')}...
-                    </p>
+                    <div className="text-sm text-muted-foreground space-y-2 max-h-64 overflow-y-auto">
+                      {gradcam_explanation.left_eye_explanation
+                        .split(/(?=\d+\.\s|\n)/)
+                        .filter(Boolean)
+                        .slice(0, 10)
+                        .map((paragraph: string, idx: number) => (
+                          <p key={idx} className="leading-relaxed">{paragraph.trim().replace(/^\d+\.\s*/, '')}</p>
+                        ))}
+                    </div>
                   </div>
                 )}
                 {gradcam_explanation?.right_eye_explanation && (
@@ -365,9 +371,15 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
                         {gradcam_explanation.highlighted_regions?.right_eye?.length || 0} regions
                       </Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground line-clamp-4">
-                      {gradcam_explanation.right_eye_explanation.split('\n').slice(0, 3).join('. ')}...
-                    </p>
+                    <div className="text-sm text-muted-foreground space-y-2 max-h-64 overflow-y-auto">
+                      {gradcam_explanation.right_eye_explanation
+                        .split(/(?=\d+\.\s|\n)/)
+                        .filter(Boolean)
+                        .slice(0, 10)
+                        .map((paragraph: string, idx: number) => (
+                          <p key={idx} className="leading-relaxed">{paragraph.trim().replace(/^\d+\.\s*/, '')}</p>
+                        ))}
+                    </div>
                   </div>
                 )}
               </div>
