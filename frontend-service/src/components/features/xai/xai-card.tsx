@@ -153,35 +153,46 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
       <CardContent className="p-6 space-y-6">
         {diagnosis && (
           <>
-            <div>
-              <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-                <Stethoscope className="h-5 w-5 text-blue-600" />
-                Diagnosis Summary
-              </h3>
+            <Separator />
+            <div className="bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-950/30 dark:to-orange-950/30 rounded-xl p-4 border-2 border-red-200 dark:border-red-800">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Stethoscope className="h-5 w-5 text-red-600" />
+                  <span className="font-semibold text-lg text-red-900 dark:text-red-100">Diagnosis</span>
+                </div>
+                {riskLevel && (
+                  <Badge className={`${getRiskColor(riskLevel)} text-white px-3 py-1`}>
+                    {riskLevel.toUpperCase()} RISK
+                  </Badge>
+                )}
+              </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center p-4 bg-muted/50 rounded-lg">
-                  <p className="text-xs text-muted-foreground mb-1">Condition</p>
-                  <p className="font-semibold text-sm">{diagnosis.condition || 'Diabetic Retinopathy'}</p>
+                <div className="p-4 bg-white/70 dark:bg-black/30 rounded-xl border border-red-100 dark:border-red-900/50">
+                  <p className="text-xs text-red-600 dark:text-red-400 mb-1">Condition</p>
+                  <p className="font-bold text-lg text-red-900 dark:text-red-100">
+                    {diagnosis.condition || 'Diabetic Retinopathy'}
+                  </p>
                 </div>
-                <div className="text-center p-4 bg-muted/50 rounded-lg">
-                  <p className="text-xs text-muted-foreground mb-1">Severity</p>
-                  <p className="font-semibold text-sm">{diagnosis.severity || severity_report?.diagnosis?.severity_label || 'N/A'}</p>
+                <div className="p-4 bg-white/70 dark:bg-black/30 rounded-xl border border-red-100 dark:border-red-900/50">
+                  <p className="text-xs text-red-600 dark:text-red-400 mb-1">Severity</p>
+                  <p className="font-bold text-lg text-red-900 dark:text-red-100">
+                    {diagnosis.severity || severity_report?.diagnosis?.severity_label || 'N/A'}
+                  </p>
                 </div>
-                <div className="text-center p-4 bg-muted/50 rounded-lg">
-                  <p className="text-xs text-muted-foreground mb-1">DR Grade</p>
+                <div className="p-4 bg-white/70 dark:bg-black/30 rounded-xl border border-red-100 dark:border-red-900/50">
+                  <p className="text-xs text-red-600 dark:text-red-400 mb-1">DR Grade</p>
                   <Badge className={getGradeColor(drGrade)}>
                     {getGradeKey(drGrade)}
                   </Badge>
                 </div>
-                <div className="text-center p-4 bg-muted/50 rounded-lg">
-                  <p className="text-xs text-muted-foreground mb-1">Risk Level</p>
-                  <Badge className={getRiskColor(riskLevel)}>
-                    {riskLevel || 'N/A'}
-                  </Badge>
+                <div className="p-4 bg-white/70 dark:bg-black/30 rounded-xl border border-red-100 dark:border-red-900/50">
+                  <p className="text-xs text-red-600 dark:text-red-400 mb-1">Confidence</p>
+                  <p className="font-bold text-lg text-red-900 dark:text-red-100">
+                    {diagnosis.confidence ? `${(diagnosis.confidence * 100).toFixed(1)}%` : 'N/A'}
+                  </p>
                 </div>
               </div>
             </div>
-            <Separator />
           </>
         )}
 
@@ -259,73 +270,81 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
         {(gradcam_explanation?.highlighted_regions?.left_eye?.length || gradcam_explanation?.highlighted_regions?.right_eye?.length) && (
           <>
             <Separator />
-            <div>
-              <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-                <TrendingUp className="h-5 w-5 text-emerald-600" />
-                Grad-CAM Anatomical Regions
-              </h3>
-              <div className="grid md:grid-cols-2 gap-4">
-                {gradcam_explanation?.highlighted_regions?.left_eye?.length ? (
-                  <div className="border-2 border-blue-200 dark:border-blue-800 rounded-lg p-4 bg-blue-50/50 dark:bg-blue-950/30">
-                    <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-3 flex items-center gap-2">
-                      <Eye className="h-4 w-4" />
-                      Left Eye (OS)
-                    </h4>
-                    <div className="flex flex-wrap gap-2">
-                      {gradcam_explanation.highlighted_regions?.left_eye?.map((region: string, idx: number) => (
-                        <Badge key={idx} variant="outline" className="bg-blue-100/50 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200">
-                          {region.replace(/_/g, ' ')}
-                        </Badge>
-                      ))}
-                    </div>
+            <Card className="bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-950/30 dark:to-purple-950/30 border-2 border-violet-200 dark:border-violet-800">
+              <CardHeader className="pb-3 border-b border-violet-200 dark:border-violet-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-violet-600" />
+                    <span className="font-semibold text-lg text-violet-900 dark:text-violet-100">Grad-CAM Anatomical Regions</span>
                   </div>
-                ) : null}
-                {gradcam_explanation?.highlighted_regions?.right_eye?.length ? (
-                  <div className="border-2 border-purple-200 dark:border-purple-800 rounded-lg p-4 bg-purple-50/50 dark:bg-purple-950/30">
-                    <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-3 flex items-center gap-2">
-                      <Eye className="h-4 w-4" />
-                      Right Eye (OD)
-                    </h4>
-                    <div className="flex flex-wrap gap-2">
-                      {gradcam_explanation.highlighted_regions?.right_eye?.map((region: string, idx: number) => (
-                        <Badge key={idx} variant="outline" className="bg-purple-100/50 dark:bg-purple-900/50 text-purple-800 dark:text-purple-200">
-                          {region.replace(/_/g, ' ')}
-                        </Badge>
-                      ))}
+                </div>
+              </CardHeader>
+              <CardContent className="pt-4">
+                <div className="grid md:grid-cols-2 gap-4">
+                  {gradcam_explanation?.highlighted_regions?.left_eye?.length ? (
+                    <div className="p-4 bg-white/70 dark:bg-black/30 rounded-xl border border-blue-200 dark:border-blue-800">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Eye className="h-4 w-4 text-blue-600" />
+                        <h4 className="font-semibold text-blue-900 dark:text-blue-100">Left Eye (OS)</h4>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {gradcam_explanation.highlighted_regions?.left_eye?.map((region: string, idx: number) => (
+                          <Badge key={idx} variant="outline" className="bg-blue-100/50 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200">
+                            {region.replace(/_/g, ' ')}
+                          </Badge>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ) : null}
-              </div>
-            </div>
+                  ) : null}
+                  {gradcam_explanation?.highlighted_regions?.right_eye?.length ? (
+                    <div className="p-4 bg-white/70 dark:bg-black/30 rounded-xl border border-purple-200 dark:border-purple-800">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Eye className="h-4 w-4 text-purple-600" />
+                        <h4 className="font-semibold text-purple-900 dark:text-purple-100">Right Eye (OD)</h4>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {gradcam_explanation.highlighted_regions?.right_eye?.map((region: string, idx: number) => (
+                          <Badge key={idx} variant="outline" className="bg-purple-100/50 dark:bg-purple-900/50 text-purple-800 dark:text-purple-200">
+                            {region.replace(/_/g, ' ')}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </CardContent>
+            </Card>
           </>
         )}
 
         {severity_report?.recommendations && severity_report.recommendations.length > 0 && (
           <>
             <Separator />
-            <div>
-              <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-                <Heart className="h-5 w-5 text-red-600" />
-                Recommendations
-              </h3>
-              <div className="space-y-2">
+            <Card className="bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-950/30 dark:to-orange-950/30 border-2 border-red-200 dark:border-red-800">
+              <CardHeader className="pb-3 border-b border-red-200 dark:border-red-800">
+                <div className="flex items-center gap-2">
+                  <Heart className="h-5 w-5 text-red-600" />
+                  <span className="font-semibold text-lg text-red-900 dark:text-red-100">Recommendations</span>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-4 space-y-3">
                 {severity_report.recommendations.slice(0, 5).map((rec, idx) => (
                   rec?.action && (
-                    <div key={idx} className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
+                    <div key={idx} className="flex items-start gap-3 p-3 bg-white/70 dark:bg-black/30 rounded-lg border border-red-100 dark:border-red-900/50">
                       <div className="bg-red-100 dark:bg-red-900/30 p-2 rounded-full">
                         <AlertTriangle className="h-4 w-4 text-red-600" />
                       </div>
                       <div className="flex-1">
-                        <p className="font-medium text-sm">{rec.action}</p>
+                        <p className="font-medium text-sm text-red-900 dark:text-red-100">{rec.action}</p>
                         {rec.timeframe && (
-                          <p className="text-xs text-muted-foreground">{rec.timeframe}</p>
+                          <p className="text-xs text-red-600 dark:text-red-400">{rec.timeframe}</p>
                         )}
                       </div>
                     </div>
                   )
                 ))}
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           </>
         )}
 
