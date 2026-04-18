@@ -79,6 +79,10 @@ class PredictionService:
                 output_payload["gradcam_left"] = ml_response.gradcam_left
             if ml_response.gradcam_right:
                 output_payload["gradcam_right"] = ml_response.gradcam_right
+            if ml_response.regions_left:
+                output_payload["gradcam_left_regions"] = ml_response.regions_left
+            if ml_response.regions_right:
+                output_payload["gradcam_right_regions"] = ml_response.regions_right
 
             prediction.output_payload = output_payload
             prediction.confidence_score = ml_response.confidence_score

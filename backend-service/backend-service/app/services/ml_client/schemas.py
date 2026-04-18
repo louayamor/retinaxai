@@ -19,3 +19,5 @@ class MLPredictResponse(BaseModel):
     model_version: str
     gradcam_left: str | None = None
     gradcam_right: str | None = None
+    regions_left: list[str] | None = None
+    regions_right: list[str] | None = None

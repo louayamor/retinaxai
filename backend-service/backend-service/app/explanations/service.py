@@ -33,6 +33,8 @@ class ExplanationService:
         confidence = prediction.confidence_score or 0.0
         gradcam_left = output_payload.get("gradcam_left", [])
         gradcam_right = output_payload.get("gradcam_right", [])
+        gradcam_left_regions = output_payload.get("gradcam_left_regions", [])
+        gradcam_right_regions = output_payload.get("gradcam_right_regions", [])
 
         results = {
             "prediction_explanation": None,
@@ -41,6 +43,11 @@ class ExplanationService:
         }
         xai_failed = False
         shap_values = None
+
+        gradcam_regions = {
+            "left_eye": gradcam_left_regions if isinstance(gradcam_left_regions, list) else [],
+            "right_eye": gradcam_right_regions if isinstance(gradcam_right_regions, list) else [],
+        }
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             if dr_grade != "Unknown":
@@ -52,6 +59,7 @@ class ExplanationService:
                             "dr_grade": dr_grade,
                             "confidence": confidence,
                             "clinical_features": prediction.input_payload,
+                            "gradcam_regions": gradcam_regions,
                         },
                     )
                     if resp.status_code == 200:
@@ -83,17 +91,17 @@ class ExplanationService:
                     xai_failed = True
                     logger.warning(f"[EXPLAIN SERVICE] XAI explain failed: {e}")
 
-            if gradcam_left or gradcam_right:
+            if gradcam_left_regions or gradcam_right_regions:
                 try:
                     resp = await client.post(
                         f"{LLM_SERVICE_URL}/api/xai/gradcam",
                         json={
                             "prediction_id": str(prediction.id),
-                            "left_eye_regions": gradcam_left
-                            if isinstance(gradcam_left, list)
+                            "left_eye_regions": gradcam_left_regions
+                            if isinstance(gradcam_left_regions, list)
                             else [],
-                            "right_eye_regions": gradcam_right
-                            if isinstance(gradcam_right, list)
+                            "right_eye_regions": gradcam_right_regions
+                            if isinstance(gradcam_right_regions, list)
                             else [],
                         },
                     )
