@@ -50,6 +50,7 @@ import type { Patient, MRIScan, OCTReport, Prediction, Report, PaginatedResponse
 import { fadeInUp, slideInUp, staggerItem } from '@/lib/animations';
 import Image from 'next/image';
 import MedicalReport from '@/components/features/reports/medical-report';
+import XAICard from '@/components/features/xai/xai-card';
 import XAIExplanation from '@/components/features/xai/xai-explanation';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
@@ -926,22 +927,52 @@ export default function PatientProfilePage() {
                               </div>
                             )}
 
-                            {/* LLM Explanation - Using new XAI Component */}
+                            {/* Latest Prediction - Using new XAI Component */}
                             {hasXAI && (
-                              <XAIExplanation
-                                explanation={explanation}
-                                severityReport={severityReport ? {
-                                  summary: severityReport.summary || undefined,
-                                  recommendations: severityReport.recommendations || undefined,
-                                  risk_level: severityReport.risk_level,
-                                } : undefined}
-                                shapValues={shapValues}
-                                gradcamExplanation={gradcamExp ? {
-                                  left_eye_explanation: gradcamExp.left_eye_explanation,
-                                  right_eye_explanation: gradcamExp.right_eye_explanation,
-                                  highlighted_regions: gradcamExp.highlighted_regions,
-                                  model_used: gradcamExp.model_used,
-                                } : undefined}
+                              <XAICard
+                                predictionId={pred.id}
+                                createdAt={pred.created_at}
+                                data={{
+                                  diagnosis: explanation ? (() => {
+                                    try {
+                                      const parsed = JSON.parse(explanation);
+                                      return {
+                                        condition: parsed.diagnosis?.condition,
+                                        severity: parsed.diagnosis?.severity,
+                                        overall_grade: parsed.diagnosis?.overall_grade,
+                                        confidence: parsed.diagnosis?.confidence,
+                                        risk_level: parsed.diagnosis?.risk_level,
+                                      };
+                                    } catch {
+                                      return {};
+                                    }
+                                  })() : undefined,
+                                  clinical_findings: explanation ? (() => {
+                                    try {
+                                      const parsed = JSON.parse(explanation);
+                                      return parsed.clinical_findings;
+                                    } catch {
+                                      return undefined;
+                                    }
+                                  })() : undefined,
+                                  severity_report: severityReport ? {
+                                    patient: { name: patient?.first_name, age: patient?.age, gender: patient?.gender },
+                                    diagnosis: severityReport.risk_level ? {
+                                      dr_grade: grade,
+                                      severity_label: severityReport.risk_level,
+                                      risk_level: severityReport.risk_level,
+                                    } : undefined,
+                                    recommendations: severityReport.recommendations?.map((r: string) => ({ action: r })),
+                                    summary: severityReport.summary,
+                                  } : undefined,
+                                  gradcam_explanation: gradcamExp ? {
+                                    left_eye_explanation: gradcamExp.left_eye_explanation,
+                                    right_eye_explanation: gradcamExp.right_eye_explanation,
+                                    highlighted_regions: gradcamExp.highlighted_regions,
+                                  } : undefined,
+                                  feature_importance: shapValues,
+                                  summary: explanation,
+                                }}
                               />
                             )}
 
