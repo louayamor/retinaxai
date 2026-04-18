@@ -172,6 +172,12 @@ class PredictResponse(BaseModel):
     gradcam_right: Optional[str] = Field(
         None, description="GradCAM heatmap for right eye (base64 PNG)"
     )
+    regions_left: Optional[list[str]] = Field(
+        None, description="Anatomical regions highlighted in left eye GradCAM"
+    )
+    regions_right: Optional[list[str]] = Field(
+        None, description="Anatomical regions highlighted in right eye GradCAM"
+    )
     shap_explanation: Optional[dict] = Field(
         None, description="SHAP feature explanations for clinical model"
     )

@@ -129,6 +129,8 @@ async def predict(
             model_version=request.model_version,
             gradcam_left=left_imaging_result.get("gradcam_heatmap"),
             gradcam_right=right_imaging_result.get("gradcam_heatmap"),
+            regions_left=left_imaging_result.get("regions"),
+            regions_right=right_imaging_result.get("regions"),
             shap_explanation=None,
         )
 

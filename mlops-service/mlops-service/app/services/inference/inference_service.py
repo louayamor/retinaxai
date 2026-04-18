@@ -339,7 +339,9 @@ class InferenceService:
         confidence = float(probs[pred_class])
 
         gradcam_service = GradCAMService(model)
-        gradcam_base64 = gradcam_service.generate(image_bytes, tensor, pred_class)
+        gradcam_base64, regions = gradcam_service.generate_with_regions(
+            image_bytes, tensor, pred_class
+        )
 
         INFERENCE_LATENCY.labels(model="efficientnet_b3").observe(time.time() - start)
 
@@ -355,4 +357,5 @@ class InferenceService:
             "confidence": round(confidence, 4),
             "probabilities": {DR_CLASSES[i]: float(p) for i, p in enumerate(probs)},
             "gradcam_heatmap": gradcam_base64,
+            "regions": regions,
         }
