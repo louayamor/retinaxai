@@ -50,6 +50,8 @@ const STATUS_CONFIG: Record<ReportStatus, { label: string; color: string; icon: 
   failed: { label: 'Failed', color: 'bg-red-500', icon: '✗' }
 };
 
+const DEFAULT_STATUS = { label: 'Unknown', color: 'bg-gray-500', icon: '?' };
+
 function parseReportContent(content: string | null): ParsedReport | null {
   if (!content) return null;
   
@@ -79,7 +81,7 @@ function getGradeColor(grade: string | number | undefined): string {
 
 export function ReportCard({ report, patientName, onExpand, expanded }: ReportCardProps) {
   const [copied, setCopied] = useState(false);
-  const status = STATUS_CONFIG[report.status];
+  const status = STATUS_CONFIG[report.status] ?? DEFAULT_STATUS;
   const parsedReport = parseReportContent(report.content);
 
   const handleCopy = () => {
@@ -162,7 +164,7 @@ export function ReportCard({ report, patientName, onExpand, expanded }: ReportCa
             <div className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-1 text-muted-foreground">
                 <Bot className="h-4 w-4" />
-                <span>{report.llm_model || 'GPT-4o'}</span>
+                <span>{report.llm_model || 'gpt-4o'}</span>
               </div>
               <Button 
                 variant="ghost" 

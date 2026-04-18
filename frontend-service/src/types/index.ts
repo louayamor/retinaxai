@@ -80,7 +80,7 @@ export type DRSeverity =
   | 'severe'
   | 'proliferative';
 
-export type PredictionStatus = 'pending' | 'success' | 'failed';
+export type PredictionStatus = 'pending' | 'success' | 'failed' | 'SUCCESS' | 'FAILED' | 'PENDING';
 
 export interface Prediction {
   id: string;

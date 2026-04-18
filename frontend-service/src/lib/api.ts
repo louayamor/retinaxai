@@ -537,6 +537,8 @@ export async function storeXAIResults(
     explanationContent?: string;
     explanationSummary?: string;
     shapValues?: SHAPExplainResponse;
+    gradcamLeftExplanation?: string;
+    gradcamRightExplanation?: string;
     severityContent?: string;
     severitySummary?: string;
     severityRiskLevel?: string;
@@ -551,8 +553,10 @@ export async function storeXAIResults(
       prediction_id: predictionId,
       explanation_content: options.explanationContent,
       explanation_summary: options.explanationSummary,
-      explanation_model: options.model || 'gpt-4.1-mini',
+      explanation_model: options.model || 'gpt-4o',
       shap_values: options.shapValues,
+      gradcam_left_explanation: options.gradcamLeftExplanation,
+      gradcam_right_explanation: options.gradcamRightExplanation,
       severity_content: options.severityContent,
       severity_summary: options.severitySummary,
       severity_risk_level: options.severityRiskLevel || 'moderate',

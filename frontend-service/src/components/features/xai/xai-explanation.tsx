@@ -74,6 +74,12 @@ interface XAIExplanationProps {
     top_positive?: Array<{ name: string; contribution: number }>;
     top_negative?: Array<{ name: string; contribution: number }>;
   } | null;
+  gradcamExplanation?: {
+    left_eye_explanation?: string | null;
+    right_eye_explanation?: string | null;
+    highlighted_regions?: Record<string, unknown> | null;
+    model_used?: string | null;
+  } | null;
 }
 
 const RISK_COLORS: Record<string, string> = {
@@ -102,7 +108,8 @@ const GRADE_COLORS: Record<number, string> = {
 export default function XAIExplanation({ 
   explanation, 
   severityReport, 
-  shapValues 
+  shapValues,
+  gradcamExplanation
 }: XAIExplanationProps) {
   // Parse explanation if it's a string
   let parsedExplanation: XAIExplanationData | null = null;
@@ -248,6 +255,37 @@ export default function XAIExplanation({
                 </div>
               )}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* GradCAM Explanation */}
+      {(gradcamExplanation?.left_eye_explanation || gradcamExplanation?.right_eye_explanation) && (
+        <Card className="border-violet-200 dark:border-violet-800">
+          <CardHeader className="pb-2 bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-950/30 dark:to-purple-950/30">
+            <div className="flex items-center gap-2">
+              <Eye className="h-5 w-5 text-violet-600" />
+              <span className="font-semibold text-violet-900 dark:text-violet-100">Grad-CAM Visual Explanation</span>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {gradcamExplanation.left_eye_explanation && (
+              <div className="p-3 bg-blue-50/50 dark:bg-blue-950/30 rounded-lg">
+                <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">Left Eye (OS)</h4>
+                <p className="text-sm text-muted-foreground">{gradcamExplanation.left_eye_explanation}</p>
+              </div>
+            )}
+            {gradcamExplanation.right_eye_explanation && (
+              <div className="p-3 bg-purple-50/50 dark:bg-purple-950/30 rounded-lg">
+                <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2">Right Eye (OD)</h4>
+                <p className="text-sm text-muted-foreground">{gradcamExplanation.right_eye_explanation}</p>
+              </div>
+            )}
+            {gradcamExplanation.model_used && (
+              <p className="text-xs text-muted-foreground text-right">
+                Generated with: {gradcamExplanation.model_used}
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

@@ -97,7 +97,7 @@ export default function PatientProfilePage() {
   const fetchXAIData = useCallback(async (predId: string) => {
     try {
       const xai = await getXAIExplanations(predId);
-      if (xai.explanation || xai.severity_report) {
+      if (xai.explanation || xai.severity_report || xai.gradcam_explanation) {
         setXaiData(prev => ({ ...prev, [predId]: xai }));
       }
     } catch {
@@ -209,7 +209,8 @@ export default function PatientProfilePage() {
       const fetchXAIDataForTab = async () => {
         const newXaiData: Record<string, XAIResponse> = {};
         for (const pred of predictions) {
-          if (pred.status === 'success' && !xaiData[pred.id]) {
+          const status = pred.status?.toLowerCase();
+          if (status === 'success' && !xaiData[pred.id]) {
             try {
               const xai = await getXAIExplanations(pred.id);
               if (xai.explanation || xai.severity_report) {
@@ -285,6 +286,7 @@ export default function PatientProfilePage() {
 
       let shapResult = null;
       let xaiResult = null;
+      let gradcamResult = null;
       let severityResult = null;
 
       try {
@@ -301,7 +303,7 @@ export default function PatientProfilePage() {
       const rightRegions = (prediction.output_payload?.gradcam_right_regions as string[]) || [];
       if (leftRegions.length > 0 || rightRegions.length > 0) {
         toast.info('Generating GradCAM interpretation...');
-        await generateXAIGradCAM(prediction.id, leftRegions, rightRegions);
+        gradcamResult = await generateXAIGradCAM(prediction.id, leftRegions, rightRegions);
       }
 
       toast.info('Generating severity assessment...');
@@ -322,11 +324,13 @@ export default function PatientProfilePage() {
           explanationContent: xaiResult?.content,
           explanationSummary: xaiResult?.summary,
           shapValues: shapResult ?? undefined,
+          gradcamLeftExplanation: gradcamResult?.left_eye_explanation,
+          gradcamRightExplanation: gradcamResult?.right_eye_explanation,
           severityContent: severityResult?.content,
           severitySummary: severityResult?.summary,
           severityRiskLevel: severityResult?.risk_level,
           severityRecommendations: severityResult?.recommendations,
-          model: 'gpt-4.1-mini',
+          model: 'gpt-4o',
         });
         toast.success('XAI generation complete!');
       } catch (storeError) {
@@ -729,14 +733,14 @@ export default function PatientProfilePage() {
             <div>
               <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Eye className="h-5 w-5 text-amber-500" />
-                GradCAM Analysis ({predictions.filter((p) => p.status === 'success').length})
+                GradCAM Analysis ({predictions.filter((p) => p.status?.toLowerCase() === 'success').length})
               </h3>
-              {predictions.filter((p) => p.status === 'success').length === 0 ? (
+              {predictions.filter((p) => p.status?.toLowerCase() === 'success').length === 0 ? (
                 <EmptyState icon={Eye} title="No GradCAM Available" description="Run predictions to generate GradCAM analysis" />
               ) : (
                 <div className="space-y-4">
                   {predictions
-                    .filter((p) => p.status === 'success')
+                    .filter((p) => p.status?.toLowerCase() === 'success')
                     .map((pred) => {
                       const grade = pred.output_payload?.combined_grade as number | undefined;
                       const gradeLabel = grade !== undefined ? GRADE_LABELS[grade] : null;
@@ -815,7 +819,7 @@ export default function PatientProfilePage() {
                   </Button>
                 )}
               </div>
-              {predictions.filter((p) => p.status === 'success').length === 0 ? (
+              {predictions.filter((p) => p.status?.toLowerCase() === 'success').length === 0 ? (
                 <EmptyState
                   icon={Brain}
                   title="No XAI Explanations Available"
@@ -824,7 +828,7 @@ export default function PatientProfilePage() {
               ) : (
                 <div className="space-y-4">
                   {predictions
-                    .filter((p) => p.status === 'success')
+                    .filter((p) => p.status?.toLowerCase() === 'success')
                     .map((pred) => {
                       const xai = xaiData[pred.id];
                       const outputPayload = pred.output_payload as Record<string, unknown> | null;
@@ -832,6 +836,7 @@ export default function PatientProfilePage() {
                       const gradeLabel = grade !== undefined ? GRADE_LABELS[grade] : null;
                       const shapValues = xai?.explanation?.shap_values || outputPayload?.shap_values as { top_positive: Array<{ name: string; contribution: number }> } | undefined;
                       const explanation = xai?.explanation?.content || outputPayload?.explanation as string | undefined;
+                      const gradcamExp = xai?.gradcam_explanation;
                       const severityReport = xai?.severity_report || (
                         outputPayload?.severity_risk_level ? {
                           risk_level: outputPayload.severity_risk_level as string,
@@ -839,7 +844,7 @@ export default function PatientProfilePage() {
                           recommendations: outputPayload.severity_recommendations as string[] | null,
                         } : null
                       );
-                      const hasXAI = shapValues || explanation || severityReport;
+                      const hasXAI = shapValues || explanation || severityReport || gradcamExp;
 
                       return (
                         <Card key={pred.id}>
@@ -931,6 +936,12 @@ export default function PatientProfilePage() {
                                   risk_level: severityReport.risk_level,
                                 } : undefined}
                                 shapValues={shapValues}
+                                gradcamExplanation={gradcamExp ? {
+                                  left_eye_explanation: gradcamExp.left_eye_explanation,
+                                  right_eye_explanation: gradcamExp.right_eye_explanation,
+                                  highlighted_regions: gradcamExp.highlighted_regions,
+                                  model_used: gradcamExp.model_used,
+                                } : undefined}
                               />
                             )}
 
@@ -1007,7 +1018,7 @@ export default function PatientProfilePage() {
               ) : (
                 <div className="space-y-6">
                   {reports
-                    .filter((r) => r.status === 'completed')
+                    .filter((r) => r.status?.toLowerCase() === 'completed')
                     .map((report) => (
                       <MedicalReport key={report.id} report={report} />
                     ))}
