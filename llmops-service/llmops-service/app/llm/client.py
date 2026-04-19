@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import time
 from typing import Optional
 
 from loguru import logger
@@ -6,7 +7,7 @@ from loguru import logger
 
 class LLMClient(ABC):
     @abstractmethod
-    def generate(
+    async def generate(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
@@ -30,36 +31,40 @@ class GitHubLLMClient(LLMClient):
         self.timeout_seconds = timeout_seconds
         self.max_tokens = max_tokens
         self._client = None
-        self._retry_after = 0
+        self._retry_until: float = 0.0
 
     def _get_client(self):
         if self._client is None:
             from azure.ai.inference import ChatCompletionsClient
             from azure.core.credentials import AzureKeyCredential
+            from azure.core.pipeline.transport import RequestsTransport
 
             self._client = ChatCompletionsClient(
                 endpoint=self.endpoint,
                 credential=AzureKeyCredential(self.token),
-                connection_timeout=self.timeout_seconds,
-                read_timeout=self.timeout_seconds,
+                transport=RequestsTransport(
+                    connection_timeout=self.timeout_seconds,
+                    read_timeout=self.timeout_seconds,
+                ),
             )
         return self._client
 
-    def generate(
+    async def generate(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
         model: Optional[str] = None,
     ) -> str:
+        import asyncio
         from azure.ai.inference.models import SystemMessage, UserMessage
         from azure.core.exceptions import AzureError
 
-        if self._retry_after > 0:
-            import time
-
-            logger.warning(f"Rate limited, waiting {self._retry_after}s")
-            time.sleep(self._retry_after)
-            self._retry_after = 0
+        # Bug 2 fix: Check retry timestamp instead of counter
+        remaining = self._retry_until - time.monotonic()
+        if remaining > 0:
+            logger.warning(f"Rate limited, waiting {remaining:.1f}s")
+            await asyncio.sleep(remaining)
+            self._retry_until = 0.0
 
         messages = []
         if system_prompt:
@@ -76,12 +81,12 @@ class GitHubLLMClient(LLMClient):
             )
             return response.choices[0].message.content
         except AzureError as e:
-            if hasattr(e, "response") and e.response.status_code == 429:  # type: ignore[reportAttributeAccessIssue]
+            # Bug 4 fix: Check status code safely
+            status_code = getattr(getattr(e, "response", None), "status_code", None)
+            if status_code == 429:
                 retry_after = getattr(e, "retry_after", 60)
-                logger.warning(
-                    f"Rate limited by GitHub API, retry after {retry_after}s"
-                )
-                self._retry_after = retry_after
+                logger.warning(f"Rate limited by GitHub API, retry after {retry_after}s")
+                self._retry_until = time.monotonic() + retry_after
                 raise Exception(f"Rate limited, retry after {retry_after}s")
             logger.error(f"GitHub API error: {e}")
             raise Exception(f"LLM API error: {e}") from e
@@ -106,16 +111,17 @@ class OllamaLLMClient(LLMClient):
 
     def _get_client(self):
         if self._client is None:
+            import httpx
             from langchain_ollama import ChatOllama
 
             self._client = ChatOllama(
                 model=self.model,
                 base_url=self.base_url,
-                timeout=self.timeout_seconds,  # type: ignore[arg-type]
+                http_client=httpx.Client(timeout=self.timeout_seconds),
             )
         return self._client
 
-    def generate(
+    async def generate(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
@@ -138,7 +144,7 @@ class MockLLMClient(LLMClient):
     def __init__(self, **kwargs) -> None:
         pass
 
-    def generate(
+    async def generate(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,

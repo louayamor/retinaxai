@@ -116,15 +116,15 @@ class InferencePipeline:
 
         return context, time.time() - start_time
 
-    def generate_report(self, payload: dict) -> dict[str, str]:
+    async def generate_report(self, payload: dict) -> dict[str, str]:
         try:
-            return self._generate_report_internal(payload)
+            return await self._generate_report_internal(payload)
         except Exception as e:
             logger.error(f"Report generation failed: {e}")
             set_operation("error", str(e)[:200])
             raise
 
-    def _generate_report_internal(self, payload: dict) -> dict[str, str]:
+    async def _generate_report_internal(self, payload: dict) -> dict[str, str]:
         model_name = str(payload.get("model") or settings.llm_model)
 
         logger.info("Building retrieval context...")
@@ -145,7 +145,7 @@ class InferencePipeline:
             retrieved_context=retrieved_context,
         )
 
-        content = self.client.generate(
+        content = await self.client.generate(
             user_prompt,
             REPORT_SYSTEM_PROMPT,
             model=model_name,

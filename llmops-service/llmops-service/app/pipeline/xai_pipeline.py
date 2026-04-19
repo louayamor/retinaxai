@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 
 from loguru import logger
 
@@ -47,13 +48,27 @@ DATA REQUIREMENTS:
 Output complete valid JSON only."""
 
 
+# Bug 7 fix: Add grade-to-risk mappings
+_GRADE_INT_TO_RISK = {0: "low", 1: "low", 2: "moderate", 3: "high", 4: "severe"}
+_GRADE_LABEL_TO_RISK = {
+    "No DR": "low",
+    "Mild": "low",
+    "Moderate": "moderate",
+    "Severe": "high",
+    "Proliferative DR": "severe",
+}
+
+
 class XAIPipeline:
     _instance: "XAIPipeline | None" = None
+    _lock = threading.Lock()  # Bug 9 fix: Add lock for thread safety
 
     def __new__(cls) -> "XAIPipeline":
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
         return cls._instance
 
     def __init__(self) -> None:
@@ -191,7 +206,7 @@ class XAIPipeline:
                 prompt = self._build_prediction_prompt_with_shap(
                     dr_grade, confidence, clinical_features, shap_values
                 )
-            response = self.client.generate(prompt)
+            response = await self.client.generate(prompt)
 
             await send_xai_event(
                 event="xai.prediction",
@@ -323,7 +338,7 @@ Focus on the GradCAM highlighted regions as key indicators for the diagnosis."""
 
         try:
             prompt = self._build_gradcam_prompt(left_eye_regions, right_eye_regions)
-            response = self.client.generate(prompt)
+            response = await self.client.generate(prompt)
 
             highlighted_regions = {
                 "left_eye": left_eye_regions,
@@ -394,7 +409,7 @@ Focus on the GradCAM highlighted regions as key indicators for the diagnosis."""
 
         try:
             prompt = self._build_severity_prompt(patient_data, dr_grade, risk_factors)
-            response = self.client.generate(prompt)
+            response = await self.client.generate(prompt)
 
             risk_level = self._determine_risk_level(dr_grade)
             recommendations = self._generate_recommendations(dr_grade, risk_factors)
@@ -592,14 +607,10 @@ DIAGNOSIS:
 Generate structured severity report as JSON."""
 
     def _determine_risk_level(self, dr_grade: str) -> str:
-        mapping = {
-            "No DR": "low",
-            "Mild": "low",
-            "Moderate": "moderate",
-            "Severe": "high",
-            "Proliferative DR": "severe",
-        }
-        return mapping.get(dr_grade, "moderate")
+        # Bug 7 fix: Handle both integer and string inputs
+        if dr_grade.isdigit():
+            return _GRADE_INT_TO_RISK.get(int(dr_grade), "moderate")
+        return _GRADE_LABEL_TO_RISK.get(dr_grade, "moderate")
 
     def _generate_recommendations(
         self, dr_grade: str, risk_factors: list[str]

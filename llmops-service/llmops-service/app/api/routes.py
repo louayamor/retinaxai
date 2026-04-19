@@ -78,7 +78,7 @@ async def generate(payload: GenerateRequest) -> dict[str, str]:
     """
     try:
         pipeline = InferencePipeline()
-        result = pipeline.generate_report(payload.model_dump())
+        result = await pipeline.generate_report(payload.model_dump())
         return {"response": json.dumps(result)}
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

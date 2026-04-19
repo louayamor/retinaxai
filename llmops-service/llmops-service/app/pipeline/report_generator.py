@@ -94,7 +94,7 @@ async def generate_report_handler(job: Job) -> dict:
 
     # Use InferencePipeline for report generation
     pipeline = InferencePipeline()
-    result = pipeline.generate_report(processed_payload)
+    result = await pipeline.generate_report(processed_payload)
 
     output_tokens = count_tokens(result.get("content", ""))
     logger.info(f"Job {job.id}: Output tokens estimated: {output_tokens}")
