@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -16,9 +17,13 @@ from app.api.routes import (
     features,
     shap,
     automation,
-)  # reports temporarily disabled
+)
+from app.api.routes import models_download
 from app.api.dependencies import get_settings
 from app.services.monitoring.prometheus_metrics import start_metrics_server
+
+logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
 
 
 @asynccontextmanager
@@ -68,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(features.router, tags=["features"])  # type: ignore[arg-type]
     app.include_router(shap.router, tags=["shap"])  # type: ignore[arg-type]
     app.include_router(automation.router, tags=["automation"])  # type: ignore[arg-type]
+    app.include_router(models_download.router, tags=["models"])  # type: ignore[arg-type]
     # app.include_router(reports.router, tags=["monitoring"]) # temporarily disabled (evidently dep conflict)
 
     return app

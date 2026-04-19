@@ -159,7 +159,7 @@ class XAIPipeline:
                 )
 
                 shap_service = get_shap_service()
-                shap_explanation = shap_service.explain_prediction(
+                shap_explanation = await shap_service.explain_prediction(
                     features=clinical_features,
                     pipeline="clinical",
                 )
@@ -530,15 +530,39 @@ Keep the explanation professional but accessible to a non-medical patient."""
 
     def _build_gradcam_prompt(
         self,
-        left_regions: list[str],
-        right_regions: list[str],
+        left_regions: list[str] | list[dict],
+        right_regions: list[str] | list[dict],
     ) -> str:
-        return f"""Interpret these highlighted regions from GradCAM heatmaps:
+        left_formatted = []
+        for r in left_regions:
+            if isinstance(r, dict):
+                left_formatted.append(
+                    f"{r.get('name', 'unknown')} (intensity: {r.get('intensity', 0):.2f}, "
+                    f"area: {r.get('area', 0)} px, saliency: {r.get('saliency_score', 0):.2f})"
+                )
+            else:
+                left_formatted.append(str(r))
 
-Left Eye: {", ".join(left_regions)}
-Right Eye: {", ".join(right_regions)}
+        right_formatted = []
+        for r in right_regions:
+            if isinstance(r, dict):
+                right_formatted.append(
+                    f"{r.get('name', 'unknown')} (intensity: {r.get('intensity', 0):.2f}, "
+                    f"area: {r.get('area', 0)} px, saliency: {r.get('saliency_score', 0):.2f})"
+                )
+            else:
+                right_formatted.append(str(r))
 
-Explain what these regions indicate for DR diagnosis."""
+        return f"""Interpret these highlighted regions from GradCAM heatmaps with numerical analysis:
+
+Left Eye: {", ".join(left_formatted) if left_formatted else "No regions detected"}
+Right Eye: {", ".join(right_formatted) if right_formatted else "No regions detected"}
+
+Explain what these regions indicate for DR diagnosis, focusing on:
+1. Which regions have the highest activation intensity?
+2. How does the area of abnormalities compare?
+3. What is the clinical significance of the saliency scores?
+4. Correlation between intensity values and known DR biomarkers."""
 
     def _build_severity_prompt(
         self,

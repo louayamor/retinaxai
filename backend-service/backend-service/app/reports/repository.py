@@ -71,3 +71,14 @@ class ReportRepository:
             .where(Report.patient_id == patient_id)
         )
         return result.scalar_one()
+
+    async def create(self, report: Report) -> Report:
+        self.db.add(report)
+        await self.db.flush()
+        await self.db.refresh(report)
+        return report
+
+    async def update(self, report: Report) -> Report:
+        await self.db.flush()
+        await self.db.refresh(report)
+        return report

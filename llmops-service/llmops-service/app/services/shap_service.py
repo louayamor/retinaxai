@@ -356,10 +356,11 @@ class ShapService:
             pipeline="imaging",
         )
 
-    def _load_clinical_model(self) -> Any:
-        model_path = self.artifacts_root / "model" / "clinical" / "model.pkl"
-        if not model_path.exists():
-            raise ShapExplainabilityError(f"Clinical model not found: {model_path}")
+    async def _load_clinical_model(self) -> Any:
+        try:
+            model_path = await settings.ensure_clinical_model()
+        except RuntimeError as e:
+            raise ShapExplainabilityError(str(e))
 
         import pickle
 
@@ -394,7 +395,7 @@ class ShapService:
             "clinical_erm_status",
         ]
 
-    def explain_prediction(
+    async def explain_prediction(
         self,
         features: dict[str, Any],
         pipeline: str = "clinical",
@@ -404,7 +405,7 @@ class ShapService:
         except ImportError:
             raise ShapExplainabilityError("shap package not installed")
 
-        model = self._load_clinical_model()
+        model = await self._load_clinical_model()
         feature_names = self._get_feature_names()
 
         feature_values = []
@@ -477,7 +478,7 @@ class ShapService:
             pipeline=pipeline,
         )
 
-    def compute_global_importance(
+    async def compute_global_importance(
         self,
         test_csv: Path,
         pipeline: str = "clinical",
@@ -490,7 +491,7 @@ class ShapService:
 
         import pandas as pd
 
-        model = self._load_clinical_model()
+        model = await self._load_clinical_model()
         df = pd.read_csv(test_csv)
 
         feature_names = self._get_feature_names()

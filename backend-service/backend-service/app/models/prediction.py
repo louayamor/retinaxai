@@ -2,7 +2,7 @@ import enum
 import uuid
 
 from sqlalchemy import JSON, Enum, Float, ForeignKey, Index, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -39,8 +39,8 @@ class Prediction(Base, UUIDMixin, TimestampMixin):
     )
     model_name: Mapped[str] = mapped_column(String(100), nullable=False)
     model_version: Mapped[str] = mapped_column(String(50), nullable=False)
-    input_payload: Mapped[dict] = mapped_column(JSON, nullable=False)
-    output_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    input_payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    output_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[PredictionStatus] = mapped_column(
         Enum(PredictionStatus),

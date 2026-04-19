@@ -183,6 +183,10 @@ def create_app() -> FastAPI:
     Returns:
         FastAPI: The configured application instance.
     """
+    import logging
+    logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,

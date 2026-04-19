@@ -13,6 +13,7 @@ import {
   listAllReports,
   PredictionRequest
 } from '@/lib/api';
+import { usePatientWebSocket, type LogMessageData } from '@/hooks/use-patient-websocket';
 import PageContainer from '@/components/layout/page-container';
 import { PageHero } from '@/components/ui/page-hero';
 import { PageSection } from '@/components/ui/page-section';
@@ -68,7 +69,6 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { toast } from 'sonner';
-import { useWebSocket } from '@/hooks/use-websocket';
 import type { Patient, Prediction, PredictionStatus, DRSeverity, Report } from '@/types';
 import { fadeInUp, slideInUp, borderPulse, scaleIn } from '@/lib/animations';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -124,15 +124,23 @@ export default function PredictionsPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [generatingReport, setGeneratingReport] = useState(false);
   const [patientNames, setPatientNames] = useState<Record<string, string>>({});
-  
-  const { connected, subscribe } = useWebSocket();
+  const [logMessages, setLogMessages] = useState<LogMessageData[]>([]);
+
+  const { connected: wsConnected, send: wsSend } = usePatientWebSocket({
+    patientId: selectedPatientId || 'global',
+    onLogMessage: (data) => {
+      setLogMessages(prev => [...prev, data]);
+    },
+  });
 
   useEffect(() => {
-    const unsub = subscribe('training_stage', () => {
-      loadPredictions();
-    });
-    return () => { unsub(); };
-  }, [subscribe]);
+    if (wsConnected && wsSend) {
+      wsSend('subscribe', { room: 'training_stage' });
+      if (selectedPatientId) {
+        wsSend('subscribe', { room: `prediction:${selectedPatientId}` });
+      }
+    }
+  }, [wsConnected, wsSend, selectedPatientId]);
 
   useEffect(() => {
     void loadPatients();
@@ -237,6 +245,7 @@ export default function PredictionsPage() {
     }
 
     setUploading(true);
+    setLogMessages([]);
 
     try {
       const formData = new FormData();
@@ -345,7 +354,7 @@ export default function PredictionsPage() {
               </Select>
             </div>
 
-            <div className='grid gap-6 md:grid-cols-2'>
+            <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-3'>
               <div className='space-y-2'>
                 <label className='text-sm font-medium'>Left Eye (OS)</label>
                 <div
@@ -423,6 +432,38 @@ export default function PredictionsPage() {
                       />
                     </label>
                   )}
+                </div>
+              </div>
+
+              <div className='space-y-2 lg:col-span-1'>
+                <label className='text-sm font-medium'>Status</label>
+                <div className='h-48 space-y-2 overflow-y-auto rounded-lg border bg-muted/30 p-3'>
+                  {logMessages.length === 0 ? (
+                    <p className='text-xs text-muted-foreground'>Upload images to start prediction</p>
+                  ) : (
+                    logMessages.map((msg, idx) => (
+                      <div key={idx} className='flex items-start gap-2 text-xs'>
+                        <span className={`mt-0.5 inline-block h-2 w-2 rounded-full flex-shrink-0 ${
+                          msg.status === 'info' ? 'bg-blue-500' :
+                          msg.status === 'success' ? 'bg-emerald-500' :
+                          msg.status === 'warning' ? 'bg-amber-500' :
+                          'bg-rose-500'
+                        }`} />
+                        <span className={
+                          msg.status === 'success' ? 'text-emerald-600 dark:text-emerald-400' :
+                          msg.status === 'error' ? 'text-rose-600 dark:text-rose-400' :
+                          msg.status === 'warning' ? 'text-amber-600 dark:text-amber-400' :
+                          'text-muted-foreground'
+                        }>
+                          {msg.message}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className='flex items-center gap-2 text-xs text-muted-foreground'>
+                  <span className={`h-2 w-2 rounded-full ${wsConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                  {wsConnected ? 'Live' : 'Connecting...'}
                 </div>
               </div>
             </div>

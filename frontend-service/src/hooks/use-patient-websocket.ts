@@ -9,6 +9,16 @@ export interface PatientWebSocketOptions {
   onXAIReady?: (data: XAIEventData) => void;
   onSeverityReady?: (data: SeverityEventData) => void;
   onGradCAMReady?: (data: GradCAMEventData) => void;
+  onLogMessage?: (data: LogMessageData) => void;
+}
+
+export interface LogMessageData {
+  prediction_id: string;
+  patient_id: string;
+  step: string;
+  status: "info" | "success" | "warning" | "error";
+  message: string;
+  timestamp: string;
 }
 
 export interface PredictionEventData {
@@ -68,12 +78,14 @@ export function usePatientWebSocket({
   onXAIReady,
   onSeverityReady,
   onGradCAMReady,
+  onLogMessage,
 }: PatientWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const [lastEvent, setLastEvent] = useState<WebSocketMessage | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const patientIdRef = useRef(patientId);
+  const isConnectingRef = useRef(false);
 
   patientIdRef.current = patientId;
 
@@ -121,19 +133,33 @@ export function usePatientWebSocket({
       toast.error('XAI Processing Failed', {
         description: xaiData.message || 'An error occurred during processing',
       });
+    } else if (event === 'prediction.log') {
+      const logData = data as unknown as LogMessageData;
+      if (onLogMessage && logData) {
+        onLogMessage(logData);
+      }
     }
 
     setLastEvent({ event, data });
-  }, [onPredictionComplete, onXAIReady, onSeverityReady, onGradCAMReady]);
+  }, [onPredictionComplete, onXAIReady, onSeverityReady, onGradCAMReady, onLogMessage]);
 
   const connect = useCallback(() => {
     const WS_URL = (process.env.NEXT_PUBLIC_API_URL?.replace('http', 'ws') || 'ws://localhost:8000') + '/ws';
     
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING || isConnectingRef.current) {
+      return;
+    }
 
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    isConnectingRef.current = true;
     wsRef.current = new WebSocket(WS_URL);
 
     wsRef.current.onopen = () => {
+      isConnectingRef.current = false;
       setConnected(true);
       console.log('[PatientWS] Connected for patient:', patientIdRef.current);
 
@@ -149,9 +175,15 @@ export function usePatientWebSocket({
     };
 
     wsRef.current.onclose = () => {
-      setConnected(false);
-      console.log('[PatientWS] Disconnected, reconnecting in 3s...');
-      reconnectTimeoutRef.current = setTimeout(connect, 3000);
+      isConnectingRef.current = false;
+      if (wsRef.current) {
+        setConnected(false);
+        wsRef.current = null;
+      }
+    };
+    
+    wsRef.current.onerror = () => {
+      isConnectingRef.current = false;
     };
 
     wsRef.current.onerror = (error) => {
@@ -175,13 +207,15 @@ export function usePatientWebSocket({
     return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
+      isConnectingRef.current = false;
     };
-  }, [connect]);
+  }, []);
 
   const send = useCallback((event: string, data: Record<string, unknown>) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

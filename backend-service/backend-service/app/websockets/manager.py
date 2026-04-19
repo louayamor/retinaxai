@@ -198,6 +198,21 @@ class SocketManager:
         room = f"prediction:{patient_id}"
         await self.emit_to_room(room, event_type, payload)
         await self.emit_to_all(event_type, payload)
+
+        legacy_payload = {
+            "event": "prediction.log",
+            "data": {
+                "prediction_id": prediction_id,
+                "patient_id": patient_id,
+                "step": "prediction",
+                "status": "success",
+                "message": f"Prediction complete: DR Grade {dr_grade}, {overall_severity}",
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        }
+        await self.emit_to_room(room, "prediction.log", legacy_payload)
+        await self.emit_to_all("prediction.log", legacy_payload)
+
         logger.info(f"Emitted prediction event: {event_type} for {prediction_id}")
 
     async def emit_xai_event(
@@ -234,6 +249,22 @@ class SocketManager:
         if patient_id:
             await self.emit_to_room(f"prediction:{patient_id}", event_type, payload)
         await self.emit_to_all(event_type, payload)
+
+        if patient_id:
+            legacy_xai_payload = {
+                "event": "prediction.log",
+                "data": {
+                    "prediction_id": prediction_id,
+                    "patient_id": patient_id,
+                    "step": "xai",
+                    "status": "success" if status == "completed" else "info",
+                    "message": message or f"XAI processing: {event_type}",
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+            }
+            await self.emit_to_room(f"prediction:{patient_id}", "prediction.log", legacy_xai_payload)
+            await self.emit_to_all("prediction.log", legacy_xai_payload)
+
         logger.info(f"Emitted XAI event: {event_type} for prediction {prediction_id}")
 
     async def close(self) -> None:

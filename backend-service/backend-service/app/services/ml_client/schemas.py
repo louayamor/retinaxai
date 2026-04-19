@@ -1,6 +1,21 @@
 from pydantic import BaseModel
 
 
+class RegionNumeric(BaseModel):
+    name: str
+    intensity: float
+    area: int
+    center_x: int
+    center_y: int
+    saliency_score: float
+
+
+class TopHotspot(BaseModel):
+    region: str
+    intensity: float
+    rank: int
+
+
 class MLPredictRequest(BaseModel):
     model_name: str
     model_version: str
@@ -19,5 +34,8 @@ class MLPredictResponse(BaseModel):
     model_version: str
     gradcam_left: str | None = None
     gradcam_right: str | None = None
-    regions_left: list[str] | None = None
-    regions_right: list[str] | None = None
+    regions_left: list[RegionNumeric] | None = None
+    regions_right: list[RegionNumeric] | None = None
+    top_hotspots_left: list[TopHotspot] | None = None
+    top_hotspots_right: list[TopHotspot] | None = None
+    shap_explanation: dict | None = None

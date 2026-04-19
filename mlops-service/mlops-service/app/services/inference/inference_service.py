@@ -339,7 +339,7 @@ class InferenceService:
         confidence = float(probs[pred_class])
 
         gradcam_service = GradCAMService(model)
-        gradcam_base64, regions = gradcam_service.generate_with_regions(
+        gradcam_base64, regions, top_hotspots = gradcam_service.generate_with_regions_numeric(
             image_bytes, tensor, pred_class
         )
 
@@ -358,4 +358,5 @@ class InferenceService:
             "probabilities": {DR_CLASSES[i]: float(p) for i, p in enumerate(probs)},
             "gradcam_heatmap": gradcam_base64,
             "regions": regions,
+            "top_hotspots": top_hotspots,
         }

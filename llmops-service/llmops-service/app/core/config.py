@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     mlops_service_url: str = Field(
         default="http://mlops-service:8004", validation_alias="MLOPS_SERVICE_URL"
     )
+    mlops_model_download_url: str = Field(
+        default="http://localhost:8004", validation_alias="MLOPS_MODEL_DOWNLOAD_URL"
+    )
     timeout_seconds: int = 120
     max_tokens: int = Field(default=2000, validation_alias="LLM_MAX_TOKENS")
     rag_manifest_url: str = Field(
@@ -115,24 +118,43 @@ class Settings(BaseSettings):
 
     @property
     def artifacts_root(self) -> Path:
-        """Path to MLOps artifacts (models, data).
+        """Path to local cache for MLOps artifacts.
         
-        Uses MLLOPS_ARTIFACTS_ROOT env var if set, otherwise falls back to service-local.
+        When models are fetched from MLOps, they're cached locally here.
         """
-        import os
-
-        artifacts_env = os.environ.get("MLLOPS_ARTIFACTS_ROOT")
-        if artifacts_env:
-            return Path(artifacts_env)
-        return _get_service_root() / "artifacts"
+        return _get_service_root() / "data" / "models"
 
     @property
     def clinical_model_path(self) -> Path:
-        return self.artifacts_root / "model" / "clinical" / "model.pkl"
+        return self.artifacts_root / "clinical" / "model.pkl"
 
     @property
     def imaging_model_path(self) -> Path:
-        return self.artifacts_root / "model" / "imaging" / "model.pth"
+        return self.artifacts_root / "imaging" / "model.pth"
+
+    async def ensure_clinical_model(self) -> Path:
+        """Fetch clinical model from MLOps if not cached locally."""
+        import os
+        import httpx
+
+        path = self.clinical_model_path
+        if path.exists():
+            return path
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.mlops_model_download_url}/models/download/clinical/model"
+            )
+            if response.status_code == 200:
+                with open(path, "wb") as f:
+                    f.write(response.content)
+                return path
+
+        raise RuntimeError(
+            f"Could not fetch clinical model from {self.mlops_model_download_url}"
+        )
 
 
 settings = Settings()

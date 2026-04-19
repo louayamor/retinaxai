@@ -55,6 +55,9 @@ def setup_logging() -> None:
     root_logger.addHandler(file_handler)
     root_logger.setLevel(log_level)
 
+    logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     return structlog.get_logger(name)

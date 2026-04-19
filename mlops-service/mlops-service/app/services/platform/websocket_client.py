@@ -137,3 +137,42 @@ async def send_prediction_event(
                 )
     except Exception as e:
         logger.warning(f"Failed to send prediction event: {e}")
+
+
+async def send_prediction_log(
+    patient_id: str,
+    prediction_id: str,
+    step: str,
+    status: str,
+    message: str,
+) -> None:
+    """Send live prediction log message to backend WebSocket server for frontend display."""
+    from datetime import datetime
+
+    payload = {
+        "prediction_id": prediction_id,
+        "patient_id": patient_id,
+        "step": step,
+        "status": status,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+    room = f"prediction:{patient_id}"
+    emit_url = f"{BACKEND_WS_URL.replace('ws://', 'http://').replace('/ws', '')}/emit"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                emit_url,
+                json={
+                    "event": "prediction.log",
+                    "data": payload,
+                    "room": room,
+                },
+                headers={"X-API-Key": BACKEND_API_KEY} if BACKEND_API_KEY else {},
+            )
+            if response.status_code < 400:
+                logger.debug(f"Sent log: {step} - {status}")
+    except Exception as e:
+        logger.warning(f"Failed to send prediction log: {e}")

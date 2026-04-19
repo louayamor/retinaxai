@@ -29,12 +29,19 @@ class ExplanationService:
         from app.models.prediction import PredictionStatus
 
         output_payload = prediction.output_payload or {}
-        dr_grade = output_payload.get("predicted_class", "Unknown")
+        dr_grade = output_payload.get("combined_grade", 0)
         confidence = prediction.confidence_score or 0.0
-        gradcam_left = output_payload.get("gradcam_left", [])
-        gradcam_right = output_payload.get("gradcam_right", [])
+        gradcam_left = output_payload.get("gradcam_left")
+        gradcam_right = output_payload.get("gradcam_right")
         gradcam_left_regions = output_payload.get("gradcam_left_regions", [])
         gradcam_right_regions = output_payload.get("gradcam_right_regions", [])
+
+        left_region_names = [
+            r.get("name") for r in gradcam_left_regions if isinstance(r, dict) and r.get("name")
+        ]
+        right_region_names = [
+            r.get("name") for r in gradcam_right_regions if isinstance(r, dict) and r.get("name")
+        ]
 
         results = {
             "prediction_explanation": None,
@@ -45,18 +52,19 @@ class ExplanationService:
         shap_values = None
 
         gradcam_regions = {
-            "left_eye": gradcam_left_regions if isinstance(gradcam_left_regions, list) else [],
-            "right_eye": gradcam_right_regions if isinstance(gradcam_right_regions, list) else [],
+            "left_eye": left_region_names,
+            "right_eye": right_region_names,
         }
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            if dr_grade != "Unknown":
+            if dr_grade is not None and dr_grade != "Unknown":
+                dr_grade_value = str(dr_grade) if isinstance(dr_grade, int) else dr_grade
                 try:
                     resp = await client.post(
                         f"{LLM_SERVICE_URL}/api/xai/explain",
                         json={
                             "prediction_id": str(prediction.id),
-                            "dr_grade": dr_grade,
+                            "dr_grade": dr_grade_value,
                             "confidence": confidence,
                             "clinical_features": prediction.input_payload,
                             "gradcam_regions": gradcam_regions,
@@ -91,18 +99,14 @@ class ExplanationService:
                     xai_failed = True
                     logger.warning(f"[EXPLAIN SERVICE] XAI explain failed: {e}")
 
-            if gradcam_left_regions or gradcam_right_regions:
+            if left_region_names or right_region_names:
                 try:
                     resp = await client.post(
                         f"{LLM_SERVICE_URL}/api/xai/gradcam",
                         json={
                             "prediction_id": str(prediction.id),
-                            "left_eye_regions": gradcam_left_regions
-                            if isinstance(gradcam_left_regions, list)
-                            else [],
-                            "right_eye_regions": gradcam_right_regions
-                            if isinstance(gradcam_right_regions, list)
-                            else [],
+                            "left_eye_regions": left_region_names,
+                            "right_eye_regions": right_region_names,
                         },
                     )
                     if resp.status_code == 200:
@@ -125,13 +129,14 @@ class ExplanationService:
                     logger.warning(f"[EXPLAIN SERVICE] XAI gradcam failed: {e}")
 
             risk_factors = prediction.input_payload.get("risk_factors", [])
+            dr_grade_value = str(dr_grade) if isinstance(dr_grade, int) else dr_grade
             try:
                 resp = await client.post(
                     f"{LLM_SERVICE_URL}/api/xai/severity",
                     json={
                         "prediction_id": str(prediction.id),
                         "patient_data": patient_data,
-                        "dr_grade": dr_grade,
+                        "dr_grade": dr_grade_value,
                         "risk_factors": risk_factors,
                     },
                 )

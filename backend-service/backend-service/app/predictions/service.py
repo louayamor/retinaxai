@@ -80,9 +80,23 @@ class PredictionService:
             if ml_response.gradcam_right:
                 output_payload["gradcam_right"] = ml_response.gradcam_right
             if ml_response.regions_left:
-                output_payload["gradcam_left_regions"] = ml_response.regions_left
+                output_payload["gradcam_left_regions"] = [
+                    r.model_dump() for r in ml_response.regions_left
+                ]
             if ml_response.regions_right:
-                output_payload["gradcam_right_regions"] = ml_response.regions_right
+                output_payload["gradcam_right_regions"] = [
+                    r.model_dump() for r in ml_response.regions_right
+                ]
+            if ml_response.top_hotspots_left:
+                output_payload["top_hotspots_left"] = [
+                    h.model_dump() for h in ml_response.top_hotspots_left
+                ]
+            if ml_response.top_hotspots_right:
+                output_payload["top_hotspots_right"] = [
+                    h.model_dump() for h in ml_response.top_hotspots_right
+                ]
+            if ml_response.shap_explanation:
+                output_payload["shap_explanation"] = ml_response.shap_explanation
 
             prediction.output_payload = output_payload
             prediction.confidence_score = ml_response.confidence_score
@@ -143,7 +157,8 @@ class PredictionService:
             )
             logger.error(f"[PREDICT SERVICE] Traceback: {traceback.format_exc()}")
             prediction.status = PredictionStatus.FAILED
-            prediction.error_message = f"{type(e).__name__}: {e}"
+            error_str = f'{type(e).__name__}: {str(e)}'
+            prediction.error_message = error_str[:497] if len(error_str) <= 497 else error_str[:497] + '...'
 
             try:
                 socket_manager = get_socket_manager()

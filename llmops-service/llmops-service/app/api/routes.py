@@ -242,7 +242,7 @@ def operation() -> dict:
 
 class XAIPredictionRequest(BaseModel):
     prediction_id: str
-    dr_grade: str
+    dr_grade: str | int
     confidence: float
     clinical_features: dict | None = None
     gradcam_regions: dict | None = None
@@ -250,14 +250,14 @@ class XAIPredictionRequest(BaseModel):
 
 class XAIGradCAMRequest(BaseModel):
     prediction_id: str
-    left_eye_regions: list[str]
-    right_eye_regions: list[str]
+    left_eye_regions: list[str] | None = None
+    right_eye_regions: list[str] | None = None
 
 
 class XAISeverityRequest(BaseModel):
     prediction_id: str
     patient_data: dict
-    dr_grade: str
+    dr_grade: str | int
     risk_factors: list[str] = []
 
 
@@ -289,8 +289,8 @@ async def explain_gradcam(payload: XAIGradCAMRequest) -> dict:
     pipeline = get_xai_pipeline()
     return await pipeline.explain_gradcam(
         prediction_id=payload.prediction_id,
-        left_eye_regions=payload.left_eye_regions,
-        right_eye_regions=payload.right_eye_regions,
+        left_eye_regions=payload.left_eye_regions or [],
+        right_eye_regions=payload.right_eye_regions or [],
     )
 
 
@@ -419,7 +419,7 @@ async def shap_explain_prediction(payload: ShapExplainRequest) -> ShapExplainRes
 
     try:
         service = get_shap_service()
-        explanation = service.explain_prediction(
+        explanation = await service.explain_prediction(
             features=payload.features,
             pipeline=payload.pipeline,
         )

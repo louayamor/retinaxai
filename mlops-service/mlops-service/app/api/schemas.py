@@ -157,6 +157,21 @@ class MLPredictHttpRequest(BaseModel):
     features: dict
 
 
+class RegionNumeric(BaseModel):
+    name: str = Field(description="Anatomical region name")
+    intensity: float = Field(description="Activation strength (0-1)")
+    area: int = Field(description="Pixel count of region")
+    center_x: int = Field(description="Centroid X coordinate")
+    center_y: int = Field(description="Centroid Y coordinate")
+    saliency_score: float = Field(description="Weighted importance score (0-1)")
+
+
+class TopHotspot(BaseModel):
+    region: str = Field(description="Region name")
+    intensity: float = Field(description="Activation strength (0-1)")
+    rank: int = Field(description="Rank by intensity (1-5)")
+
+
 class PredictResponse(BaseModel):
     prediction: dict = Field(
         description="Primary imaging prediction with clinical metadata"
@@ -172,11 +187,17 @@ class PredictResponse(BaseModel):
     gradcam_right: Optional[str] = Field(
         None, description="GradCAM heatmap for right eye (base64 PNG)"
     )
-    regions_left: Optional[list[str]] = Field(
-        None, description="Anatomical regions highlighted in left eye GradCAM"
+    regions_left: Optional[list[RegionNumeric]] = Field(
+        None, description="Anatomical regions with numeric values for left eye"
     )
-    regions_right: Optional[list[str]] = Field(
-        None, description="Anatomical regions highlighted in right eye GradCAM"
+    regions_right: Optional[list[RegionNumeric]] = Field(
+        None, description="Anatomical regions with numeric values for right eye"
+    )
+    top_hotspots_left: Optional[list[TopHotspot]] = Field(
+        None, description="Top 5 hotspots ranked by intensity for left eye"
+    )
+    top_hotspots_right: Optional[list[TopHotspot]] = Field(
+        None, description="Top 5 hotspots ranked by intensity for right eye"
     )
     shap_explanation: Optional[dict] = Field(
         None, description="SHAP feature explanations for clinical model"

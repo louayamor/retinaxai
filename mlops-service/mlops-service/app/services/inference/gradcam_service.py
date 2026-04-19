@@ -94,12 +94,30 @@ class GradCAMService:
         input_tensor: torch.Tensor,
         class_idx: int,
     ) -> tuple[str, list[str]]:
-        """Generate GradCAM heatmap and extract anatomical regions."""
+        """Generate GradCAM heatmap and extract anatomical regions (legacy method)."""
         gradcam_base64 = self.generate(image_bytes, input_tensor, class_idx)
         cam = self._compute_cam(input_tensor, class_idx)
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         regions = self.extract_regions(cam, img)
         return gradcam_base64, regions
+
+    def generate_with_regions_numeric(
+        self,
+        image_bytes: bytes,
+        input_tensor: torch.Tensor,
+        class_idx: int,
+    ) -> tuple[str, list[dict], list[dict]]:
+        """Generate GradCAM heatmap and extract anatomical regions with numeric values.
+        
+        Returns:
+            tuple: (gradcam_base64, regions_numeric, top_hotspots)
+        """
+        gradcam_base64 = self.generate(image_bytes, input_tensor, class_idx)
+        cam = self._compute_cam(input_tensor, class_idx)
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        regions = self.extract_regions_numeric(cam, img)
+        top_hotspots = self._get_top_hotspots(regions)
+        return gradcam_base64, regions, top_hotspots
 
     def _compute_cam(self, input_tensor: torch.Tensor, class_idx: int) -> np.ndarray:
         """Compute raw CAM values for region extraction."""
@@ -187,6 +205,101 @@ class GradCAMService:
             return self._get_default_regions(cam)
 
         return sorted(regions)
+
+    def extract_regions_numeric(
+        self, cam: np.ndarray, original_image: Image.Image
+    ) -> list[dict]:
+        """Extract anatomical regions with numeric values.
+
+        Returns list of dicts with:
+        - name: anatomical region name
+        - intensity: activation strength (0-1)
+        - area: pixel count of region
+        - center_x: centroid X coordinate
+        - center_y: centroid Y coordinate
+        - saliency_score: weighted importance (0-1)
+        """
+        h, w = cam.shape
+
+        threshold = np.percentile(cam, 90)
+        hot_spots = (cam > threshold).astype(np.uint8) * 255
+
+        contours, _ = cv2.findContours(
+            hot_spots,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        if not contours:
+            return self._get_default_regions_numeric(cam)
+
+        regions = []
+        for cnt in contours:
+            M = cv2.moments(cnt)
+            if M["m00"] == 0:
+                continue
+
+            cx = int(M["m10"] / M["m00"])
+            cy = int(M["m01"] / M["m00"])
+
+            area = cv2.contourArea(cnt)
+            intensity = float(cam[cy, cx]) if 0 <= cy < h and 0 <= cx < w else 0.0
+
+            region_name = self._map_to_anatomical_region(cx, cy, w, h, area, intensity)
+            saliency = intensity * (area / (h * w))
+
+            regions.append({
+                "name": region_name,
+                "intensity": round(intensity, 4),
+                "area": int(area),
+                "center_x": cx,
+                "center_y": cy,
+                "saliency_score": round(saliency, 4)
+            })
+
+        if not regions:
+            return self._get_default_regions_numeric(cam)
+
+        unique_regions = []
+        seen_names = set()
+        for r in regions:
+            if r["name"] not in seen_names:
+                unique_regions.append(r)
+                seen_names.add(r["name"])
+
+        unique_regions.sort(key=lambda x: x["intensity"], reverse=True)
+        return unique_regions[:10]
+
+    def _get_top_hotspots(self, regions: list[dict]) -> list[dict]:
+        """Extract top 5 hotspots ranked by intensity."""
+        sorted_regions = sorted(regions, key=lambda x: x["intensity"], reverse=True)
+        top_hotspots = []
+        for i, r in enumerate(sorted_regions[:5]):
+            top_hotspots.append({
+                "region": r["name"],
+                "intensity": r["intensity"],
+                "rank": i + 1
+            })
+        return top_hotspots
+
+    def _get_default_regions_numeric(self, cam: np.ndarray) -> list[dict]:
+        """Get default regions with numeric values based on activation peak."""
+        h, w = cam.shape
+
+        max_idx = np.unravel_index(np.argmax(cam), cam.shape)
+        cy, cx = max_idx
+
+        main_region = self._map_to_anatomical_region(cx, cy, w, h, 0, 1.0)
+        intensity = float(cam[cy, cx])
+
+        return [{
+            "name": main_region,
+            "intensity": round(intensity, 4),
+            "area": 1,
+            "center_x": cx,
+            "center_y": cy,
+            "saliency_score": round(intensity, 4)
+        }]
 
     def _map_to_anatomical_region(
         self,
