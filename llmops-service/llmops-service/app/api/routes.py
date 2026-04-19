@@ -47,13 +47,25 @@ class RagStatusResponse(BaseModel):
     schema_version: str | None = None
     run_id: str | None = None
     artifact_count: int = 0
+    total_documents: int = 0
     collection_name: str | None = None
     persist_directory: str | None = None
+    last_updated: str | None = None
 
 
-@router.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+class HealthResponse(BaseModel):
+    status: str
+    llm_provider: str
+    model: str
+
+
+@router.get("/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    return HealthResponse(
+        status="ok",
+        llm_provider=settings.llm_provider.value,
+        model=settings.llm_model,
+    )
 
 
 @router.post("/generate")
@@ -190,14 +202,16 @@ def rag_status() -> RagStatusResponse:
     )
     state = store.read_state() or {}
     return RagStatusResponse(
-        status="ok" if state else "idle",
+        status="ready" if state.get("artifact_count", 0) > 0 else "idle",
         schema_version=str(state.get("schema_version"))
         if state.get("schema_version")
         else None,
         run_id=str(state.get("run_id")) if state.get("run_id") else None,
         artifact_count=int(state.get("artifact_count") or 0),
+        total_documents=int(state.get("artifact_count") or 0),
         collection_name=store.collection_name,
         persist_directory=str(store.persist_directory),
+        last_updated=state.get("updated_at"),
     )
 
 
@@ -205,9 +219,23 @@ def rag_status() -> RagStatusResponse:
 def operation_status() -> dict:
     op = get_operation()
     return {
-        "state": op.state,
+        "operation": op.state,
+        "status": op.state,
         "message": op.message,
-        "progress": op.progress,
+        "progress": op.progress or 0.0,
+        "started_at": op.started_at,
+    }
+
+
+@router.get("/operation")
+def operation() -> dict:
+    """Alias for /operation/status for frontend compatibility."""
+    op = get_operation()
+    return {
+        "operation": op.state,
+        "status": op.state,
+        "message": op.message,
+        "progress": op.progress or 0.0,
         "started_at": op.started_at,
     }
 

@@ -297,6 +297,8 @@ def create_app() -> FastAPI:
             "service": settings.app_name,
             "version": settings.app_version,
             "environment": settings.app_env,
+            "llm_provider": settings.llm_provider.value,
+            "model": settings.llm_model,
         }
 
     @app.get("/ready", tags=["health"])

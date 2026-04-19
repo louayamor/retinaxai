@@ -62,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### LLMOps Service (Port 8002)
 - RAG pipeline with ChromaDB vector store
 - Sentence-transformers embeddings (all-MiniLM-L6-v2)
-- GitHub AI Inference (GPT-4o) client
+- GitHub AI Inference (gpt-4o) client
 - Async job queue for long-running report generation
 - Singleton pattern for inference pipeline efficiency
 - Configurable chunk sizes and overlap settings

@@ -264,7 +264,7 @@ bun run build
 
 - **Vector Store**: ChromaDB
 - **Embeddings**: sentence-transformers/all-MiniLM-L6-v2
-- **LLM Provider**: GitHub AI Inference (GPT-4o)
+- **LLM Provider**: GitHub AI Inference (gpt-4o)
 - **Document Types**: OCR reports, clinical metrics, feature importance, imaging metrics
 
 ---
