@@ -481,10 +481,13 @@ class ShapService:
                 explainer = shap.TreeExplainer(model)
                 shap_values = explainer.shap_values(feature_array)
 
-                if isinstance(shap_values, list):
-                    shap_values = shap_values[0][0]
+                shap_arr = np.array(shap_values)
+                if shap_arr.ndim > 1:
+                    shap_values = float(shap_arr.flatten()[0])
+                elif shap_arr.ndim == 1:
+                    shap_values = shap_arr.tolist()
                 else:
-                    shap_values = shap_values[0]
+                    shap_values = float(shap_arr)
 
                 expected_value = explainer.expected_value
                 if expected_value is None:
@@ -518,7 +521,8 @@ class ShapService:
             )
 
         contributions = []
-        for fname, fvalue, svalue in zip(feature_names, feature_values, shap_values):
+        shap_vals_list = shap_values if isinstance(shap_values, list) else [shap_values]
+        for fname, fvalue, svalue in zip(feature_names, feature_values, shap_vals_list):
             contributions.append(
                 FeatureContribution(
                     feature_name=fname,
