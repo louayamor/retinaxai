@@ -382,61 +382,49 @@ class ShapService:
             "thickness_outer_inferior",
             "thickness_outer_temporal",
             "patient_age",
-            "patient_gender_F",
-            "patient_gender_M",
-            "patient_gender_unknown",
-            "meta_eye_OD",
-            "meta_eye_OS",
-            "clinical_edema_False",
-            "clinical_edema_True",
-            "clinical_erm_status_present",
-            "clinical_erm_status_residual",
-            "clinical_erm_status_unknown",
-            "meta_image_quality_37.0",
-            "meta_image_quality_40.0",
-            "meta_image_quality_42.0",
-            "meta_image_quality_43.0",
-            "meta_image_quality_44.0",
-            "meta_image_quality_45.0",
-            "meta_image_quality_48.0",
-            "meta_image_quality_49.0",
-            "meta_image_quality_50.0",
-            "meta_image_quality_51.0",
-            "meta_image_quality_52.0",
-            "meta_image_quality_53.0",
-            "meta_image_quality_54.0",
-            "meta_image_quality_55.0",
-            "meta_image_quality_56.0",
-            "meta_image_quality_57.0",
-            "meta_image_quality_58.0",
-            "meta_image_quality_59.0",
-            "meta_image_quality_60.0",
-            "meta_image_quality_61.0",
-            "meta_image_quality_62.0",
-            "meta_image_quality_63.0",
-            "meta_image_quality_64.0",
-            "meta_image_quality_65.0",
-            "meta_image_quality_66.0",
-            "meta_image_quality_68.0",
-            "meta_image_quality_69.0",
-            "meta_image_quality_70.0",
-            "meta_image_quality_74.0",
-            "meta_image_quality_unknown",
+            "patient_gender",
+            "meta_eye",
+            "clinical_edema",
+            "clinical_erm_status",
+            "meta_image_quality",
         ]
 
-    def _get_categorical_encoders(self) -> dict[str, list[str]]:
-        return {
-            "patient_gender": ["F", "M", "unknown"],
-            "meta_eye": ["OD", "OS"],
-            "clinical_edema": ["False", "True"],
-            "clinical_erm_status": ["present", "residual", "unknown"],
-            "meta_image_quality": [
-                "37.0", "40.0", "42.0", "43.0", "44.0", "45.0", "48.0", "49.0",
-                "50.0", "51.0", "52.0", "53.0", "54.0", "55.0", "56.0", "57.0",
-                "58.0", "59.0", "60.0", "61.0", "62.0", "63.0", "64.0", "65.0",
-                "66.0", "68.0", "69.0", "70.0", "74.0", "unknown"
-            ],
-        }
+    def _encode_features(self, features: dict[str, Any]) -> list[float]:
+        feature_names = self._get_feature_names()
+        encoded = []
+
+        for fname in feature_names:
+            if fname in features:
+                val = features[fname]
+                if isinstance(val, (int, float)):
+                    encoded.append(float(val))
+                elif isinstance(val, str):
+                    if fname == "patient_gender":
+                        encoded.append(1.0 if val == "M" else 0.0)
+                    elif fname == "meta_eye":
+                        encoded.append(1.0 if val == "OD" else 0.0)
+                    elif fname == "clinical_edema":
+                        encoded.append(1.0 if val == "True" else 0.0)
+                    elif fname == "clinical_erm_status":
+                        if val == "present":
+                            encoded.append(0.0)
+                        elif val == "residual":
+                            encoded.append(1.0)
+                        else:
+                            encoded.append(2.0)
+                    elif fname == "meta_image_quality":
+                        try:
+                            encoded.append(float(val))
+                        except:
+                            encoded.append(0.0)
+                    else:
+                        encoded.append(0.0)
+                else:
+                    encoded.append(0.0)
+            else:
+                encoded.append(0.0)
+
+        return encoded
 
     async def explain_prediction(
         self,
@@ -450,29 +438,7 @@ class ShapService:
 
         model = await self._load_clinical_model()
         feature_names = self._get_feature_names()
-
-        feature_values = []
-        for fname in feature_names:
-            if fname in features:
-                val = features[fname]
-                if isinstance(val, (int, float)):
-                    feature_values.append(float(val))
-                else:
-                    feature_values.append(0.0)
-            elif "_" in fname:
-                parts = fname.rsplit("_", 1)
-                base_field = parts[0]
-                encoded_value = parts[1] if len(parts) > 1 else "unknown"
-                if base_field in features:
-                    original_val = str(features[base_field])
-                    if original_val == encoded_value:
-                        feature_values.append(1.0)
-                    else:
-                        feature_values.append(0.0)
-                else:
-                    feature_values.append(0.0)
-            else:
-                feature_values.append(0.0)
+        feature_values = self._encode_features(features)
 
         feature_array = np.array([feature_values])
 
