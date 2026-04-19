@@ -486,9 +486,11 @@ class ShapService:
                 else:
                     shap_values = shap_values[0]
 
-                expected_value = float(explainer.expected_value)
-                if isinstance(expected_value, (np.ndarray, list, tuple)):
-                    expected_value = float(expected_value[0])
+                expected_value = explainer.expected_value
+                if expected_value is None:
+                    expected_value = 0.5
+                elif isinstance(expected_value, (np.ndarray, list, tuple)):
+                    expected_value = float(expected_value[0]) if len(expected_value) > 0 else 0.5
                 else:
                     expected_value = float(expected_value)
 
