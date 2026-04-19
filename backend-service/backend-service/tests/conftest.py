@@ -65,7 +65,7 @@ def llm_report_payload() -> dict[str, object]:
         "report_type": "report",
         "language": "en",
         "tone": "clinical",
-        "model_name": "gpt-4.1-mini",
+        "model_name": "gpt-4o",
         "model_version": "2026-04-01",
         "prediction_output": {"label": "mild"},
         "confidence_score": 0.93,

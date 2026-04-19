@@ -2,7 +2,7 @@ import uuid
 
 from sqlalchemy import Boolean, Float, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
 
@@ -35,5 +35,3 @@ class OCTReport(Base, UUIDMixin, TimestampMixin):
     thickness_outer_nasal: Mapped[float | None] = mapped_column(Float, nullable=True)
     thickness_outer_inferior: Mapped[float | None] = mapped_column(Float, nullable=True)
     thickness_outer_temporal: Mapped[float | None] = mapped_column(Float, nullable=True)
-
-    patient = relationship("Patient", back_populates="oct_reports")

@@ -9,8 +9,7 @@ from app.auth.dependencies import CurrentUser
 from app.db.session import get_db
 from app.models.patient import Patient
 from app.models.prediction import Prediction, PredictionStatus
-from app.models.report import Report
-from app.models.oct_report import OCTReport
+from app.models.report import Report, ReportType
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -25,8 +24,11 @@ async def get_dashboard_stats(
     # Count totals
     total_patients = await db.scalar(select(func.count(Patient.id)))
     total_predictions = await db.scalar(select(func.count(Prediction.id)))
+    
     total_reports = await db.scalar(select(func.count(Report.id)))
-    total_scans = await db.scalar(select(func.count(OCTReport.id)))
+    total_oct_reports = await db.scalar(
+        select(func.count(Report.id)).where(Report.report_type == ReportType.OCT)
+    )
 
     # Prediction status distribution
     prediction_status_result = await db.execute(
@@ -42,7 +44,7 @@ async def get_dashboard_stats(
     )
     report_status_counts = {row[0].value: row[1] for row in report_status_result.all()}
 
-    # Predictions by severity (from output_payload OR oct_reports dr_grade)
+    # Predictions by severity (from output_payload OR reports with report_type=OCT)
     severity_counts = {}
     
     # First try from predictions table
@@ -54,21 +56,30 @@ async def get_dashboard_stats(
         if isinstance(payload, dict):
             combined_grade = payload.get("combined_grade")
             if combined_grade is not None:
-                severity_counts[combined_grade] = (
-                    severity_counts.get(combined_grade, 0) + 1
-                )
+                try:
+                    grade_num = int(combined_grade)
+                    severity_counts[grade_num] = severity_counts.get(grade_num, 0) + 1
+                except (ValueError, TypeError):
+                    pass
     
-    # If no predictions, use oct_reports dr_grade as fallback
-    if not severity_counts:
-        dr_grade_result = await db.execute(
-            select(OCTReport.dr_grade).where(OCTReport.dr_grade.isnot(None))
+    # Also get from reports table with report_type=OCT and merge
+    oct_dr_grade_result = await db.execute(
+        select(Report.dr_grade).where(
+            Report.report_type == ReportType.OCT,
+            Report.dr_grade.isnot(None)
         )
-        for (dr_grade,) in dr_grade_result.all():
-            if dr_grade:
-                # Map dr_grade strings to numeric (0=No DR, etc.)
-                grade_map = {"No DR": 0, "Mild": 1, "Moderate": 2, "Severe": 3, "Proliferative DR": 4}
-                grade_num = grade_map.get(dr_grade, 0)
-                severity_counts[grade_num] = severity_counts.get(grade_num, 0) + 1
+    )
+    for (dr_grade,) in oct_dr_grade_result.all():
+        if dr_grade:
+            grade_map = {
+                "no dr": 0, "no_dr": 0,
+                "mild": 1,
+                "moderate": 2,
+                "severe": 3,
+                "proliferative": 4, "proliferative dr": 4,
+            }
+            grade_num = grade_map.get(str(dr_grade).lower().strip(), 0)
+            severity_counts[grade_num] = severity_counts.get(grade_num, 0) + 1
 
     # Predictions over time (last 30 days)
     thirty_days_ago = datetime.utcnow() - timedelta(days=30)
@@ -137,7 +148,7 @@ async def get_dashboard_stats(
             "patients": total_patients or 0,
             "predictions": total_predictions or 0,
             "reports": total_reports or 0,
-            "scans": total_scans or 0,
+            "scans": total_oct_reports or 0,
         },
         "prediction_status": prediction_status_counts,
         "report_status": report_status_counts,

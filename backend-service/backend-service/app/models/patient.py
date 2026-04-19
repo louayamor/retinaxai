@@ -36,9 +36,6 @@ class Patient(Base, UUIDMixin, TimestampMixin):
     reports = relationship(
         "Report", back_populates="patient", cascade="all, delete-orphan"
     )
-    oct_reports = relationship(
-        "OCTReport", back_populates="patient", cascade="all, delete-orphan"
-    )
     severity_reports = relationship(
         "SeverityReport", back_populates="patient", cascade="all, delete-orphan"
     )

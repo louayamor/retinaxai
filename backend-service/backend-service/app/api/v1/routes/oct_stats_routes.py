@@ -7,10 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import CurrentUser
 from app.db.session import get_db
-from app.models.oct_report import OCTReport
 from app.models.patient import Patient
 from app.models.prediction import Prediction
-from app.models.report import Report
+from app.models.report import Report, ReportType
 
 router = APIRouter(prefix="/oct-stats", tags=["oct_stats"])
 
@@ -20,41 +19,60 @@ async def get_oct_stats(
     _: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    # ==== OCT Reports Data ====
-    total_oct = await db.scalar(select(func.count(OCTReport.id)))
+    # ==== OCT Reports Data (from reports table with report_type=OCT) ====
+    total_oct = await db.scalar(
+        select(func.count(Report.id)).where(Report.report_type == ReportType.OCT)
+    )
 
     grade_result = await db.execute(
-        select(OCTReport.dr_grade, func.count(OCTReport.id))
-        .where(OCTReport.dr_grade.isnot(None))
-        .group_by(OCTReport.dr_grade)
+        select(Report.dr_grade, func.count(Report.id))
+        .where(
+            Report.report_type == ReportType.OCT,
+            Report.dr_grade.isnot(None),
+        )
+        .group_by(Report.dr_grade)
     )
     grade_distribution = {row[0]: row[1] for row in grade_result.all()}
 
     eye_result = await db.execute(
-        select(OCTReport.eye, func.count(OCTReport.id)).group_by(OCTReport.eye)
+        select(Report.eye, func.count(Report.id))
+        .where(
+            Report.report_type == ReportType.OCT,
+            Report.eye.isnot(None),
+        )
+        .group_by(Report.eye)
     )
     eye_distribution = {row[0]: row[1] for row in eye_result.all()}
 
     edema_count = await db.scalar(
-        select(func.count(OCTReport.id)).where(OCTReport.edema)
+        select(func.count(Report.id)).where(
+            Report.report_type == ReportType.OCT,
+            Report.edema == True,
+        )
     )
     no_edema_count = await db.scalar(
-        select(func.count(OCTReport.id)).where(~OCTReport.edema)
+        select(func.count(Report.id)).where(
+            Report.report_type == ReportType.OCT,
+            Report.edema == False,
+        )
     )
 
     erm_result = await db.execute(
-        select(OCTReport.erm_status, func.count(OCTReport.id))
-        .where(OCTReport.erm_status.isnot(None))
-        .group_by(OCTReport.erm_status)
+        select(Report.erm_status, func.count(Report.id))
+        .where(
+            Report.report_type == ReportType.OCT,
+            Report.erm_status.isnot(None),
+        )
+        .group_by(Report.erm_status)
     )
     erm_distribution = {row[0]: row[1] for row in erm_result.all()}
 
     thickness_avg = await db.execute(
         select(
-            func.avg(OCTReport.thickness_center_fovea),
-            func.avg(OCTReport.thickness_average_thickness),
-            func.avg(OCTReport.thickness_total_volume_mm3),
-        )
+            func.avg(Report.thickness_center_fovea),
+            func.avg(Report.thickness_average_thickness),
+            func.avg(Report.thickness_total_volume_mm3),
+        ).where(Report.report_type == ReportType.OCT)
     )
     thickness_row = thickness_avg.first()
     thickness_averages = {
@@ -70,8 +88,9 @@ async def get_oct_stats(
     }
 
     avg_quality = await db.scalar(
-        select(func.avg(OCTReport.image_quality)).where(
-            OCTReport.image_quality.isnot(None)
+        select(func.avg(Report.image_quality)).where(
+            Report.report_type == ReportType.OCT,
+            Report.image_quality.isnot(None),
         )
     )
 

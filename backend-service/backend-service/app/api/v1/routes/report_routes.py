@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import CurrentUser
 from app.db.session import get_db
 from app.reports.service import ReportService
-from app.schemas.report_schema import ReportGenerateRequest, ReportRead
+from app.schemas.report_schema import OCTReportCreate, ReportGenerateRequest, ReportRead
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -20,6 +20,41 @@ async def generate_report(
 ):
     service = ReportService(db)
     return await service.generate(data, current_user.id)
+
+
+@router.post("/oct", response_model=ReportRead, status_code=201)
+async def create_oct_report(
+    data: OCTReportCreate,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    service = ReportService(db)
+    return await service.create_oct_report(data, current_user.id)
+
+
+@router.get("/oct", response_model=dict)
+async def list_oct_reports(
+    _: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+):
+    service = ReportService(db)
+    reports, total = await service.get_oct_reports(skip=skip, limit=limit)
+    return {
+        "total": total,
+        "items": [ReportRead.model_validate(r) for r in reports],
+    }
+
+
+@router.get("/oct/patient/{patient_id}", response_model=list[ReportRead])
+async def list_patient_oct_reports(
+    patient_id: uuid.UUID,
+    _: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    service = ReportService(db)
+    return await service.get_oct_report_by_patient(patient_id)
 
 
 @router.get("/", response_model=dict)

@@ -23,7 +23,7 @@ def test_xai_response_accepts_gradcam_explanation_shape() -> None:
                 "left_eye": ["macula"],
                 "right_eye": ["temporal"],
             },
-            "model_used": "gpt-4.1-mini",
+            "model_used": "gpt-4o",
         },
     }
 

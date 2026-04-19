@@ -11,11 +11,11 @@ from app.core.exceptions import (
     UnprocessableEntityException,
 )
 from app.models.prediction import PredictionStatus
-from app.models.report import Report, ReportStatus
+from app.models.report import Report, ReportStatus, ReportType
 from app.patients.repository import PatientRepository
 from app.predictions.repository import PredictionRepository
 from app.reports.repository import ReportRepository
-from app.schemas.report_schema import ReportGenerateRequest
+from app.schemas.report_schema import OCTReportCreate, ReportGenerateRequest
 from app.services.llm_client.llm_service import llm_client
 from app.services.llm_client.schemas import LLMReportRequest
 
@@ -26,6 +26,52 @@ class ReportService:
         self.prediction_repo = PredictionRepository(db)
         self.patient_repo = PatientRepository(db)
         self.db = db
+
+    async def create_oct_report(
+        self, data: OCTReportCreate, generated_by: uuid.UUID
+    ) -> Report:
+        patient = await self.patient_repo.get_by_id(data.patient_id)
+        if not patient:
+            raise NotFoundException("Patient", data.patient_id)
+
+        report = Report(
+            patient_id=data.patient_id,
+            prediction_id=None,
+            generated_by=generated_by,
+            llm_model="ocr-model",
+            status=ReportStatus.COMPLETED,
+            report_type=ReportType.OCT,
+            eye=data.eye,
+            source_file=data.source_file,
+            dr_grade=data.dr_grade,
+            edema=data.edema,
+            erm_status=data.erm_status,
+            image_quality=data.image_quality,
+            thickness_center_fovea=data.thickness_center_fovea,
+            thickness_average_thickness=data.thickness_average_thickness,
+            thickness_total_volume_mm3=data.thickness_total_volume_mm3,
+            thickness_inner_superior=data.thickness_inner_superior,
+            thickness_inner_nasal=data.thickness_inner_nasal,
+            thickness_inner_inferior=data.thickness_inner_inferior,
+            thickness_inner_temporal=data.thickness_inner_temporal,
+            thickness_outer_superior=data.thickness_outer_superior,
+            thickness_outer_nasal=data.thickness_outer_nasal,
+            thickness_outer_inferior=data.thickness_outer_inferior,
+            thickness_outer_temporal=data.thickness_outer_temporal,
+        )
+        return await self.repo.create(report)
+
+    async def get_oct_reports(
+        self, skip: int = 0, limit: int = 100
+    ) -> tuple[list[Report], int]:
+        reports = await self.repo.get_by_type(ReportType.OCT, skip, limit)
+        total = await self.repo.count_by_type(ReportType.OCT)
+        return reports, total
+
+    async def get_oct_report_by_patient(
+        self, patient_id: uuid.UUID
+    ) -> list[Report]:
+        return await self.repo.get_by_patient_and_type(patient_id, ReportType.OCT)
 
     async def generate(
         self, data: ReportGenerateRequest, generated_by: uuid.UUID
@@ -57,6 +103,7 @@ class ReportService:
             generated_by=generated_by,
             llm_model=settings.LLM_MODEL,
             status=ReportStatus.GENERATING,
+            report_type=ReportType.LLM,
         )
         report = await self.repo.create(report)
 
