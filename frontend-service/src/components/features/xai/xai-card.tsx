@@ -368,7 +368,7 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
                         {gradcam_explanation.highlighted_regions?.left_eye?.length || 0} regions
                       </Badge>
                     </div>
-                    <div className="text-sm text-muted-foreground space-y-2 max-h-64 overflow-y-auto">
+                    <div className="text-sm text-muted-foreground space-y-2">
                       {gradcam_explanation.left_eye_explanation
                         .split(/(?=\d+\.\s|\n)/)
                         .filter(Boolean)
@@ -390,7 +390,7 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
                         {gradcam_explanation.highlighted_regions?.right_eye?.length || 0} regions
                       </Badge>
                     </div>
-                    <div className="text-sm text-muted-foreground space-y-2 max-h-64 overflow-y-auto">
+                    <div className="text-sm text-muted-foreground space-y-2">
                       {gradcam_explanation.right_eye_explanation
                         .split(/(?=\d+\.\s|\n)/)
                         .filter(Boolean)

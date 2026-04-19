@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, useReducedMotion } from 'motion/react';
 import {
   createPrediction,
@@ -10,6 +10,7 @@ import {
   listAllPredictions,
   getPatient,
   createReport,
+  listAllReports,
   PredictionRequest
 } from '@/lib/api';
 import PageContainer from '@/components/layout/page-container';
@@ -19,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
   TableBody,
@@ -52,7 +54,8 @@ import {
   User,
   Activity,
   AlertCircle,
-  CheckCircle2
+  CheckCircle2,
+  ImageIcon
 } from 'lucide-react';
 import {
   ScatterChart,
@@ -66,7 +69,7 @@ import {
 } from 'recharts';
 import { toast } from 'sonner';
 import { useWebSocket } from '@/hooks/use-websocket';
-import type { Patient, Prediction, PredictionStatus, DRSeverity } from '@/types';
+import type { Patient, Prediction, PredictionStatus, DRSeverity, Report } from '@/types';
 import { fadeInUp, slideInUp, borderPulse, scaleIn } from '@/lib/animations';
 import { StatusBadge } from '@/components/ui/status-badge';
 
@@ -86,6 +89,16 @@ const SEVERITY_LABELS: Record<DRSeverity, string> = {
   proliferative: 'Proliferative'
 };
 
+const GRADE_LABELS = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative'];
+
+const GRADE_COLORS: Record<string, string> = {
+  0: 'bg-emerald-500',
+  1: 'bg-cyan-500',
+  2: 'bg-amber-500',
+  3: 'bg-orange-500',
+  4: 'bg-rose-500',
+};
+
 interface FileUpload {
   file: File;
   preview: string;
@@ -93,6 +106,11 @@ interface FileUpload {
 
 export default function PredictionsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const shouldReduceMotion = useReducedMotion();
+  const initialTab = searchParams.get('tab') || 'screening';
+
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string>('');
   const [leftEyeFile, setLeftEyeFile] = useState<FileUpload | null>(null);
@@ -100,28 +118,46 @@ export default function PredictionsPage() {
   const [uploading, setUploading] = useState(false);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [predictionsLoading, setPredictionsLoading] = useState(true);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(true);
   const [selectedPrediction, setSelectedPrediction] = useState<Prediction | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [generatingReport, setGeneratingReport] = useState(false);
   const [patientNames, setPatientNames] = useState<Record<string, string>>({});
-  const shouldReduceMotion = useReducedMotion();
-
+  
   const { connected, subscribe } = useWebSocket();
 
   useEffect(() => {
     const unsub = subscribe('training_stage', () => {
       loadPredictions();
     });
-
-    return () => {
-      unsub();
-    };
+    return () => { unsub(); };
   }, [subscribe]);
 
   useEffect(() => {
     void loadPatients();
     void loadPredictions();
+    void loadReports();
   }, []);
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab && ['screening', 'reports', 'gradcam'].includes(tab)) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
+
+  const loadReports = async () => {
+    try {
+      setReportsLoading(true);
+      const response = await listAllReports(1, 50);
+      setReports(response.items);
+    } catch (err) {
+      console.error('Failed to load reports:', err);
+    } finally {
+      setReportsLoading(false);
+    }
+  };
 
   const loadPatients = async () => {
     try {
@@ -272,16 +308,23 @@ export default function PredictionsPage() {
         className='flex flex-col gap-6'
       >
         <PageHero
-          title='DR Screening'
-          description='Upload scans and run DR grading predictions — AI-assisted retinal analysis'
-          imageUrl='https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800&q=80'
+          title='Diagnostics'
+          description='AI-assisted diabetic retinopathy screening, clinical reports, and explainability'
         />
 
-        <PageSection
-          title='New Prediction'
-          description='Select a patient and upload fundus images to run AI prediction'
-          icon={<Activity className='h-5 w-5' />}
-        >
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="grid w-full max-w-md grid-cols-3">
+            <TabsTrigger value="screening">Screening</TabsTrigger>
+            <TabsTrigger value="reports">Reports</TabsTrigger>
+            <TabsTrigger value="gradcam">GradCAM</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="screening" className="space-y-6">
+            <PageSection
+              title='New Prediction'
+              description='Select a patient and upload fundus images to run AI prediction'
+              icon={<Activity className='h-5 w-5' />}
+            >
           <div className='space-y-6'>
             <div className='space-y-2'>
               <label className='text-sm font-medium'>
@@ -545,6 +588,193 @@ export default function PredictionsPage() {
             </Table>
           )}
         </PageSection>
+          </TabsContent>
+
+          <TabsContent value="reports" className="space-y-6">
+            <PageSection
+              title='Clinical Reports'
+              description='AI-generated clinical reports from DR screening results'
+              padding="none"
+              headerAction={
+                <Button variant="outline" size="sm" onClick={loadReports}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Refresh
+                </Button>
+              }
+            >
+              {reportsLoading ? (
+                <div className="py-8 text-center">
+                  <Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" />
+                  <p className="mt-2 text-sm text-muted-foreground">Loading reports...</p>
+                </div>
+              ) : reports.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <FileText className="mb-4 h-16 w-16 text-muted-foreground" />
+                  <p className="text-muted-foreground">
+                    No clinical reports yet. Generate a report from a prediction.
+                  </p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Patient</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {reports.map((report) => (
+                      <TableRow key={report.id}>
+                        <TableCell className="font-medium">
+                          {report.patient_id ? patientNames[report.patient_id] || 'Loading...' : 'N/A'}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{report.report_type || 'LLM'}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={report.status === 'completed' ? 'default' : 'secondary'}>
+                            {report.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {new Date(report.created_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => router.push(`/dashboard/reports?id=${report.id}`)}
+                          >
+                            <Eye className="mr-1 h-4 w-4" />
+                            View
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </PageSection>
+          </TabsContent>
+
+          <TabsContent value="gradcam" className="space-y-6">
+            <PageSection
+              title='GradCAM Visualizations'
+              description='AI explainability heatmaps for DR predictions'
+              padding="none"
+              headerAction={
+                <Button variant="outline" size="sm" onClick={loadPredictions}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Refresh
+                </Button>
+              }
+            >
+              {predictionsLoading ? (
+                <div className="py-8 text-center">
+                  <Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" />
+                  <p className="mt-2 text-sm text-muted-foreground">Loading...</p>
+                </div>
+              ) : (
+                (() => {
+                  const withGradCAM = predictions.filter(
+                    (p) => p.output_payload?.gradcam_left || p.output_payload?.gradcam_right
+                  );
+                  if (withGradCAM.length === 0) {
+                    return (
+                      <div className="flex flex-col items-center justify-center py-12">
+                        <ImageIcon className="mb-4 h-16 w-16 text-muted-foreground" />
+                        <p className="text-muted-foreground font-medium">
+                          No GradCAM Visualizations Available
+                        </p>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Run predictions with GradCAM enabled to see heatmaps here.
+                        </p>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 p-4">
+                      {withGradCAM.map((prediction) => {
+                        const grade = prediction.output_payload?.combined_grade as number | undefined;
+                        const gradeLabel = grade !== undefined ? GRADE_LABELS[grade] : null;
+                        return (
+                          <Card
+                            key={prediction.id}
+                            className="cursor-pointer hover:shadow-lg transition-shadow"
+                            onClick={() => router.push(`/dashboard/predictions/${prediction.id}/gradcam`)}
+                          >
+                            <CardHeader className="pb-2">
+                              <CardTitle className="text-sm flex items-center justify-between">
+                                <span>{patientNames[prediction.patient_id] || 'Loading...'}</span>
+                                {gradeLabel && (
+                                  <Badge className={GRADE_COLORS[String(grade)] || 'bg-muted'}>
+                                    {gradeLabel}
+                                  </Badge>
+                                )}
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+                                <span>{new Date(prediction.created_at).toLocaleDateString()}</span>
+                                <span>|</span>
+                                <span>
+                                  {prediction.confidence_score
+                                    ? `${(prediction.confidence_score * 100).toFixed(1)}%`
+                                    : 'N/A'}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 mb-3">
+                                {prediction.output_payload?.gradcam_left ? (
+                                  <div className="relative aspect-square rounded-lg overflow-hidden bg-black">
+                                    <img
+                                      src={`data:image/png;base64,${prediction.output_payload.gradcam_left}`}
+                                      alt="Left eye"
+                                      className="w-full h-full object-cover"
+                                    />
+                                    <span className="absolute bottom-1 left-1 text-[10px] text-white bg-black/50 px-1 rounded">
+                                      OS
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="relative aspect-square rounded-lg bg-muted flex items-center justify-center">
+                                    <span className="text-xs text-muted-foreground">No Left</span>
+                                  </div>
+                                )}
+                                {prediction.output_payload?.gradcam_right ? (
+                                  <div className="relative aspect-square rounded-lg overflow-hidden bg-black">
+                                    <img
+                                      src={`data:image/png;base64,${prediction.output_payload.gradcam_right}`}
+                                      alt="Right eye"
+                                      className="w-full h-full object-cover"
+                                    />
+                                    <span className="absolute bottom-1 right-1 text-[10px] text-white bg-black/50 px-1 rounded">
+                                      OD
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="relative aspect-square rounded-lg bg-muted flex items-center justify-center">
+                                    <span className="text-xs text-muted-foreground">No Right</span>
+                                  </div>
+                                )}
+                              </div>
+                              <Button variant="outline" size="sm" className="w-full">
+                                <Eye className="mr-2 h-4 w-4" />
+                                View Analysis
+                              </Button>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  );
+                })()
+              )}
+            </PageSection>
+          </TabsContent>
+        </Tabs>
       </motion.div>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>

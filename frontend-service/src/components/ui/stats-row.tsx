@@ -13,9 +13,9 @@ interface StatsRowProps {
 }
 
 const GAP_CLASSES = {
-  sm: 'gap-3',
-  md: 'gap-4',
-  lg: 'gap-6',
+  sm: 'gap-2',
+  md: 'gap-3',
+  lg: 'gap-4',
 } as const;
 
 const COL_CLASSES: Record<GridColsValue, string> = {
@@ -31,7 +31,7 @@ export function StatsRow({
   children,
   columns = 4,
   className,
-  gap = 'md',
+  gap = 'sm',
 }: StatsRowProps) {
   return (
     <div

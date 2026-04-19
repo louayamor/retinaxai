@@ -61,7 +61,7 @@ export default function PageContainer({
 }: PageContainerProps) {
   if (!access) {
     return (
-      <div className='flex flex-1 items-center justify-center p-4 md:px-6'>
+      <div className='flex flex-1 items-center justify-center p-3 md:p-5'>
         {accessFallback ?? (
           <div className='text-muted-foreground text-center text-lg'>
             You do not have access to this page.
@@ -73,9 +73,9 @@ export default function PageContainer({
 
   if (isLoading) {
     return (
-      <div className={cn('flex flex-col p-4 md:px-6 w-full', className)}>
+      <div className={cn('flex flex-col p-3 md:p-5 w-full', className)}>
         {pageTitle && (
-          <div className='mb-4 flex items-start justify-between'>
+          <div className='mb-3 flex items-start justify-between'>
             <Heading
               title={pageTitle}
               description={pageDescription}
@@ -92,9 +92,9 @@ export default function PageContainer({
   if (empty?.show) {
     const EmptyIcon = empty.icon;
     return (
-      <div className={cn('flex flex-col p-4 md:px-6 w-full', className)}>
+      <div className={cn('flex flex-col p-3 md:p-5 w-full', className)}>
         {pageTitle && (
-          <div className='mb-4 flex items-start justify-between'>
+          <div className='mb-3 flex items-start justify-between'>
             <Heading
               title={pageTitle}
               description={pageDescription}
@@ -116,9 +116,9 @@ export default function PageContainer({
   }
 
   return (
-    <div className={cn('flex flex-col p-4 md:px-6 w-full', className)}>
+    <div className={cn('flex flex-col p-3 md:p-5 w-full', className)}>
       {pageTitle && (
-        <div className='mb-4 flex items-start justify-between'>
+        <div className='mb-3 flex items-start justify-between'>
           <Heading
             title={pageTitle}
             description={pageDescription}

@@ -146,6 +146,12 @@ export async function getPatientScans(patientId: string) {
   return request<MRIScan[]>(`/api/v1/patients/${patientId}/scans`);
 }
 
+export async function getScan(scanId: string) {
+  return request<{ id: string; left_scan_path: string; right_scan_path: string; left_image?: string; right_image?: string }>(
+    `/api/v1/scans/${scanId}`
+  );
+}
+
 export async function getPatientOctReports(patientId: string) {
   return request<OCTReport[]>(`/api/v1/oct-reports/patients/${patientId}`);
 }

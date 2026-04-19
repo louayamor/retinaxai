@@ -350,7 +350,7 @@ export function ReportCard({ report, patientName, onExpand, expanded }: ReportCa
                         <FileText className="h-4 w-4 text-[var(--brand-teal)]" />
                         Report Content
                       </h4>
-                      <div className="text-sm whitespace-pre-wrap max-h-[400px] overflow-y-auto">
+                      <div className="text-sm whitespace-pre-wrap">
                         {parsedReport.content}
                       </div>
                     </div>

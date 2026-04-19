@@ -1,6 +1,6 @@
 [data-theme='retinaxai'] {
   /* Samaya Hospital Brand Colors */
-  --background: #12495f;
+  --background: #1b273b;
   --foreground: oklch(0.16 0.025 195);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.16 0.025 195);
@@ -67,7 +67,7 @@
 }
 
 [data-theme='retinaxai'].dark {
-  --background: #12495f;
+  --background: #1b273b;
   --foreground: oklch(0.97 0.005 185);
   --card: oklch(0.16 0.025 195);
   --card-foreground: oklch(0.97 0.005 185);

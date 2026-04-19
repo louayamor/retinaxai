@@ -109,6 +109,7 @@ export interface Report {
   summary: string | null;
   status: ReportStatus;
   error_message: string | null;
+  report_type?: string;
   created_at: string;
 }
 

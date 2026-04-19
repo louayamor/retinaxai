@@ -398,7 +398,7 @@ export default function MLOpsPage() {
           {features.length === 0 ? (
             <p className='text-sm text-muted-foreground py-4 text-center'>No features in store</p>
           ) : (
-            <div className='space-y-2 max-h-[200px] overflow-y-auto'>
+            <div className='space-y-2'>
               {features.slice(0, 10).map((feat, i) => (
                 <div key={i} className='flex items-center justify-between p-2 rounded border'>
                   <span className='font-mono text-sm truncate max-w-[150px]'>{feat.key}</span>

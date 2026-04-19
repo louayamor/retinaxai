@@ -16,9 +16,9 @@ interface PageSectionProps {
 }
 
 const PADDING_CLASSES = {
-  compact: 'p-3 md:p-4',
-  default: 'p-4 md:p-6',
-  comfortable: 'p-6 md:p-8',
+  compact: 'p-2 md:p-2.5',
+  default: 'p-3 md:p-3.5',
+  comfortable: 'p-4 md:p-5',
   none: '',
 };
 
@@ -29,18 +29,18 @@ export function PageSection({
   children,
   className,
   contentClassName,
-  padding = 'default',
+  padding = 'compact',
   headerAction,
 }: PageSectionProps) {
   return (
-    <Card className={cn('shadow-sm', className)}>
+    <Card className={cn('shadow-xs', className)}>
       <CardHeader className={cn(
-        'px-4 md:px-6',
+        'px-3 md:px-4',
         headerAction && 'flex flex-row items-center justify-between'
       )}>
         <div className='space-y-1'>
           {title && (
-            <CardTitle className='flex items-center gap-2 text-lg font-semibold'>
+            <CardTitle className='flex items-center gap-2 text-base font-semibold'>
               {icon}
               {title}
             </CardTitle>
@@ -66,9 +66,9 @@ interface PageGridProps {
 }
 
 const GRID_GAP = {
-  sm: 'gap-3',
-  md: 'gap-4',
-  lg: 'gap-6',
+  sm: 'gap-2',
+  md: 'gap-3',
+  lg: 'gap-4',
 } as const;
 
 export function PageGrid({

@@ -7,7 +7,6 @@ import PageContainer from '@/components/layout/page-container';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   ArrowLeft,
@@ -51,7 +50,6 @@ import { fadeInUp, slideInUp, staggerItem } from '@/lib/animations';
 import Image from 'next/image';
 import MedicalReport from '@/components/features/reports/medical-report';
 import XAICard from '@/components/features/xai/xai-card';
-import XAIExplanation from '@/components/features/xai/xai-explanation';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
 const GRADE_LABELS = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative'];
@@ -76,7 +74,6 @@ export default function PatientProfilePage() {
   const searchParams = useSearchParams();
   const patientId = params.id as string;
   const shouldReduceMotion = useReducedMotion();
-  const initialTab = searchParams.get('tab') || 'overview';
 
   const [patient, setPatient] = useState<Patient | null>(null);
   const [scans, setScans] = useState<MRIScan[]>([]);
@@ -85,7 +82,6 @@ export default function PatientProfilePage() {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState(initialTab);
   const [generatingXAI, setGeneratingXAI] = useState<string | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
   const [xaiData, setXaiData] = useState<Record<string, XAIResponse>>({});
@@ -102,7 +98,7 @@ export default function PatientProfilePage() {
         setXaiData(prev => ({ ...prev, [predId]: xai }));
       }
     } catch {
-      // XAI not found, use output_payload fallback
+      // XAI not found
     }
   }, []);
 
@@ -121,23 +117,6 @@ export default function PatientProfilePage() {
       setReports((repsData as PaginatedResponse<Report>).items);
     } catch (err) {
       console.error('Failed to refresh reports:', err);
-    }
-  }, [patientId]);
-
-  const refreshAll = useCallback(async () => {
-    try {
-      const [scansData, octData, predsData, repsData] = await Promise.all([
-        getPatientScans(patientId),
-        getPatientOctReports(patientId),
-        listPatientPredictions(patientId, 1, 100),
-        listPatientReports(patientId, 1, 100),
-      ]);
-      setScans(scansData);
-      setOctReports(octData);
-      setPredictions((predsData as PaginatedResponse<Prediction>).items);
-      setReports((repsData as PaginatedResponse<Report>).items);
-    } catch (err) {
-      console.error('Failed to refresh data:', err);
     }
   }, [patientId]);
 
@@ -205,45 +184,6 @@ export default function PatientProfilePage() {
     }
   }, [needsRefresh, refreshReports]);
 
-  useEffect(() => {
-    if (activeTab === 'xai' && predictions.length > 0 && !needsRefresh.xai) {
-      const fetchXAIDataForTab = async () => {
-        const newXaiData: Record<string, XAIResponse> = {};
-        for (const pred of predictions) {
-          const status = pred.status?.toLowerCase();
-          if (status === 'success' && !xaiData[pred.id]) {
-            try {
-              const xai = await getXAIExplanations(pred.id);
-              if (xai.explanation || xai.severity_report) {
-                newXaiData[pred.id] = xai;
-              }
-            } catch {
-              // XAI not found, use output_payload fallback
-            }
-          }
-        }
-        if (Object.keys(newXaiData).length > 0) {
-          setXaiData(prev => ({ ...prev, ...newXaiData }));
-        }
-      };
-      fetchXAIDataForTab();
-    }
-  }, [activeTab, predictions, xaiData]);
-
-  useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (tab && ['overview', 'scans', 'xai', 'reports'].includes(tab)) {
-      setActiveTab(tab);
-    }
-  }, [searchParams]);
-
-  const handleTabChange = (tab: string) => {
-    setActiveTab(tab);
-    const url = new URL(window.location.href);
-    url.searchParams.set('tab', tab);
-    router.replace(url.toString(), { scroll: false });
-  };
-
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName[0]}${lastName[0]}`.toUpperCase();
   };
@@ -269,10 +209,10 @@ export default function PatientProfilePage() {
   };
 
   const EmptyState = ({ icon: Icon, title, description }: { icon: typeof Scan; title: string; description: string }) => (
-    <div className="flex flex-col items-center justify-center py-12 bg-muted/30 rounded-lg">
-      <Icon className="h-12 w-12 mb-3 opacity-50 text-muted-foreground" />
-      <p className="text-muted-foreground font-medium">{title}</p>
-      <p className="text-sm text-muted-foreground/70">{description}</p>
+    <div className="flex flex-col items-center justify-center py-6 bg-muted/30 rounded-lg">
+      <Icon className="h-8 w-8 mb-2 opacity-50 text-muted-foreground" />
+      <p className="text-sm text-muted-foreground font-medium">{title}</p>
+      <p className="text-xs text-muted-foreground/70">{description}</p>
     </div>
   );
 
@@ -294,7 +234,7 @@ export default function PatientProfilePage() {
         toast.info('Generating SHAP explanations...');
         shapResult = await generateSHAPExplanation(prediction.id, clinicalFeatures || {});
       } catch (shapError) {
-        console.warn('SHAP generation failed (expected with limited features):', shapError);
+        console.warn('SHAP generation failed:', shapError);
       }
 
       toast.info('Generating AI explanation...');
@@ -405,16 +345,16 @@ export default function PatientProfilePage() {
         variants={shouldReduceMotion ? {} : fadeInUp}
         initial="hidden"
         animate="visible"
-        className="flex flex-col gap-6"
+        className="flex flex-col gap-4"
       >
         {/* Header */}
         <motion.div variants={shouldReduceMotion ? {} : slideInUp} className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard/patients')}>
-              <ArrowLeft className="h-4 w-4 mr-2" />
+              <ArrowLeft className="h-4 w-4 mr-1" />
               Back
             </Button>
-            <h1 className="text-2xl font-bold">Patient Profile</h1>
+            <h1 className="text-xl font-bold">Patient Profile</h1>
           </div>
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
@@ -427,710 +367,650 @@ export default function PatientProfilePage() {
         {/* Patient Info Card */}
         <motion.div variants={shouldReduceMotion ? {} : staggerItem}>
           <Card>
-            <CardHeader className="bg-gradient-to-r from-muted/30 to-transparent">
-              <div className="flex items-center gap-4">
-                <Avatar className="h-16 w-16">
-                  <AvatarFallback className={`text-xl bg-gradient-to-br ${getGenderColor(patient.gender)} text-white`}>
+            <CardHeader className="pb-2 bg-gradient-to-r from-muted/30 to-transparent">
+              <div className="flex items-center gap-3">
+                <Avatar className="h-12 w-12">
+                  <AvatarFallback className={`text-lg bg-gradient-to-br ${getGenderColor(patient.gender)} text-white`}>
                     {getInitials(patient.first_name, patient.last_name)}
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <CardTitle className="text-2xl">
+                  <CardTitle className="text-lg">
                     {patient.first_name} {patient.last_name}
                   </CardTitle>
-                  <div className="flex items-center gap-3 mt-1">
-                    <Badge variant="outline">{patient.gender === 'M' ? 'Male' : 'Female'}</Badge>
-                    <span className="text-muted-foreground">{patient.age} years old</span>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <Badge variant="outline" className="text-xs">{patient.gender === 'M' ? 'Male' : 'Female'}</Badge>
+                    <span className="text-xs text-muted-foreground">{patient.age} years old</span>
                   </div>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              <div className="bg-muted/50 rounded-lg p-3">
+            <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              <div className="bg-muted/50 rounded p-2">
                 <p className="text-xs text-muted-foreground">Medical Record #</p>
-                <p className="font-mono font-medium">{patient.medical_record_number}</p>
+                <p className="font-mono font-medium text-sm">{patient.medical_record_number}</p>
               </div>
-              <div className="bg-muted/50 rounded-lg p-3">
+              <div className="bg-muted/50 rounded p-2">
                 <p className="text-xs text-muted-foreground">Phone</p>
-                <p className="font-medium">{patient.phone || 'Not Available'}</p>
+                <p className="font-medium text-sm">{patient.phone || 'N/A'}</p>
               </div>
-              <div className="bg-muted/50 rounded-lg p-3">
+              <div className="bg-muted/50 rounded p-2">
                 <p className="text-xs text-muted-foreground">Registered</p>
-                <p className="font-medium flex items-center gap-1">
+                <p className="font-medium text-sm flex items-center gap-1">
                   <Calendar className="h-3 w-3" />
                   {new Date(patient.created_at).toLocaleDateString()}
                 </p>
               </div>
-              {patient.address && (
-                <div className="bg-muted/50 rounded-lg p-3 md:col-span-2">
-                  <p className="text-xs text-muted-foreground">Address</p>
-                  <p className="font-medium">{patient.address}</p>
-                </div>
-              )}
             </CardContent>
           </Card>
         </motion.div>
 
-        {/* Tabbed Interface */}
-        <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="overview" className="gap-2">
-              <User className="h-4 w-4" />
-              Overview
-            </TabsTrigger>
-            <TabsTrigger value="scans" className="gap-2">
-              <Scan className="h-4 w-4" />
-              Scans & GradCAM
-            </TabsTrigger>
-            <TabsTrigger value="xai" className="gap-2">
-              <Brain className="h-4 w-4" />
-              XAI Explanations
-            </TabsTrigger>
-            <TabsTrigger value="reports" className="gap-2">
-              <FileText className="h-4 w-4" />
-              Reports
-            </TabsTrigger>
-          </TabsList>
+        {/* Quick Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <motion.div variants={shouldReduceMotion ? {} : staggerItem}>
+            <Card className="border-l-4 border-l-[var(--brand-teal)]">
+              <CardHeader className="pb-1">
+                <CardTitle className="text-xs">MRI Scans</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">{scans.length}</p>
+              </CardContent>
+            </Card>
+          </motion.div>
+          <motion.div variants={shouldReduceMotion ? {} : staggerItem}>
+            <Card className="border-l-4 border-l-amber-500">
+              <CardHeader className="pb-1">
+                <CardTitle className="text-xs">Predictions</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">{predictions.length}</p>
+              </CardContent>
+            </Card>
+          </motion.div>
+          <motion.div variants={shouldReduceMotion ? {} : staggerItem}>
+            <Card className="border-l-4 border-l-blue-500">
+              <CardHeader className="pb-1">
+                <CardTitle className="text-xs">Reports</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">{reports.length}</p>
+              </CardContent>
+            </Card>
+          </motion.div>
+          <motion.div variants={shouldReduceMotion ? {} : staggerItem}>
+            <Card className="border-l-4 border-l-purple-500">
+              <CardHeader className="pb-1">
+                <CardTitle className="text-xs">OCT Scans</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">{octReports.length}</p>
+              </CardContent>
+            </Card>
+          </motion.div>
+        </div>
 
-          {/* Overview Tab */}
-          <TabsContent value="overview" className="mt-6 space-y-6">
-            {/* Quick Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <motion.div variants={shouldReduceMotion ? {} : staggerItem}>
-                <Card className="border-l-4 border-l-[var(--brand-teal)]">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">MRI Scans</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold">{scans.length}</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-              <motion.div variants={shouldReduceMotion ? {} : staggerItem}>
-                <Card className="border-l-4 border-l-amber-500">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Predictions</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold">{predictions.length}</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-              <motion.div variants={shouldReduceMotion ? {} : staggerItem}>
-                <Card className="border-l-4 border-l-blue-500">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Reports</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold">{reports.length}</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-              <motion.div variants={shouldReduceMotion ? {} : staggerItem}>
-                <Card className="border-l-4 border-l-purple-500">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">OCT Scans</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold">{octReports.length}</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            </div>
+        {/* Latest Prediction Summary */}
+        {latestPrediction && (
+          <motion.div variants={shouldReduceMotion ? {} : staggerItem}>
+            <Card className="border-l-4 border-l-emerald-500">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-emerald-500" />
+                  Latest Prediction
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">DR Grade</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {latestGradeLabel && (
+                        <Badge className={GRADE_COLORS_NUM[latestGrade!] || 'bg-muted'}>
+                          {latestGradeLabel}
+                        </Badge>
+                      )}
+                      {getStatusIcon(latestPrediction.status)}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Confidence</p>
+                    <p className="text-xl font-bold mt-0.5">
+                      {latestPrediction.confidence_score
+                        ? `${(latestPrediction.confidence_score * 100).toFixed(1)}%`
+                        : 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Risk Level</p>
+                    <p className="text-sm font-semibold mt-0.5 capitalize">{latestSeverity || 'Unknown'}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
 
-            {/* Latest Prediction Summary */}
-            {latestPrediction && (
-              <motion.div variants={shouldReduceMotion ? {} : staggerItem}>
-                <Card className="border-l-4 border-l-emerald-500">
-                  <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Activity className="h-5 w-5 text-emerald-500" />
-                      Latest Prediction
+        {/* MRI Scans Section */}
+        <section>
+          <h2 className="text-base font-semibold mb-2 flex items-center gap-2">
+            <Scan className="h-4 w-4 text-[var(--brand-teal)]" />
+            MRI Scans ({scans.length})
+          </h2>
+          {scans.length === 0 ? (
+            <EmptyState icon={Scan} title="No MRI Scans" description="Add scans to see them here" />
+          ) : (
+            <div className="grid gap-2 md:grid-cols-2">
+              {scans.map((scan) => (
+                <Card key={scan.id}>
+                  <CardHeader className="pb-1">
+                    <CardTitle className="text-xs flex items-center gap-1.5">
+                      <Scan className="h-3 w-3 text-[var(--brand-teal)]" />
+                      Scan {scan.id.slice(0, 8)}
                     </CardTitle>
+                    <CardDescription className="text-xs">
+                      {new Date(scan.uploaded_at).toLocaleString()}
+                    </CardDescription>
                   </CardHeader>
-                  <CardContent>
-                    <div className="grid md:grid-cols-3 gap-4">
-                      <div>
-                        <p className="text-sm text-muted-foreground">DR Grade</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          {latestGradeLabel && (
-                            <Badge className={GRADE_COLORS_NUM[latestGrade!] || 'bg-muted'}>
-                              {latestGradeLabel}
-                            </Badge>
-                          )}
-                          {getStatusIcon(latestPrediction.status)}
+                  <CardContent className="grid grid-cols-2 gap-1">
+                    <div className="relative aspect-square rounded bg-muted overflow-hidden">
+                      {scan.left_scan_path ? (
+                        <Image
+                          src={`${API_BASE}/` + scan.left_scan_path}
+                          alt="Left eye"
+                          fill
+                          className="object-cover"
+                          unoptimized
+                        />
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-xs">
+                          No image
                         </div>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Confidence</p>
-                        <p className="text-2xl font-bold mt-1">
-                          {latestPrediction.confidence_score
-                            ? `${(latestPrediction.confidence_score * 100).toFixed(1)}%`
-                            : 'N/A'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">Risk Level</p>
-                        <p className="text-lg font-semibold mt-1 capitalize">{latestSeverity || 'Unknown'}</p>
-                      </div>
+                      )}
+                      <span className="absolute bottom-1 left-1 bg-black/50 text-white text-xs px-1 rounded">
+                        L
+                      </span>
                     </div>
-                    <div className="flex gap-2 mt-4">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleTabChange('scans')}
-                      >
-                        <Eye className="h-4 w-4 mr-1" />
-                        View GradCAM
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleTabChange('xai')}
-                      >
-                        <BarChart3 className="h-4 w-4 mr-1" />
-                        View XAI Details
-                      </Button>
+                    <div className="relative aspect-square rounded bg-muted overflow-hidden">
+                      {scan.right_scan_path ? (
+                        <Image
+                          src={`${API_BASE}/` + scan.right_scan_path}
+                          alt="Right eye"
+                          fill
+                          className="object-cover"
+                          unoptimized
+                        />
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-xs">
+                          No image
+                        </div>
+                      )}
+                      <span className="absolute bottom-1 right-1 bg-black/50 text-white text-xs px-1 rounded">
+                        R
+                      </span>
                     </div>
                   </CardContent>
                 </Card>
-              </motion.div>
-            )}
+              ))}
+            </div>
+          )}
+        </section>
 
-            {/* Recent Activity Timeline */}
-            <motion.div variants={shouldReduceMotion ? {} : staggerItem}>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Layers className="h-5 w-5 text-blue-500" />
-                    Recent Activity
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {predictions.length === 0 && reports.length === 0 && scans.length === 0 ? (
-                    <EmptyState
-                      icon={Activity}
-                      title="No Recent Activity"
-                      description="Patient activity will appear here"
-                    />
-                  ) : (
-                    <div className="space-y-4">
-                      {/* Merge and sort activities */}
-                      {[
-                        ...predictions.map((p) => ({ type: 'prediction', date: p.created_at, data: p })),
-                        ...reports.map((r) => ({ type: 'report', date: r.created_at, data: r })),
-                        ...scans.map((s) => ({ type: 'scan', date: s.uploaded_at, data: s })),
-                      ]
-                        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                        .slice(0, 5)
-                        .map((activity, i) => (
-                          <div key={i} className="flex items-center gap-3 text-sm">
-                            <div className={`p-2 rounded-full ${
-                              activity.type === 'prediction'
-                                ? 'bg-amber-100 text-amber-600'
-                                : activity.type === 'report'
-                                ? 'bg-blue-100 text-blue-600'
-                                : 'bg-teal-100 text-teal-600'
-                            }`}>
-                              {activity.type === 'prediction' ? (
-                                <Eye className="h-4 w-4" />
-                              ) : activity.type === 'report' ? (
-                                <FileText className="h-4 w-4" />
-                              ) : (
-                                <Scan className="h-4 w-4" />
-                              )}
-                            </div>
-                            <div className="flex-1">
-                              <p className="font-medium capitalize">
-                                {activity.type === 'prediction'
-                                  ? 'DR Screening'
-                                  : activity.type === 'report'
-                                  ? 'Clinical Report'
-                                  : 'MRI Scan'} - {new Date(activity.date).toLocaleDateString()}
-                              </p>
-                              <p className="text-muted-foreground text-xs">
-                                {activity.type === 'prediction' && (activity.data as Prediction).model_name}
-                                {activity.type === 'report' && (activity.data as Report).llm_model}
-                                {activity.type === 'scan' && `ID: ${(activity.data as MRIScan).id.slice(0, 8)}`}
-                              </p>
+        {/* GradCAM Analysis Section */}
+        <section>
+          <h2 className="text-base font-semibold mb-2 flex items-center gap-2">
+            <Eye className="h-4 w-4 text-amber-500" />
+            GradCAM Analysis ({predictions.filter((p) => p.status?.toLowerCase() === 'success').length})
+          </h2>
+          {predictions.filter((p) => p.status?.toLowerCase() === 'success').length === 0 ? (
+            <EmptyState icon={Eye} title="No GradCAM Available" description="Run predictions to generate GradCAM analysis" />
+          ) : (
+            <div className="space-y-2">
+              {predictions
+                .filter((p) => p.status?.toLowerCase() === 'success')
+                .map((pred) => {
+                  const grade = pred.output_payload?.combined_grade as number | undefined;
+                  const gradeLabel = grade !== undefined ? GRADE_LABELS[grade] : null;
+                  return (
+                    <Card key={pred.id}>
+                      <CardHeader className="pb-1">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            {getStatusIcon(pred.status)}
+                            <div>
+                              <CardTitle className="text-xs">{pred.model_name}</CardTitle>
+                              <CardDescription className="text-xs">
+                                {new Date(pred.created_at).toLocaleString()}
+                              </CardDescription>
                             </div>
                           </div>
-                        ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </motion.div>
-          </TabsContent>
-
-          {/* Scans & GradCAM Tab */}
-          <TabsContent value="scans" className="mt-6 space-y-6">
-            {/* MRI Scans Section */}
-            <div>
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <Scan className="h-5 w-5 text-[var(--brand-teal)]" />
-                MRI Scans ({scans.length})
-              </h3>
-              {scans.length === 0 ? (
-                <EmptyState icon={Scan} title="No MRI Scans" description="Add scans to see them here" />
-              ) : (
-                <div className="grid gap-4 md:grid-cols-2">
-                  {scans.map((scan) => (
-                    <Card key={scan.id}>
-                      <CardHeader>
-                        <CardTitle className="text-sm flex items-center gap-2">
-                          <Scan className="h-4 w-4 text-[var(--brand-teal)]" />
-                          Scan {scan.id.slice(0, 8)}
-                        </CardTitle>
-                        <CardDescription>
-                          {new Date(scan.uploaded_at).toLocaleString()}
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="grid grid-cols-2 gap-2">
-                        <div className="relative aspect-square rounded-lg bg-muted overflow-hidden">
-                          {scan.left_scan_path ? (
-                            <Image
-                              src={`${API_BASE}/` + scan.left_scan_path}
-                              alt="Left eye"
-                              fill
-                              className="object-cover"
-                              unoptimized
-                            />
-                          ) : (
-                            <div className="flex items-center justify-center h-full text-muted-foreground">
-                              No image
-                            </div>
-                          )}
-                          <span className="absolute bottom-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
-                            Left
-                          </span>
+                          <div className="text-right">
+                            <p className="text-base font-bold">
+                              {pred.confidence_score
+                                ? `${(pred.confidence_score * 100).toFixed(1)}%`
+                                : 'N/A'}
+                            </p>
+                            {gradeLabel && (
+                              <Badge className={GRADE_COLORS_NUM[grade!] || 'bg-muted'}>
+                                {gradeLabel}
+                              </Badge>
+                            )}
+                          </div>
                         </div>
-                        <div className="relative aspect-square rounded-lg bg-muted overflow-hidden">
-                          {scan.right_scan_path ? (
-                            <Image
-                              src={`${API_BASE}/` + scan.right_scan_path}
-                              alt="Right eye"
-                              fill
-                              className="object-cover"
-                              unoptimized
-                            />
-                          ) : (
-                            <div className="flex items-center justify-center h-full text-muted-foreground">
-                              No image
-                            </div>
-                          )}
-                          <span className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
-                            Right
-                          </span>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-2 gap-2">
+                          <GradCAMDisplay
+                            title="Left Eye (OS)"
+                            gradcamBase64={pred.output_payload?.gradcam_left as string | undefined}
+                          />
+                          <GradCAMDisplay
+                            title="Right Eye (OD)"
+                            gradcamBase64={pred.output_payload?.gradcam_right as string | undefined}
+                          />
                         </div>
                       </CardContent>
                     </Card>
-                  ))}
-                </div>
-              )}
+                  );
+                })}
             </div>
+          )}
+        </section>
 
-            {/* GradCAM Analysis Section */}
-            <div>
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <Eye className="h-5 w-5 text-amber-500" />
-                GradCAM Analysis ({predictions.filter((p) => p.status?.toLowerCase() === 'success').length})
-              </h3>
-              {predictions.filter((p) => p.status?.toLowerCase() === 'success').length === 0 ? (
-                <EmptyState icon={Eye} title="No GradCAM Available" description="Run predictions to generate GradCAM analysis" />
-              ) : (
-                <div className="space-y-4">
-                  {predictions
-                    .filter((p) => p.status?.toLowerCase() === 'success')
-                    .map((pred) => {
-                      const grade = pred.output_payload?.combined_grade as number | undefined;
-                      const gradeLabel = grade !== undefined ? GRADE_LABELS[grade] : null;
-                      return (
-                        <Card key={pred.id}>
-                          <CardHeader className="pb-2">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                {getStatusIcon(pred.status)}
-                                <div>
-                                  <CardTitle className="text-sm">{pred.model_name}</CardTitle>
-                                  <CardDescription>
-                                    {new Date(pred.created_at).toLocaleString()}
-                                  </CardDescription>
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-lg font-bold">
-                                  {pred.confidence_score
-                                    ? `${(pred.confidence_score * 100).toFixed(1)}%`
-                                    : 'N/A'}
-                                </p>
-                                {gradeLabel && (
-                                  <Badge className={GRADE_COLORS_NUM[grade!] || 'bg-muted'}>
-                                    {gradeLabel}
-                                  </Badge>
-                                )}
-                              </div>
-                            </div>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="grid grid-cols-2 gap-4">
-                              <GradCAMDisplay
-                                title="Left Eye (OS)"
-                                gradcamBase64={pred.output_payload?.gradcam_left as string | undefined}
-                              />
-                              <GradCAMDisplay
-                                title="Right Eye (OD)"
-                                gradcamBase64={pred.output_payload?.gradcam_right as string | undefined}
-                              />
-                            </div>
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
-                </div>
-              )}
-            </div>
-          </TabsContent>
-
-          {/* XAI Explanations Tab */}
-          <TabsContent value="xai" className="mt-6 space-y-6">
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold flex items-center gap-2">
-                  <Brain className="h-5 w-5 text-purple-500" />
-                  AI Explanations
-                </h3>
-                {latestPrediction && !xaiData[latestPrediction.id] && (
-                  <Button
-                    onClick={() => handleGenerateXAI(latestPrediction)}
-                    disabled={generatingXAI === latestPrediction.id}
-                    size="sm"
-                  >
-                    {generatingXAI === latestPrediction.id ? (
-                      <>
-                        <Loader className="h-4 w-4 mr-2 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="h-4 w-4 mr-2" />
-                        Generate XAI
-                      </>
-                    )}
-                  </Button>
+        {/* AI Explanations Section */}
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-base font-semibold flex items-center gap-2">
+              <Brain className="h-4 w-4 text-purple-500" />
+              AI Explanations
+            </h2>
+            {latestPrediction && !xaiData[latestPrediction.id] && (
+              <Button
+                onClick={() => handleGenerateXAI(latestPrediction)}
+                disabled={generatingXAI === latestPrediction.id}
+                size="sm"
+              >
+                {generatingXAI === latestPrediction.id ? (
+                  <>
+                    <Loader className="h-3 w-3 mr-1 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-3 w-3 mr-1" />
+                    Generate XAI
+                  </>
                 )}
-              </div>
-              {predictions.filter((p) => p.status?.toLowerCase() === 'success').length === 0 ? (
-                <EmptyState
-                  icon={Brain}
-                  title="No XAI Explanations Available"
-                  description="Run predictions to generate AI explanations"
-                />
-              ) : (
-                <div className="space-y-4">
-                  {predictions
-                    .filter((p) => p.status?.toLowerCase() === 'success')
-                    .map((pred) => {
-                      const xai = xaiData[pred.id];
-                      const outputPayload = pred.output_payload as Record<string, unknown> | null;
-                      const grade = outputPayload?.combined_grade as number | undefined;
-                      const gradeLabel = grade !== undefined ? GRADE_LABELS[grade] : null;
-                      const shapValues = xai?.explanation?.shap_values || outputPayload?.shap_values as { top_positive: Array<{ name: string; contribution: number }> } | undefined;
-                      const explanation = xai?.explanation?.content || outputPayload?.explanation as string | undefined;
-                      const gradcamExp = xai?.gradcam_explanation;
-                      const severityReport = xai?.severity_report || (
-                        outputPayload?.severity_risk_level ? {
-                          risk_level: outputPayload.severity_risk_level as string,
-                          summary: outputPayload.severity_summary as string | null,
-                          recommendations: outputPayload.severity_recommendations as string[] | null,
-                        } : null
-                      );
-                      const hasXAI = shapValues || explanation || severityReport || gradcamExp;
+              </Button>
+            )}
+          </div>
+          {predictions.filter((p) => p.status?.toLowerCase() === 'success').length === 0 ? (
+            <EmptyState
+              icon={Brain}
+              title="No XAI Explanations Available"
+              description="Run predictions to generate AI explanations"
+            />
+          ) : (
+            <div className="space-y-2">
+              {predictions
+                .filter((p) => p.status?.toLowerCase() === 'success')
+                .map((pred) => {
+                  const xai = xaiData[pred.id];
+                  const outputPayload = pred.output_payload as Record<string, unknown> | null;
+                  const grade = outputPayload?.combined_grade as number | undefined;
+                  const gradeLabel = grade !== undefined ? GRADE_LABELS[grade] : null;
+                  const shapValues = xai?.explanation?.shap_values || outputPayload?.shap_values as { top_positive: Array<{ name: string; contribution: number }> } | undefined;
+                  const explanation = xai?.explanation?.content || outputPayload?.explanation as string | undefined;
+                  const gradcamExp = xai?.gradcam_explanation;
+                  const severityReport = xai?.severity_report || (
+                    outputPayload?.severity_risk_level ? {
+                      risk_level: outputPayload.severity_risk_level as string,
+                      summary: outputPayload.severity_summary as string | null,
+                      recommendations: outputPayload.severity_recommendations as string[] | null,
+                    } : null
+                  );
+                  const hasXAI = shapValues || explanation || severityReport || gradcamExp;
 
-                      return (
-                        <Card key={pred.id}>
-                          <CardHeader>
-                            <div className="flex items-center justify-between">
-                              <CardTitle className="text-base">
-                                Prediction - {new Date(pred.created_at).toLocaleDateString()}
-                              </CardTitle>
-                              <div className="flex items-center gap-2">
-                                {severityReport && (
-                                  <Badge className={
-                                    severityReport.risk_level === 'low' ? 'bg-emerald-500' :
-                                    severityReport.risk_level === 'moderate' ? 'bg-amber-500' :
-                                    severityReport.risk_level === 'high' ? 'bg-orange-500' :
-                                    'bg-rose-500'
-                                  }>
-                                    {severityReport.risk_level.replace('_', ' ').toUpperCase()} Risk
-                                  </Badge>
-                                )}
-                                {grade !== undefined && gradeLabel && (
-                                  <Badge className={GRADE_COLORS_NUM[grade] || 'bg-muted'}>
-                                    {gradeLabel}
-                                  </Badge>
-                                )}
-                              </div>
-                            </div>
-                          </CardHeader>
-                          <CardContent className="space-y-4">
-                            {/* Confidence Score */}
-                            <div>
-                              <p className="text-sm text-muted-foreground mb-1">Confidence Score</p>
-                              <div className="flex items-center gap-2">
-                                <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                                  <motion.div
-                                    initial={{ width: 0 }}
-                                    animate={{
-                                      width: `${(pred.confidence_score || 0) * 100}%`,
-                                    }}
-                                    className="h-full bg-[var(--brand-teal)]"
-                                  />
-                                </div>
-                                <span className="text-sm font-medium">
-                                  {pred.confidence_score
-                                    ? `${(pred.confidence_score * 100).toFixed(1)}%`
-                                    : 'N/A'}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* SHAP Values */}
-                            {shapValues && (
-                              <div>
-                                <p className="text-sm text-muted-foreground mb-2 flex items-center gap-1">
-                                  <BarChart3 className="h-4 w-4" />
-                                  Top Contributing Features
-                                </p>
-                                <div className="space-y-2">
-                                  {shapValues?.top_positive?.slice(0, 5).map(
-                                    (feature, i) => (
-                                      <div key={i} className="flex items-center gap-2">
-                                        <span className="text-sm w-32 truncate">{feature.name}</span>
-                                        <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                                          <motion.div
-                                            initial={{ width: 0 }}
-                                            animate={{
-                                              width: `${Math.min(Math.abs(feature.contribution) * 100, 100)}%`,
-                                            }}
-                                            transition={{ delay: i * 0.1 }}
-                                            className="h-full bg-emerald-500"
-                                          />
-                                        </div>
-                                        <span className="text-xs text-muted-foreground w-12 text-right">
-                                          {feature.contribution.toFixed(3)}
-                                        </span>
-                                      </div>
-                                    )
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Latest Prediction - Using new XAI Component */}
-                            {hasXAI && (
-                              <XAICard
-                                predictionId={pred.id}
-                                createdAt={pred.created_at}
-                                data={{
-                                  diagnosis: explanation ? (() => {
-                                    try {
-                                      const parsed = JSON.parse(explanation);
-                                      return {
-                                        condition: parsed.diagnosis?.condition,
-                                        severity: parsed.diagnosis?.severity,
-                                        overall_grade: parsed.diagnosis?.overall_grade,
-                                        confidence: parsed.diagnosis?.confidence,
-                                        risk_level: parsed.diagnosis?.risk_level,
-                                      };
-                                    } catch {
-                                      return {};
-                                    }
-                                  })() : undefined,
-                                  clinical_findings: explanation ? (() => {
-                                    try {
-                                      const parsed = JSON.parse(explanation);
-                                      return parsed.clinical_findings;
-                                    } catch {
-                                      return undefined;
-                                    }
-                                  })() : undefined,
-                                  severity_report: severityReport ? {
-                                    patient: { name: patient?.first_name, age: patient?.age, gender: patient?.gender },
-                                    diagnosis: severityReport.risk_level ? {
-                                      dr_grade: grade,
-                                      severity_label: severityReport.risk_level,
-                                      risk_level: severityReport.risk_level,
-                                    } : undefined,
-                                    recommendations: severityReport.recommendations?.map((r: string) => ({ action: r })),
-                                    summary: severityReport.summary,
-                                  } : undefined,
-                                  gradcam_explanation: gradcamExp ? {
-                                    left_eye_explanation: gradcamExp.left_eye_explanation,
-                                    right_eye_explanation: gradcamExp.right_eye_explanation,
-                                    highlighted_regions: gradcamExp.highlighted_regions,
-                                  } : undefined,
-                                  feature_importance: shapValues,
-                                  summary: explanation,
-                                }}
-                              />
-                            )}
-
-                            {!hasXAI && (
-                              <div className="flex flex-col items-center gap-2 py-4">
-                                <p className="text-sm text-muted-foreground italic">
-                                  No XAI explanations generated for this prediction
-                                </p>
-                                <Button
-                                  onClick={() => handleGenerateXAI(pred)}
-                                  disabled={generatingXAI === pred.id}
-                                  size="sm"
-                                  variant="outline"
-                                >
-                                  {generatingXAI === pred.id ? (
-                                    <>
-                                      <Loader className="h-4 w-4 mr-2 animate-spin" />
-                                      Generating...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Sparkles className="h-4 w-4 mr-2" />
-                                      Generate XAI
-                                    </>
-                                  )}
-                                </Button>
-                              </div>
-                            )}
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
-                </div>
-              )}
-            </div>
-          </TabsContent>
-
-          {/* Reports Tab */}
-          <TabsContent value="reports" className="mt-6 space-y-6">
-            {/* Clinical Reports */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-blue-500" />
-                  Clinical Reports ({reports.length})
-                </h3>
-                {latestPrediction && (
-                  <Button
-                    onClick={() => handleGenerateReport(latestPrediction.id)}
-                    disabled={generatingReport}
-                    size="sm"
-                    variant="outline"
-                  >
-                    {generatingReport ? (
-                      <>
-                        <Loader className="h-4 w-4 mr-2 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                        Generate Report
-                      </>
-                    )}
-                  </Button>
-                )}
-              </div>
-              {reports.length === 0 ? (
-                <EmptyState
-                  icon={FileText}
-                  title="No Clinical Reports"
-                  description="Generate reports to see them here"
-                />
-              ) : (
-                <div className="space-y-6">
-                  {reports
-                    .filter((r) => r.status?.toLowerCase() === 'completed')
-                    .map((report) => (
-                      <MedicalReport key={report.id} report={report} />
-                    ))}
-                  {reports.filter((r) => r.status !== 'completed').length > 0 && (
-                    <div className="space-y-2">
-                      <h4 className="text-sm font-medium text-muted-foreground">
-                        Pending Reports ({reports.filter((r) => r.status !== 'completed').length})
-                      </h4>
-                      {reports
-                        .filter((r) => r.status !== 'completed')
-                        .map((report) => (
-                          <Card key={report.id} className="opacity-60">
-                            <CardContent className="flex items-center justify-between py-3">
-                              <div className="flex items-center gap-3">
-                                {getStatusIcon(report.status)}
-                                <div>
-                                  <p className="font-medium">{report.llm_model}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {new Date(report.created_at).toLocaleString()}
-                                  </p>
-                                </div>
-                              </div>
-                              <Badge variant="secondary">{report.status}</Badge>
-                            </CardContent>
-                          </Card>
-                        ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* OCT Reports */}
-            <div>
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <Activity className="h-5 w-5 text-purple-500" />
-                OCT Analysis ({octReports.length})
-              </h3>
-              {octReports.length === 0 ? (
-                <EmptyState
-                  icon={Activity}
-                  title="No OCT Reports"
-                  description="Process OCT scans to see them here"
-                />
-              ) : (
-                <Card>
-                  <CardContent className="p-0">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="text-left p-3">Eye</th>
-                          <th className="text-left p-3">DR Grade</th>
-                          <th className="text-left p-3">Edema</th>
-                          <th className="text-left p-3">ERM</th>
-                          <th className="text-left p-3">Quality</th>
-                          <th className="text-left p-3">Center Fovea (μm)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {octReports.map((oct) => (
-                          <tr key={oct.id} className="border-b">
-                            <td className="p-3">{oct.eye}</td>
-                            <td className="p-3">
-                              <Badge className={GRADE_COLORS[oct.dr_grade || ''] || 'bg-muted'}>
-                                {oct.dr_grade || 'N/A'}
+                  return (
+                    <Card key={pred.id}>
+                      <CardHeader className="pb-1">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-sm">
+                            Prediction - {new Date(pred.created_at).toLocaleDateString()}
+                          </CardTitle>
+                          <div className="flex items-center gap-1.5">
+                            {severityReport && (
+                              <Badge className={
+                                severityReport.risk_level === 'low' ? 'bg-emerald-500' :
+                                severityReport.risk_level === 'moderate' ? 'bg-amber-500' :
+                                severityReport.risk_level === 'high' ? 'bg-orange-500' :
+                                'bg-rose-500'
+                              }>
+                                {severityReport.risk_level.replace('_', ' ').toUpperCase()} Risk
                               </Badge>
-                            </td>
-                            <td className="p-3">{oct.edema ? 'Yes' : 'No'}</td>
-                            <td className="p-3">{oct.erm_status || 'N/A'}</td>
-                            <td className="p-3">{oct.image_quality ? `${oct.image_quality}%` : 'N/A'}</td>
-                            <td className="p-3">{oct.thickness_center_fovea || 'N/A'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </CardContent>
-                </Card>
+                            )}
+                            {grade !== undefined && gradeLabel && (
+                              <Badge className={GRADE_COLORS_NUM[grade] || 'bg-muted'}>
+                                {gradeLabel}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {/* Confidence Score */}
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Confidence Score</p>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                              <motion.div
+                                initial={{ width: 0 }}
+                                animate={{
+                                  width: `${(pred.confidence_score || 0) * 100}%`,
+                                }}
+                                className="h-full bg-[var(--brand-teal)]"
+                              />
+                            </div>
+                            <span className="text-xs font-medium">
+                              {pred.confidence_score
+                                ? `${(pred.confidence_score * 100).toFixed(1)}%`
+                                : 'N/A'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* SHAP Values */}
+                        {shapValues && (
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                              <BarChart3 className="h-3 w-3" />
+                              Top Contributing Features
+                            </p>
+                            <div className="space-y-1">
+                              {shapValues?.top_positive?.slice(0, 3).map(
+                                (feature, i) => (
+                                  <div key={i} className="flex items-center gap-1.5">
+                                    <span className="text-xs w-24 truncate">{feature.name}</span>
+                                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                                      <motion.div
+                                        initial={{ width: 0 }}
+                                        animate={{
+                                          width: `${Math.min(Math.abs(feature.contribution) * 100, 100)}%`,
+                                        }}
+                                        transition={{ delay: i * 0.1 }}
+                                        className="h-full bg-emerald-500"
+                                      />
+                                    </div>
+                                    <span className="text-xs text-muted-foreground w-10 text-right">
+                                      {feature.contribution.toFixed(3)}
+                                    </span>
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* XAI Card */}
+                        {hasXAI && (
+                          <XAICard
+                            predictionId={pred.id}
+                            createdAt={pred.created_at}
+                            data={{
+                              diagnosis: explanation ? (() => {
+                                try {
+                                  const parsed = JSON.parse(explanation);
+                                  return {
+                                    condition: parsed.diagnosis?.condition,
+                                    severity: parsed.diagnosis?.severity,
+                                    overall_grade: parsed.diagnosis?.overall_grade,
+                                    confidence: parsed.diagnosis?.confidence,
+                                    risk_level: parsed.diagnosis?.risk_level,
+                                  };
+                                } catch {
+                                  return {};
+                                }
+                              })() : undefined,
+                              clinical_findings: explanation ? (() => {
+                                try {
+                                  const parsed = JSON.parse(explanation);
+                                  return parsed.clinical_findings;
+                                } catch {
+                                  return undefined;
+                                }
+                              })() : undefined,
+                              severity_report: severityReport ? {
+                                patient: { name: patient?.first_name, age: patient?.age, gender: patient?.gender },
+                                diagnosis: severityReport.risk_level ? {
+                                  dr_grade: grade,
+                                  severity_label: severityReport.risk_level,
+                                  risk_level: severityReport.risk_level,
+                                } : undefined,
+                                recommendations: severityReport.recommendations?.map((r: string) => ({ action: r })),
+                                summary: severityReport.summary,
+                              } : undefined,
+                              gradcam_explanation: gradcamExp ? {
+                                left_eye_explanation: gradcamExp.left_eye_explanation,
+                                right_eye_explanation: gradcamExp.right_eye_explanation,
+                                highlighted_regions: gradcamExp.highlighted_regions,
+                              } : undefined,
+                              feature_importance: shapValues,
+                              summary: explanation,
+                            }}
+                          />
+                        )}
+
+                        {!hasXAI && (
+                          <div className="flex flex-col items-center gap-1.5 py-2">
+                            <p className="text-xs text-muted-foreground italic">
+                              No XAI explanations generated yet
+                            </p>
+                            <Button
+                              onClick={() => handleGenerateXAI(pred)}
+                              disabled={generatingXAI === pred.id}
+                              size="sm"
+                              variant="outline"
+                            >
+                              {generatingXAI === pred.id ? (
+                                <>
+                                  <Loader className="h-3 w-3 mr-1 animate-spin" />
+                                  Generating...
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="h-3 w-3 mr-1" />
+                                  Generate XAI
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+            </div>
+          )}
+        </section>
+
+        {/* Clinical Reports Section */}
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-base font-semibold flex items-center gap-2">
+              <FileText className="h-4 w-4 text-blue-500" />
+              Clinical Reports ({reports.length})
+            </h2>
+            {latestPrediction && (
+              <Button
+                onClick={() => handleGenerateReport(latestPrediction.id)}
+                disabled={generatingReport}
+                size="sm"
+                variant="outline"
+              >
+                {generatingReport ? (
+                  <>
+                    <Loader className="h-3 w-3 mr-1 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Generate Report
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+          {reports.length === 0 ? (
+            <EmptyState
+              icon={FileText}
+              title="No Clinical Reports"
+              description="Generate reports to see them here"
+            />
+          ) : (
+            <div className="space-y-2">
+              {reports
+                .filter((r) => r.status?.toLowerCase() === 'completed')
+                .map((report) => (
+                  <MedicalReport key={report.id} report={report} />
+                ))}
+              {reports.filter((r) => r.status !== 'completed').length > 0 && (
+                <div className="space-y-1">
+                  <h4 className="text-xs font-medium text-muted-foreground">
+                    Pending ({reports.filter((r) => r.status !== 'completed').length})
+                  </h4>
+                  {reports
+                    .filter((r) => r.status !== 'completed')
+                    .map((report) => (
+                      <Card key={report.id} className="opacity-60">
+                        <CardContent className="flex items-center justify-between py-2">
+                          <div className="flex items-center gap-2">
+                            {getStatusIcon(report.status)}
+                            <div>
+                              <p className="font-medium text-sm">{report.llm_model}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {new Date(report.created_at).toLocaleString()}
+                              </p>
+                            </div>
+                          </div>
+                          <Badge variant="secondary">{report.status}</Badge>
+                        </CardContent>
+                      </Card>
+                    ))}
+                </div>
               )}
             </div>
-          </TabsContent>
-        </Tabs>
+          )}
+        </section>
+
+        {/* OCT Reports Section */}
+        <section>
+          <h2 className="text-base font-semibold mb-2 flex items-center gap-2">
+            <Activity className="h-4 w-4 text-purple-500" />
+            OCT Analysis ({octReports.length})
+          </h2>
+          {octReports.length === 0 ? (
+            <EmptyState
+              icon={Activity}
+              title="No OCT Reports"
+              description="Process OCT scans to see them here"
+            />
+          ) : (
+            <Card>
+              <CardContent className="p-0">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left p-2">Eye</th>
+                      <th className="text-left p-2">DR</th>
+                      <th className="text-left p-2">Edema</th>
+                      <th className="text-left p-2">ERM</th>
+                      <th className="text-left p-2">Quality</th>
+                      <th className="text-left p-2">Fovea</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {octReports.map((oct) => (
+                      <tr key={oct.id} className="border-b">
+                        <td className="p-2">{oct.eye}</td>
+                        <td className="p-2">
+                          <Badge className={GRADE_COLORS[oct.dr_grade || ''] || 'bg-muted'}>
+                            {oct.dr_grade || 'N/A'}
+                          </Badge>
+                        </td>
+                        <td className="p-2">{oct.edema ? 'Yes' : 'No'}</td>
+                        <td className="p-2">{oct.erm_status || 'N/A'}</td>
+                        <td className="p-2">{oct.image_quality ? `${oct.image_quality}%` : 'N/A'}</td>
+                        <td className="p-2">{oct.thickness_center_fovea || 'N/A'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )}
+        </section>
+
+        {/* Recent Activity */}
+        <section>
+          <h2 className="text-base font-semibold mb-2 flex items-center gap-2">
+            <Layers className="h-4 w-4 text-blue-500" />
+            Recent Activity
+          </h2>
+          {predictions.length === 0 && reports.length === 0 && scans.length === 0 ? (
+            <EmptyState
+              icon={Activity}
+              title="No Recent Activity"
+              description="Patient activity will appear here"
+            />
+          ) : (
+            <Card>
+              <CardContent>
+                <div className="space-y-2">
+                  {[
+                    ...predictions.map((p) => ({ type: 'prediction', date: p.created_at, data: p })),
+                    ...reports.map((r) => ({ type: 'report', date: r.created_at, data: r })),
+                    ...scans.map((s) => ({ type: 'scan', date: s.uploaded_at, data: s })),
+                  ]
+                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                    .slice(0, 5)
+                    .map((activity, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs">
+                        <div className={`p-1.5 rounded-full ${
+                          activity.type === 'prediction'
+                            ? 'bg-amber-100 text-amber-600'
+                            : activity.type === 'report'
+                            ? 'bg-blue-100 text-blue-600'
+                            : 'bg-teal-100 text-teal-600'
+                        }`}>
+                          {activity.type === 'prediction' ? (
+                            <Eye className="h-3 w-3" />
+                          ) : activity.type === 'report' ? (
+                            <FileText className="h-3 w-3" />
+                          ) : (
+                            <Scan className="h-3 w-3" />
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium capitalize">
+                            {activity.type === 'prediction'
+                              ? 'DR Screening'
+                              : activity.type === 'report'
+                              ? 'Clinical Report'
+                              : 'MRI Scan'} - {new Date(activity.date).toLocaleDateString()}
+                          </p>
+                          <p className="text-muted-foreground text-xs">
+                            {activity.type === 'prediction' && (activity.data as Prediction).model_name}
+                            {activity.type === 'report' && (activity.data as Report).llm_model}
+                            {activity.type === 'scan' && `ID: ${(activity.data as MRIScan).id.slice(0, 8)}`}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </section>
       </motion.div>
     </PageContainer>
   );
@@ -1144,10 +1024,10 @@ function GradCAMDisplay({
   gradcamBase64?: string;
 }) {
   return (
-    <div className="space-y-2">
-      <p className="text-sm font-medium text-muted-foreground">{title}</p>
+    <div className="space-y-1">
+      <p className="text-xs font-medium text-muted-foreground">{title}</p>
       {gradcamBase64 ? (
-        <div className="relative aspect-square rounded-lg overflow-hidden bg-black">
+        <div className="relative aspect-square rounded overflow-hidden bg-black">
           <img
             src={`data:image/png;base64,${gradcamBase64}`}
             alt={title}
@@ -1155,9 +1035,9 @@ function GradCAMDisplay({
           />
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center aspect-square bg-muted rounded-lg">
-          <ImageIcon className="h-8 w-8 text-muted-foreground" />
-          <p className="text-xs text-muted-foreground mt-1">No GradCAM</p>
+        <div className="flex flex-col items-center justify-center aspect-square bg-muted rounded">
+          <ImageIcon className="h-6 w-6 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground mt-0.5">No GradCAM</p>
         </div>
       )}
     </div>

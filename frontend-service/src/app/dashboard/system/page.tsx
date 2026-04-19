@@ -369,7 +369,7 @@ export default function SystemStatsPage() {
 
         <PageSection title='Age Distribution'>
           {dashboardStats?.age_distribution && Object.keys(dashboardStats.age_distribution).length > 0 ? (
-            <div className='space-y-2 max-h-[150px] overflow-y-auto'>
+            <div className='space-y-2'>
               {Object.entries(dashboardStats.age_distribution).map(([age, count]) => (
                 <div key={age} className='flex items-center justify-between text-sm'>
                   <span className='text-muted-foreground w-16'>{age}</span>
