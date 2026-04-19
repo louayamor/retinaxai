@@ -393,6 +393,22 @@ class ShapService:
         feature_names = self._get_feature_names()
         encoded = []
 
+        def to_float(v):
+            if v is None:
+                return 0.0
+            if isinstance(v, (int, float)):
+                return float(v)
+            if isinstance(v, list):
+                if len(v) > 0:
+                    return to_float(v[0])
+                return 0.0
+            if isinstance(v, str):
+                try:
+                    return float(v)
+                except:
+                    return 0.0
+            return 0.0
+
         for fname in feature_names:
             if fname in features:
                 val = features[fname]
@@ -425,7 +441,7 @@ class ShapService:
                     else:
                         encoded.append(0.0)
                 else:
-                    encoded.append(0.0)
+                    encoded.append(to_float(val))
             else:
                 encoded.append(0.0)
 
