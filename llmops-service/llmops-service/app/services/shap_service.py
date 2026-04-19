@@ -398,6 +398,11 @@ class ShapService:
                 val = features[fname]
                 if isinstance(val, (int, float)):
                     encoded.append(float(val))
+                elif isinstance(val, list):
+                    if len(val) > 0 and isinstance(val[0], (int, float)):
+                        encoded.append(float(val[0]))
+                    else:
+                        encoded.append(0.0)
                 elif isinstance(val, str):
                     if fname == "patient_gender":
                         encoded.append(1.0 if val == "M" else 0.0)
