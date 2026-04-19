@@ -443,7 +443,10 @@ class ShapService:
         feature_array = np.array([feature_values])
 
         expected_num_features = getattr(model, "n_features_in_", None)
-        if expected_num_features and len(feature_values) != expected_num_features:
+        if expected_num_features is None:
+            expected_num_features = 17
+
+        if len(feature_values) != expected_num_features:
             logger.warning(
                 f"Feature count mismatch: expected {expected_num_features}, got {len(feature_values)}. "
                 "Skipping SHAP calculation."
