@@ -72,6 +72,7 @@ import { toast } from 'sonner';
 import type { Patient, Prediction, PredictionStatus, DRSeverity, Report } from '@/types';
 import { fadeInUp, slideInUp, borderPulse, scaleIn } from '@/lib/animations';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { PredictionProgress } from '@/components/prediction-progress';
 
 const SEVERITY_COLORS: Record<DRSeverity, string> = {
   no_dr: 'bg-green-500',
@@ -104,6 +105,20 @@ interface FileUpload {
   preview: string;
 }
 
+interface PredictionWorkflowState {
+  status: 'idle' | 'uploading' | 'predicting' | 'xai' | 'reporting' | 'completed' | 'failed';
+  stage: string;
+  progress: number;
+  message: string;
+}
+
+const INITIAL_WORKFLOW: PredictionWorkflowState = {
+  status: 'idle',
+  stage: 'upload',
+  progress: 0,
+  message: 'Upload scans to start prediction',
+};
+
 export default function PredictionsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -125,11 +140,65 @@ export default function PredictionsPage() {
   const [generatingReport, setGeneratingReport] = useState(false);
   const [patientNames, setPatientNames] = useState<Record<string, string>>({});
   const [logMessages, setLogMessages] = useState<LogMessageData[]>([]);
+  const [workflow, setWorkflow] = useState<PredictionWorkflowState>(INITIAL_WORKFLOW);
+
+  const appendLog = (step: string, status: LogMessageData['status'], message: string) => {
+    setLogMessages((prev) => [
+      ...prev,
+      {
+        prediction_id: selectedPatientId || 'pending',
+        patient_id: selectedPatientId || 'pending',
+        step,
+        status,
+        message,
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+  };
 
   const { connected: wsConnected, send: wsSend } = usePatientWebSocket({
     patientId: selectedPatientId || 'global',
     onLogMessage: (data) => {
       setLogMessages(prev => [...prev, data]);
+    },
+    onPredictionComplete: (data) => {
+      appendLog('prediction', 'success', `Prediction completed: Grade ${data.dr_grade}, ${data.overall_severity}`);
+      setWorkflow({
+        status: 'xai',
+        stage: 'xai',
+        progress: 65,
+        message: 'Prediction complete. Generating explanations...',
+      });
+    },
+    onGradCAMReady: (data) => {
+      appendLog('xai', 'success', data.message || 'GradCAM analysis complete');
+      setWorkflow((prev) => ({
+        ...prev,
+        status: 'xai',
+        stage: 'xai',
+        progress: Math.max(prev.progress, 80),
+        message: data.message || 'GradCAM analysis complete',
+      }));
+    },
+    onXAIReady: (data) => {
+      appendLog('xai', 'success', data.message || 'Explanation ready');
+      setWorkflow((prev) => ({
+        ...prev,
+        status: 'xai',
+        stage: 'xai',
+        progress: Math.max(prev.progress, 85),
+        message: data.message || 'Explanation ready',
+      }));
+    },
+    onSeverityReady: (data) => {
+      appendLog('xai', 'success', data.message || 'Risk assessment complete');
+      setWorkflow((prev) => ({
+        ...prev,
+        status: 'completed',
+        stage: 'completed',
+        progress: 100,
+        message: data.message || 'Workflow completed',
+      }));
     },
   });
 
@@ -246,6 +315,12 @@ export default function PredictionsPage() {
 
     setUploading(true);
     setLogMessages([]);
+    setWorkflow({
+      status: 'uploading',
+      stage: 'upload',
+      progress: 5,
+      message: 'Uploading scans...',
+    });
 
     try {
       const formData = new FormData();
@@ -255,6 +330,13 @@ export default function PredictionsPage() {
 
       const scan = await uploadScans(selectedPatientId, formData);
       toast.success('Scans uploaded successfully');
+      appendLog('upload', 'success', 'Scans uploaded successfully');
+      setWorkflow({
+        status: 'predicting',
+        stage: 'prediction',
+        progress: 35,
+        message: 'Scans uploaded. Starting prediction...',
+      });
 
       const predictionData: PredictionRequest = {
         patient_id: selectedPatientId,
@@ -269,15 +351,25 @@ export default function PredictionsPage() {
 
       await createPrediction(predictionData);
       toast.success('Prediction started');
+      appendLog('prediction', 'info', 'Prediction request submitted');
+      setWorkflow((prev) => ({
+        ...prev,
+        status: 'predicting',
+        stage: 'prediction',
+        progress: 45,
+        message: 'Prediction request accepted. Waiting for backend events...',
+      }));
 
-      setLeftEyeFile(null);
-      setRightEyeFile(null);
-      setSelectedPatientId('');
-
-      await loadPredictions();
+      void loadPredictions();
     } catch (err) {
       console.error('Failed to process:', err);
       toast.error(err instanceof Error ? err.message : 'Failed to process');
+      setWorkflow({
+        status: 'failed',
+        stage: 'failed',
+        progress: 100,
+        message: err instanceof Error ? err.message : 'Failed to process',
+      });
     } finally {
       setUploading(false);
     }
@@ -353,6 +445,13 @@ export default function PredictionsPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            <PredictionProgress
+              status={workflow.status}
+              stage={workflow.stage}
+              progress={workflow.progress}
+              message={workflow.message}
+            />
 
             <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-3'>
               <div className='space-y-2'>
@@ -471,7 +570,7 @@ export default function PredictionsPage() {
             <div className='flex justify-end'>
               <Button
                 onClick={handleUploadAndPredict}
-                disabled={!selectedPatientId || !leftEyeFile || !rightEyeFile || uploading}
+                disabled={!selectedPatientId || !leftEyeFile || !rightEyeFile || uploading || workflow.status === 'uploading' || workflow.status === 'predicting' || workflow.status === 'xai'}
                 className='min-w-[200px]'
               >
                 {uploading ? (
@@ -481,9 +580,9 @@ export default function PredictionsPage() {
                   </>
                 ) : (
                   <>
-                    <Upload className='mr-2 h-4 w-4' />
-                    Upload & Predict
-                  </>
+                        <Upload className='mr-2 h-4 w-4' />
+                        Upload & Predict
+                      </>
                 )}
               </Button>
             </div>

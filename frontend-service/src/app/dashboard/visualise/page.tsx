@@ -14,8 +14,6 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
   PieChart,
   Pie,
   Cell,
@@ -24,11 +22,11 @@ import {
   PolarAngleAxis,
   PolarRadiusAxis,
   Radar,
-  Legend,
   AreaChart,
   Area,
 } from 'recharts';
 import { fadeInUp, slideInUp, staggerItem } from '@/lib/animations';
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { 
   RefreshCw, 
   Users, 
@@ -44,6 +42,7 @@ import {
 } from 'lucide-react';
 
 const COLORS = ['var(--brand-teal)', 'var(--brand-gold)', '#e74c3c', '#3498db', '#9b59b6', '#2ecc71'];
+const SURFACE_COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 const GRADE_COLORS: Record<string, string> = {
   no_dr: '#2ecc71',
   mild: 'var(--brand-teal)',
@@ -103,6 +102,9 @@ export default function VisualisePage() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const shouldReduceMotion = useReducedMotion();
+
+  const chartAxisClass = 'fill-muted-foreground';
+  const chartGridStroke = 'hsl(var(--border) / 0.55)';
 
   const loadStats = async () => {
     try {
@@ -337,33 +339,43 @@ export default function VisualisePage() {
         {/* Row 1: Patient Demographics & Predictions Severity */}
         <div className="grid gap-4 md:grid-cols-2">
           {/* Gender Distribution */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-[var(--brand-teal)]" />
-                Patient Gender Distribution
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-[var(--brand-teal)]" />
+                  Patient Gender Distribution
               </CardTitle>
               <CardDescription>Demographics of registered patients</CardDescription>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={250}>
+              <ChartContainer
+                config={{
+                  M: { label: 'Male', color: SURFACE_COLORS[0] },
+                  F: { label: 'Female', color: SURFACE_COLORS[1] },
+                  O: { label: 'Other', color: SURFACE_COLORS[2] },
+                }}
+                className="mx-auto aspect-square h-[250px]"
+              >
                 <PieChart>
                   <Pie
-                    data={genderData}
+                    data={genderData.map((entry, index) => ({ ...entry, fill: SURFACE_COLORS[index % SURFACE_COLORS.length] }))}
                     cx="50%"
                     cy="50%"
                     labelLine={false}
                     label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                    outerRadius={80}
+                    outerRadius={82}
+                    innerRadius={54}
                     dataKey="value"
+                    stroke="var(--background)"
+                    strokeWidth={2}
                   >
                     {genderData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      <Cell key={`cell-${index}`} fill={SURFACE_COLORS[index % SURFACE_COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
                 </PieChart>
-              </ResponsiveContainer>
+              </ChartContainer>
             </CardContent>
           </Card>
 
@@ -377,19 +389,25 @@ export default function VisualisePage() {
               <CardDescription>Predictions by diabetic retinopathy grade</CardDescription>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={severityData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+              <ChartContainer
+                config={{ predictions: { label: 'Predictions', color: 'var(--primary)' } }}
+                className="aspect-auto h-[250px] w-full"
+              >
+                <BarChart data={severityData} margin={{ left: 8, right: 8 }}>
+                  <CartesianGrid vertical={false} stroke={chartGridStroke} />
+                  <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 12 }} />
+                  <YAxis tickLine={false} axisLine={false} />
+                  <ChartTooltip
+                    cursor={{ fill: 'var(--primary)', opacity: 0.1 }}
+                    content={<ChartTooltipContent indicator="dot" nameKey="value" />}
+                  />
+                  <Bar dataKey="value" radius={[8, 8, 0, 0]}>
                     {severityData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.fill} />
                     ))}
                   </Bar>
                 </BarChart>
-              </ResponsiveContainer>
+              </ChartContainer>
             </CardContent>
           </Card>
         </div>
@@ -406,15 +424,18 @@ export default function VisualisePage() {
               <CardDescription>Age groups of registered patients</CardDescription>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={ageData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="value" fill="var(--brand-gold)" radius={[4, 4, 0, 0]} />
+              <ChartContainer
+                config={{ age: { label: 'Patients', color: 'var(--chart-2)' } }}
+                className="aspect-auto h-[250px] w-full"
+              >
+                <BarChart data={ageData} margin={{ left: 8, right: 8 }}>
+                  <CartesianGrid vertical={false} stroke={chartGridStroke} />
+                  <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 12 }} />
+                  <YAxis tickLine={false} axisLine={false} />
+                  <ChartTooltip cursor={{ fill: 'var(--chart-2)', opacity: 0.1 }} content={<ChartTooltipContent indicator="dot" nameKey="value" />} />
+                  <Bar dataKey="value" fill="var(--chart-2)" radius={[8, 8, 0, 0]} />
                 </BarChart>
-              </ResponsiveContainer>
+              </ChartContainer>
             </CardContent>
           </Card>
 
@@ -428,30 +449,35 @@ export default function VisualisePage() {
               <CardDescription>Status breakdown of generated reports</CardDescription>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={250}>
+              <ChartContainer
+                config={{
+                  completed: { label: 'Completed', color: 'var(--chart-1)' },
+                  pending: { label: 'Pending', color: 'var(--chart-3)' },
+                  running: { label: 'Running', color: 'var(--chart-2)' },
+                  failed: { label: 'Failed', color: 'var(--chart-5)' },
+                }}
+                className="mx-auto aspect-square h-[250px]"
+              >
                 <PieChart>
                   <Pie
-                    data={reportStatusData}
+                    data={reportStatusData.map((entry, index) => ({ ...entry, fill: SURFACE_COLORS[index % SURFACE_COLORS.length] }))}
                     cx="50%"
                     cy="50%"
                     labelLine={false}
                     label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                    outerRadius={80}
+                    outerRadius={82}
+                    innerRadius={54}
                     dataKey="value"
+                    stroke="var(--background)"
+                    strokeWidth={2}
                   >
-                    {reportStatusData.map((entry, index) => {
-                      const colors: Record<string, string> = {
-                        completed: '#22c55e',
-                        pending: '#eab308',
-                        running: '#3b82f6',
-                        failed: '#ef4444',
-                      };
-                      return <Cell key={`cell-${index}`} fill={colors[entry.name.toLowerCase()] || COLORS[index]} />;
-                    })}
+                    {reportStatusData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={SURFACE_COLORS[index % SURFACE_COLORS.length]} />
+                    ))}
                   </Pie>
-                  <Tooltip />
+                  <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
                 </PieChart>
-              </ResponsiveContainer>
+              </ChartContainer>
             </CardContent>
           </Card>
         </div>
@@ -470,19 +496,22 @@ export default function VisualisePage() {
                 <CardTitle>DR Grade Distribution (OCT)</CardTitle>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={octGradeData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                <ChartContainer
+                  config={{ predictions: { label: 'Predictions', color: 'var(--primary)' } }}
+                  className="aspect-auto h-[280px] w-full"
+                >
+                  <BarChart data={octGradeData} margin={{ left: 8, right: 8 }}>
+                    <CartesianGrid vertical={false} stroke={chartGridStroke} />
+                    <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 11 }} />
+                    <YAxis tickLine={false} axisLine={false} />
+                    <ChartTooltip cursor={{ fill: 'var(--primary)', opacity: 0.1 }} content={<ChartTooltipContent indicator="dot" nameKey="value" />} />
+                    <Bar dataKey="value" radius={[8, 8, 0, 0]}>
                       {octGradeData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.fill} />
                       ))}
                     </Bar>
                   </BarChart>
-                </ResponsiveContainer>
+                </ChartContainer>
               </CardContent>
             </Card>
 
@@ -492,25 +521,30 @@ export default function VisualisePage() {
                 <CardTitle>Eye Distribution</CardTitle>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={280}>
+                <ChartContainer
+                  config={{ od: { label: 'Right Eye', color: 'var(--chart-1)' }, os: { label: 'Left Eye', color: 'var(--chart-2)' } }}
+                  className="mx-auto aspect-square h-[280px]"
+                >
                   <PieChart>
                     <Pie
-                      data={eyeData}
+                      data={eyeData.map((entry, index) => ({ ...entry, fill: SURFACE_COLORS[index % SURFACE_COLORS.length] }))}
                       cx="50%"
                       cy="50%"
                       labelLine={false}
                       label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
-                      outerRadius={80}
+                      outerRadius={82}
+                      innerRadius={54}
                       dataKey="value"
+                      stroke="var(--background)"
+                      strokeWidth={2}
                     >
                       {eyeData.map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        <Cell key={`cell-${index}`} fill={SURFACE_COLORS[index % SURFACE_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip />
-                    <Legend />
+                    <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
                   </PieChart>
-                </ResponsiveContainer>
+                </ChartContainer>
               </CardContent>
             </Card>
           </div>
@@ -523,23 +557,26 @@ export default function VisualisePage() {
                 <CardDescription>Presence of macular edema</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={200}>
+                <ChartContainer config={{ present: { label: 'Present', color: 'var(--chart-5)' }, absent: { label: 'Absent', color: 'var(--chart-1)' } }} className="mx-auto aspect-square h-[200px]">
                   <PieChart>
                     <Pie
-                      data={edemaData}
+                      data={edemaData.map((entry, index) => ({ ...entry, fill: index === 0 ? 'var(--chart-5)' : 'var(--chart-1)' }))}
                       cx="50%"
                       cy="50%"
                       labelLine={false}
                       label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                      outerRadius={60}
+                      outerRadius={58}
+                      innerRadius={40}
                       dataKey="value"
+                      stroke="var(--background)"
+                      strokeWidth={2}
                     >
-                      <Cell fill="#e74c3c" />
-                      <Cell fill="#2ecc71" />
+                      <Cell fill="var(--chart-5)" />
+                      <Cell fill="var(--chart-1)" />
                     </Pie>
-                    <Tooltip />
+                    <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
                   </PieChart>
-                </ResponsiveContainer>
+                </ChartContainer>
               </CardContent>
             </Card>
 
@@ -550,7 +587,7 @@ export default function VisualisePage() {
                 <CardDescription>ERM status distribution</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={200}>
+                <ChartContainer config={{}} className="mx-auto aspect-square h-[200px]">
                   <PieChart>
                     <Pie
                       data={Object.entries(oct_reports.erm_distribution).map(([k, v]) => ({ name: k || 'Unknown', value: v }))}
@@ -558,16 +595,19 @@ export default function VisualisePage() {
                       cy="50%"
                       labelLine={false}
                       label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
-                      outerRadius={60}
+                      outerRadius={58}
+                      innerRadius={40}
                       dataKey="value"
+                      stroke="var(--background)"
+                      strokeWidth={2}
                     >
                       {Object.keys(oct_reports.erm_distribution).map((_, i) => (
-                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                        <Cell key={i} fill={SURFACE_COLORS[i % SURFACE_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip />
+                    <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
                   </PieChart>
-                </ResponsiveContainer>
+                </ChartContainer>
               </CardContent>
             </Card>
 
@@ -578,20 +618,21 @@ export default function VisualisePage() {
                 <CardDescription>Average measurements (μm)</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={200}>
+                <ChartContainer config={{ thickness: { label: 'Thickness', color: 'var(--chart-1)' } }} className="aspect-auto h-[200px] w-full">
                   <RadarChart data={thicknessData}>
-                    <PolarGrid />
-                    <PolarAngleAxis dataKey="name" tick={{ fontSize: 10 }} />
-                    <PolarRadiusAxis />
+                    <PolarGrid stroke={chartGridStroke} />
+                    <PolarAngleAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} />
+                    <PolarRadiusAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} />
                     <Radar
                       name="Thickness"
                       dataKey="value"
-                      stroke="var(--brand-teal)"
-                      fill="var(--brand-teal)"
-                      fillOpacity={0.4}
+                      stroke="var(--chart-1)"
+                      fill="var(--chart-1)"
+                      fillOpacity={0.3}
                     />
+                    <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
                   </RadarChart>
-                </ResponsiveContainer>
+                </ChartContainer>
               </CardContent>
             </Card>
           </div>

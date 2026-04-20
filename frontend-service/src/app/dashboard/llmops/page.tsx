@@ -53,41 +53,75 @@ export default function LLMOpsPage() {
   const [ragStatus, setRagStatus] = useState<RagStatus | null>(null);
   const [operation, setOperation] = useState<Operation | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [operationLoading, setOperationLoading] = useState(true);
   const [reindexing, setReindexing] = useState(false);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (isInitialLoad = false) => {
+    if (isInitialLoad) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
+
+    console.info('[LLMOps] fetching dashboard data', { isInitialLoad });
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
 
     try {
-      const results = await Promise.allSettled([
+      const [healthResult, ragResult] = await Promise.allSettled([
         fetch(`${LLMOPS_BASE}/health`, { signal: controller.signal }),
         fetch(`${LLMOPS_BASE}/api/rag/status`, { signal: controller.signal }),
-        fetch(`${LLMOPS_BASE}/api/operation`, { headers: { 'x-api-key': LLMOPS_API_KEY }, signal: controller.signal }),
       ]);
 
-      const healthRes = results[0].status === 'fulfilled' ? await results[0].value.json().catch(() => ({ status: 'unavailable', llm_provider: 'unknown', model: 'unknown' })) : { status: 'unavailable', llm_provider: 'unknown', model: 'unknown' };
-      const ragRes = results[1].status === 'fulfilled' ? await results[1].value.json().catch(() => ({})) : {};
-      const opRes = results[2].status === 'fulfilled' && results[2].value.ok ? await results[2].value.json().catch(() => null) : null;
+      const healthRes = healthResult.status === 'fulfilled'
+        ? await healthResult.value.json().catch(() => ({ status: 'unavailable', llm_provider: 'unknown', model: 'unknown' }))
+        : { status: 'unavailable', llm_provider: 'unknown', model: 'unknown' };
+
+      const ragRes = ragResult.status === 'fulfilled'
+        ? await ragResult.value.json().catch(() => ({}))
+        : {};
+
+      void (async () => {
+        try {
+          const opRes = await fetch(`${LLMOPS_BASE}/api/operation`, {
+            headers: { 'x-api-key': LLMOPS_API_KEY },
+            signal: controller.signal,
+          });
+          const opJson = opRes.ok ? await opRes.json().catch(() => null) : null;
+          console.info('[LLMOps] operation payload received', { status: opJson?.status ?? 'none' });
+          setOperation(opJson);
+        } catch (error) {
+          console.info('[LLMOps] operation request unavailable', error);
+          setOperation(null);
+        } finally {
+          setOperationLoading(false);
+        }
+      })();
+
+      console.info('[LLMOps] dashboard data received', {
+        healthStatus: healthRes.status,
+        ragStatus: ragRes.status,
+        operationStatus: 'pending',
+      });
 
       setHealth(healthRes);
       setRagStatus(ragRes);
-      setOperation(opRes);
     } catch (error) {
       console.error('Failed to fetch LLMOps data:', error);
     } finally {
       clearTimeout(timeout);
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 5000);
-    void fetchData();
-    const interval = setInterval(fetchData, 15000);
+    void fetchData(true);
+    const interval = setInterval(() => {
+      void fetchData(false);
+    }, 15000);
     return () => {
-      clearTimeout(timer);
       clearInterval(interval);
     };
   }, []);
@@ -101,7 +135,7 @@ export default function LLMOpsPage() {
       });
       const data = await res.json();
       toast.success(`Reindex triggered: ${data.job_id}`);
-      setTimeout(fetchData, 2000);
+      setTimeout(() => { void fetchData(false); }, 2000);
     } catch (error) {
       toast.error('Failed to trigger reindex');
     } finally {
@@ -133,8 +167,8 @@ export default function LLMOpsPage() {
         title='LLMOps Monitor'
         description='LLM service, RAG pipeline, and explainability queue'
         actions={
-          <Button variant='outline' size='sm' onClick={fetchData} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          <Button variant='outline' size='sm' onClick={() => { void fetchData(false); }} disabled={loading || refreshing}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading || refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
         }
@@ -167,20 +201,20 @@ export default function LLMOpsPage() {
       <PageGrid columns={3}>
         <StatsCard
           title='RAG Documents'
-          value={ragStatus?.total_documents || 0}
+          value={loading && !ragStatus ? 'Loading...' : (ragStatus?.total_documents ?? '—')}
           icon={FileText}
           subtitle='in collection'
         />
         <StatsCard
           title='Active Operation'
-          value={operation && operation.status !== 'idle' ? operation.operation : 'Idle'}
+          value={operationLoading && !operation ? 'Loading...' : (operation && operation.status !== 'idle' ? operation.operation : 'Idle')}
           icon={operation && operation.status !== 'idle' ? Loader2 : Sparkles}
           color={operation?.status === 'completed' ? '#22c55e' : '#3b82f6'}
           subtitle={operation?.message}
         />
         <StatsCard
           title='RAG Status'
-          value={ragStatus?.status === 'ready' ? 'Ready' : ragStatus?.status === 'indexing' ? 'Indexing' : 'Unknown'}
+          value={loading && !ragStatus ? 'Loading...' : (ragStatus?.status === 'ready' ? 'Ready' : ragStatus?.status === 'indexing' ? 'Indexing' : 'Unknown')}
           icon={ragStatus?.status === 'ready' ? CheckCircle2 : AlertCircle}
           color={ragStatus?.status === 'ready' ? '#22c55e' : ragStatus?.status === 'indexing' ? '#3b82f6' : '#6b7280'}
         />

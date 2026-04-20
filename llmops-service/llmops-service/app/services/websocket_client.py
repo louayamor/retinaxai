@@ -7,8 +7,8 @@ from loguru import logger
 
 BACKEND_WS_URL = os.environ.get("BACKEND_WS_URL", "http://localhost:8000")
 LLMOPS_API_KEY = os.environ.get("LLM_SERVICE_API_KEY", "")
-MAX_RETRIES = 3
-INITIAL_BACKOFF = 1.0
+MAX_RETRIES = 2
+INITIAL_BACKOFF = 0.5
 
 
 class WebSocketClient:
@@ -173,12 +173,13 @@ async def send_xai_event(
 
     headers = {"X-API-Key": LLMOPS_API_KEY} if LLMOPS_API_KEY else {}
 
+    logger.debug(f"Sending XAI event {stage} - {status} to {emit_url}")
     success = await _send_with_retry(emit_url, emit_payload, headers)
 
     if success:
         logger.debug(f"Sent XAI event: {stage} - {status}")
     else:
-        logger.error(f"Failed to send XAI event after {MAX_RETRIES} retries: {event}")
+        logger.warning(f"Failed to send XAI event after {MAX_RETRIES} retries: {event} - continuing anyway")
 
 
 async def _send_with_retry(
@@ -192,7 +193,7 @@ async def _send_with_retry(
 
     for attempt in range(max_retries):
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=2.0) as client:
                 response = await client.post(url, json=payload, headers=headers or {})
                 if response.status_code < 400:
                     return True
@@ -202,15 +203,15 @@ async def _send_with_retry(
                 )
         except httpx.ConnectError as e:
             last_error = str(e)
-            logger.warning(f"Attempt {attempt + 1}/{max_retries} failed: {e}")
+            logger.debug(f"Attempt {attempt + 1}/{max_retries} failed: {e}")
         except Exception as e:
             last_error = str(e)
-            logger.warning(f"Attempt {attempt + 1}/{max_retries} failed: {e}")
+            logger.debug(f"Attempt {attempt + 1}/{max_retries} failed: {e}")
 
         if attempt < max_retries - 1:
             backoff = INITIAL_BACKOFF * (2**attempt)
-            logger.info(f"Retrying in {backoff}s...")
+            logger.debug(f"Retrying in {backoff}s...")
             await asyncio.sleep(backoff)
 
-    logger.error(f"All {max_retries} attempts failed. Last error: {last_error}")
+    logger.debug(f"All {max_retries} attempts failed. Last error: {last_error}")
     return False

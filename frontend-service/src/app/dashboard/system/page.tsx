@@ -65,6 +65,13 @@ interface DashboardStats {
   avg_confidence: number | null;
 }
 
+interface ServiceHealth {
+  status: string;
+  response_time?: number;
+  status_code?: number;
+  error?: string;
+}
+
 const GRADE_LABELS = ['No DR', 'Mild', 'Moderate', 'Severe', 'Prolif DR'];
 const GRADE_COLORS = ['#10b981', '#06b6d4', '#f59e0b', '#f97316', '#f43f5e'];
 
@@ -72,8 +79,9 @@ export default function SystemStatsPage() {
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
   const [gpuInfo, setGpuInfo] = useState<GpuInfo[]>([]);
-  const [serviceHealth, setServiceHealth] = useState<Record<string, { status: string; response_time?: number }>>({});
+  const [serviceHealth, setServiceHealth] = useState<Record<string, ServiceHealth>>({});
   const [loading, setLoading] = useState(true);
+  const [healthLoading, setHealthLoading] = useState(true);
 
   const fetchSystemMetrics = async () => {
     try {
@@ -90,25 +98,45 @@ export default function SystemStatsPage() {
   };
 
   const fetchData = async () => {
+    setHealthLoading(true);
     try {
       const dashboardRes = await fetch(`${BASE}/api/v1/dashboard/stats`, { credentials: 'include' }).then(r => r.json()).catch(() => null);
       setDashboardStats(dashboardRes);
 
-      const health: Record<string, { status: string; response_time?: number }> = {};
+      const health: Record<string, ServiceHealth> = {};
       const services = [
-        { name: 'backend', url: `${BASE}/health` },
+        { name: 'backend', base: BASE, url: '/health' },
         { name: 'mlops', url: '/health', base: process.env.NEXT_PUBLIC_MLOPS_URL || 'http://localhost:8004' },
         { name: 'llmops', url: '/health', base: process.env.NEXT_PUBLIC_LLMOPS_URL || 'http://localhost:8002' },
       ];
 
+      console.info('[System] probing services', services.map(svc => svc.name));
       for (const svc of services) {
         const base = svc.base || BASE;
         try {
           const start = Date.now();
-          const res = await fetch(`${base}${svc.url}`, { credentials: 'include' });
-          health[svc.name] = { status: res.ok ? 'healthy' : 'unhealthy', response_time: Date.now() - start };
-        } catch {
-          health[svc.name] = { status: 'unhealthy' };
+          const isHealthProbe = svc.url === '/health' || svc.url.endsWith('/health');
+          const res = await fetch(`${base}${svc.url}`, isHealthProbe ? {} : { credentials: 'include' });
+          const responseTime = Date.now() - start;
+          const status = res.ok ? 'healthy' : 'unhealthy';
+          const error = res.ok ? undefined : `${res.status} ${res.statusText}`.trim();
+          health[svc.name] = {
+            status,
+            response_time: responseTime,
+            status_code: res.status,
+            error,
+          };
+          console.info('[System] service health result', {
+            service: svc.name,
+            status,
+            code: res.status,
+            error,
+            responseTime,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          health[svc.name] = { status: 'unhealthy', error: message };
+          console.info('[System] service health failed', { service: svc.name, error: message });
         }
       }
 
@@ -117,6 +145,7 @@ export default function SystemStatsPage() {
       console.error('Failed to fetch data:', error);
     } finally {
       setLoading(false);
+      setHealthLoading(false);
     }
   };
 
@@ -180,10 +209,18 @@ export default function SystemStatsPage() {
                 ) : (
                   <XCircle className='h-4 w-4 text-red-500' />
                 )}
-                <span className='text-sm text-muted-foreground'>{health.response_time ? `${health.response_time}ms` : '-'}</span>
+                  <span className='text-sm text-muted-foreground'>
+                    {healthLoading
+                      ? 'Checking...'
+                      : health.status === 'healthy'
+                        ? `${health.response_time ?? 0}ms`
+                        : health.status_code
+                          ? `HTTP ${health.status_code}${health.error ? `: ${health.error}` : ''}`
+                          : health.error || 'Unavailable'}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
         </div>
       </PageSection>
 

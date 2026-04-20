@@ -138,6 +138,18 @@ export function usePatientWebSocket({
       if (onLogMessage && logData) {
         onLogMessage(logData);
       }
+    } else if (event === 'training_stage') {
+      const logData = data as unknown as LogMessageData;
+      if (onLogMessage && logData) {
+        onLogMessage({
+          prediction_id: String(logData.prediction_id || ''),
+          patient_id: String(logData.patient_id || patientIdRef.current),
+          step: String(logData.step || 'training'),
+          status: (logData.status as LogMessageData['status']) || 'info',
+          message: String(logData.message || ''),
+          timestamp: String((logData.timestamp as string) || new Date().toISOString()),
+        });
+      }
     }
 
     setLastEvent({ event, data });
@@ -171,6 +183,16 @@ export function usePatientWebSocket({
       wsRef.current?.send(JSON.stringify({
         event: 'subscribe',
         data: { room: 'notifications' }
+      }));
+
+      wsRef.current?.send(JSON.stringify({
+        event: 'subscribe',
+        data: { room: 'training:imaging' }
+      }));
+
+      wsRef.current?.send(JSON.stringify({
+        event: 'subscribe',
+        data: { room: 'training:clinical' }
       }));
     };
 

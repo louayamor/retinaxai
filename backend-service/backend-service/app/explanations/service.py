@@ -8,6 +8,7 @@ from app.models.prediction import Prediction
 from app.models.prediction_explanation import ExplanationStatus, PredictionExplanation
 from app.models.gradcam_explanation import GradCAMExplanation
 from app.models.severity_report import RiskLevel, SeverityReport
+from app.schemas.report_schema import ReportGenerateRequest
 
 logger = logging.getLogger(__name__)
 
@@ -246,13 +247,13 @@ class ExplanationService:
             try:
                 from app.reports.service import ReportService
 
-                report_data = {
-                    "prediction_id": str(prediction.id),
-                    "report_type": "prediction",
-                }
+                report_data = ReportGenerateRequest(
+                    prediction_id=prediction.id,
+                    report_type="prediction",
+                )
                 report_service = ReportService(self.db)
                 asyncio.create_task(
-                    report_service.generate(report_data, prediction.patient_id)
+                    report_service.generate(report_data, prediction.requested_by)
                 )
                 logger.info(
                     f"[EXPLAIN SERVICE] Report generation triggered for prediction {prediction.id}"

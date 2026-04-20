@@ -206,7 +206,9 @@ class XAIPipeline:
                 prompt = self._build_prediction_prompt_with_shap(
                     dr_grade, confidence, clinical_features, shap_values
                 )
+            logger.info(f"Starting LLM generation for prediction {prediction_id}")
             response = await self.client.generate(prompt)
+            logger.info(f"LLM generation completed for prediction {prediction_id}")
 
             await send_xai_event(
                 event="xai.prediction",

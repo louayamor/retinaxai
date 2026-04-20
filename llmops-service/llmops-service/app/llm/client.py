@@ -71,15 +71,26 @@ class GitHubLLMClient(LLMClient):
             messages.append(SystemMessage(system_prompt))
         messages.append(UserMessage(prompt))
 
+        logger.info(f"Calling LLM {self.model} with prompt length: {len(prompt)} chars")
+
         try:
-            response = self._get_client().complete(
-                messages=messages,
-                temperature=0.3,
-                top_p=0.9,
-                model=model or self.model,
-                max_tokens=self.max_tokens,
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._get_client().complete,
+                    messages=messages,
+                    temperature=0.3,
+                    top_p=0.9,
+                    model=model or self.model,
+                    max_tokens=self.max_tokens,
+                ),
+                timeout=self.timeout_seconds,
             )
-            return response.choices[0].message.content
+            content = response.choices[0].message.content
+            logger.info(f"LLM response received: {len(content)} chars")
+            return content
+        except asyncio.TimeoutError as e:
+            logger.error(f"LLM call timed out after {self.timeout_seconds}s")
+            raise Exception(f"LLM generation timed out after {self.timeout_seconds}s") from e
         except AzureError as e:
             # Bug 4 fix: Check status code safely
             status_code = getattr(getattr(e, "response", None), "status_code", None)
