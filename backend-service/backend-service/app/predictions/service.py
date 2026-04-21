@@ -11,6 +11,7 @@ from app.mri_scans.repository import MRIScanRepository
 from app.patients.repository import PatientRepository
 from app.predictions.repository import PredictionRepository
 from app.schemas.prediction_schema import PredictionRequest
+from app.services.biomarker_client.service import biomarker_client
 from app.services.ml_client.ml_service import ml_client
 from app.services.ml_client.schemas import MLPredictRequest
 from app.websockets.manager import get_socket_manager
@@ -141,10 +142,26 @@ class PredictionService:
                 "age": patient.age,
                 "gender": patient.gender.value,
             }
+
+            biomarker_payload = await biomarker_client.extract_from_scan_path(
+                scan_path=scan.left_scan_path,
+                prediction_id=str(prediction.id),
+                patient_id=str(data.patient_id),
+                eye_side="left",
+                model_version=data.model_version,
+            )
+
+            output_payload = dict(prediction.output_payload or {})
+            output_payload["vascular_biomarkers"] = biomarker_payload.get(
+                "biomarkers", {}
+            )
+            prediction.output_payload = output_payload
+
             try:
                 from app.explanations.service import ExplanationService
 
                 explain_service = ExplanationService(self.db)
+                patient_data["vascular_biomarkers"] = biomarker_payload.get("biomarkers", {})
                 asyncio.create_task(
                     explain_service.trigger_xai_for_prediction(prediction, patient_data)
                 )

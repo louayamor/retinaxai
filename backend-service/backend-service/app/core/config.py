@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     ML_SERVICE_TIMEOUT: int = 30
     ML_SERVICE_API_KEY: str = ""
 
+    BIOMARKER_SERVICE_URL: str = "http://localhost:8010"
+    BIOMARKER_SERVICE_TIMEOUT: int = 60
+    BIOMARKER_SERVICE_API_KEY: str = ""
+
     LLM_SERVICE_URL: str = "http://localhost:8002"
     LLM_SERVICE_TIMEOUT: int = 60
     LLM_SERVICE_API_KEY: str = ""

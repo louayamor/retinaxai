@@ -61,3 +61,6 @@ class Prediction(Base, UUIDMixin, TimestampMixin):
     severity_report = relationship(
         "SeverityReport", back_populates="prediction", uselist=False
     )
+    vascular_biomarker = relationship(
+        "VascularBiomarker", back_populates="prediction", uselist=False
+    )
