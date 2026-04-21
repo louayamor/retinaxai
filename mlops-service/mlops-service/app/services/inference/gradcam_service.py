@@ -23,12 +23,13 @@ class GradCAMService:
             target_layer if target_layer else find_last_conv_layer(model)
         )
 
-    def generate(
+    def _build_cam_data(
         self,
         image_bytes: bytes,
         input_tensor: torch.Tensor,
         class_idx: int,
-    ) -> str:
+    ) -> tuple[np.ndarray, Image.Image, str]:
+        """Compute CAM once and return the raw map, source image, and overlay."""
         self.model.eval()
         gradients = []
         activations = []
@@ -42,51 +43,59 @@ class GradCAMService:
         handle_forward = self.target_layer.register_forward_hook(forward_hook)
         handle_backward = self.target_layer.register_full_backward_hook(backward_hook)
 
-        output = self.model(input_tensor)
-        self.model.zero_grad()
+        try:
+            output = self.model(input_tensor)
+            self.model.zero_grad()
 
-        one_hot = torch.zeros_like(output)
-        one_hot[0, class_idx] = 1
-        output.backward(gradient=one_hot, retain_graph=True)
-
-        handle_forward.remove()
-        handle_backward.remove()
-
-        if not activations or not gradients:
-            img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-            img_np = np.array(img.resize((224, 224)))
-            _, buffer = cv2.imencode(".png", cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR))
-            return base64.b64encode(buffer).decode("utf-8")
-
-        gradient = gradients[0].cpu().data.numpy()[0]
-        activation = activations[0].cpu().data.numpy()[0]
-
-        weights = np.mean(gradient, axis=(1, 2))
-        cam = np.zeros(activation.shape[1:], dtype=np.float32)
-
-        for i, w in enumerate(weights):
-            cam += w * activation[i]
-
-        cam = np.maximum(cam, 0)
-        if cam.max() > 0:
-            cam = cam / cam.max()
-
-        cam = cv2.resize(cam, (224, 224))
+            one_hot = torch.zeros_like(output)
+            one_hot[0, class_idx] = 1
+            output.backward(gradient=one_hot, retain_graph=True)
+        finally:
+            handle_forward.remove()
+            handle_backward.remove()
 
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        img_np = np.array(img.resize((224, 224))) / 255.0
 
+        if not activations or not gradients:
+            cam = np.zeros((224, 224), dtype=np.float32)
+        else:
+            gradient = gradients[0].cpu().data.numpy()[0]
+            activation = activations[0].cpu().data.numpy()[0]
+
+            weights = np.mean(gradient, axis=(1, 2))
+            cam = np.zeros(activation.shape[1:], dtype=np.float32)
+
+            for i, w in enumerate(weights):
+                cam += w * activation[i]
+
+            cam = np.maximum(cam, 0)
+            if cam.max() > 0:
+                cam = cam / cam.max()
+
+            cam = cv2.resize(cam, (224, 224))
+
+        img_np = np.array(img.resize((224, 224))) / 255.0
         heatmap_raw = np.uint8(255 * cam)
         heatmap_colored = cv2.applyColorMap(heatmap_raw, cv2.COLORMAP_JET)
         heatmap = np.float32(heatmap_colored) / 255
         heatmap = np.flip(heatmap, axis=2)
-
         cam_image = heatmap * 0.4 + np.float32(img_np) * 0.6
         cam_image = np.clip(cam_image, 0, 1)
-
         cam_uint8 = np.uint8(255 * cam_image)
         _, buffer = cv2.imencode(".png", cam_uint8)
-        return base64.b64encode(buffer).decode("utf-8")
+
+        return cam, img, base64.b64encode(buffer).decode("utf-8")
+
+    def generate(
+        self,
+        image_bytes: bytes,
+        input_tensor: torch.Tensor,
+        class_idx: int,
+    ) -> str:
+        _cam, _img, gradcam_base64 = self._build_cam_data(
+            image_bytes, input_tensor, class_idx
+        )
+        return gradcam_base64
 
     def generate_with_regions(
         self,
@@ -95,9 +104,9 @@ class GradCAMService:
         class_idx: int,
     ) -> tuple[str, list[str]]:
         """Generate GradCAM heatmap and extract anatomical regions (legacy method)."""
-        gradcam_base64 = self.generate(image_bytes, input_tensor, class_idx)
-        cam = self._compute_cam(input_tensor, class_idx)
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        cam, img, gradcam_base64 = self._build_cam_data(
+            image_bytes, input_tensor, class_idx
+        )
         regions = self.extract_regions(cam, img)
         return gradcam_base64, regions
 
@@ -112,55 +121,23 @@ class GradCAMService:
         Returns:
             tuple: (gradcam_base64, regions_numeric, top_hotspots)
         """
-        gradcam_base64 = self.generate(image_bytes, input_tensor, class_idx)
-        cam = self._compute_cam(input_tensor, class_idx)
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        cam, img, gradcam_base64 = self._build_cam_data(
+            image_bytes, input_tensor, class_idx
+        )
         regions = self.extract_regions_numeric(cam, img)
         top_hotspots = self._get_top_hotspots(regions)
         return gradcam_base64, regions, top_hotspots
 
-    def _compute_cam(self, input_tensor: torch.Tensor, class_idx: int) -> np.ndarray:
+    def _compute_cam(
+        self,
+        image_bytes: bytes,
+        input_tensor: torch.Tensor,
+        class_idx: int,
+    ) -> np.ndarray:
         """Compute raw CAM values for region extraction."""
-        self.model.eval()
-        gradients = []
-        activations = []
-
-        def backward_hook(module, grad_input, grad_output):
-            gradients.append(grad_output[0])
-
-        def forward_hook(module, _inp, output):
-            activations.append(output)
-
-        handle_forward = self.target_layer.register_forward_hook(forward_hook)
-        handle_backward = self.target_layer.register_full_backward_hook(backward_hook)
-
-        output = self.model(input_tensor)
-        self.model.zero_grad()
-
-        one_hot = torch.zeros_like(output)
-        one_hot[0, class_idx] = 1
-        output.backward(gradient=one_hot, retain_graph=True)
-
-        handle_forward.remove()
-        handle_backward.remove()
-
-        if not activations or not gradients:
-            return np.zeros((224, 224), dtype=np.float32)
-
-        gradient = gradients[0].cpu().data.numpy()[0]
-        activation = activations[0].cpu().data.numpy()[0]
-
-        weights = np.mean(gradient, axis=(1, 2))
-        cam = np.zeros(activation.shape[1:], dtype=np.float32)
-
-        for i, w in enumerate(weights):
-            cam += w * activation[i]
-
-        cam = np.maximum(cam, 0)
-        if cam.max() > 0:
-            cam = cam / cam.max()
-
-        cam = cv2.resize(cam, (224, 224))
+        cam, _img, _gradcam_base64 = self._build_cam_data(
+            image_bytes, input_tensor, class_idx
+        )
         return cam
 
     def extract_regions(self, cam: np.ndarray, original_image: Image.Image) -> list[str]:
@@ -260,15 +237,16 @@ class GradCAMService:
         if not regions:
             return self._get_default_regions_numeric(cam)
 
-        unique_regions = []
-        seen_names = set()
-        for r in regions:
-            if r["name"] not in seen_names:
-                unique_regions.append(r)
-                seen_names.add(r["name"])
-
-        unique_regions.sort(key=lambda x: x["intensity"], reverse=True)
-        return unique_regions[:10]
+        regions.sort(
+            key=lambda x: (
+                -x["intensity"],
+                -x["saliency_score"],
+                -x["area"],
+                x["center_y"],
+                x["center_x"],
+            )
+        )
+        return regions[:10]
 
     def _get_top_hotspots(self, regions: list[dict]) -> list[dict]:
         """Extract top 5 hotspots ranked by intensity."""

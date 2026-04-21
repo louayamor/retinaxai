@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import torch
 
-from app.services import inference_service as module
+import app.services.inference.inference_service as module
 
 
 class DummyImage:
