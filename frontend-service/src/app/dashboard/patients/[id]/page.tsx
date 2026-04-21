@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, useReducedMotion, AnimatePresence } from 'motion/react';
 import PageContainer from '@/components/layout/page-container';
@@ -110,14 +110,26 @@ export default function PatientProfilePage() {
   const [xaiData, setXaiData] = useState<Record<string, XAIResponse>>({});
   const [activeTab, setActiveTab] = useState<TabId>('scans');
   const [needsRefresh, setNeedsRefresh] = useState({ predictions: false, reports: false, xai: false });
+  const xaiFetchedIdsRef = useRef<Set<string>>(new Set());
+  const xaiFetchInFlightRef = useRef<Set<string>>(new Set());
 
-  const fetchXAIData = useCallback(async (predId: string) => {
+  const fetchXAIData = useCallback(async (predId: string, force = false) => {
+    if (!force && (xaiFetchedIdsRef.current.has(predId) || xaiFetchInFlightRef.current.has(predId))) {
+      return;
+    }
+
+    xaiFetchInFlightRef.current.add(predId);
     try {
       const xai = await getXAIExplanations(predId);
       if (xai.explanation || xai.severity_report || xai.gradcam_explanation) {
         setXaiData(prev => ({ ...prev, [predId]: xai }));
+        xaiFetchedIdsRef.current.add(predId);
       }
-    } catch {}
+    } catch {
+      // ignore fetch errors; the websocket or a future refresh can retry explicitly
+    } finally {
+      xaiFetchInFlightRef.current.delete(predId);
+    }
   }, []);
 
   const refreshPredictions = useCallback(async () => {
@@ -141,16 +153,16 @@ export default function PatientProfilePage() {
     }, []),
     onXAIReady: useCallback(async (data: XAIEventData) => {
       if (data.prediction_id) {
-        await fetchXAIData(data.prediction_id);
+        await fetchXAIData(data.prediction_id, true);
         setNeedsRefresh(prev => ({ ...prev, xai: true }));
       }
     }, [fetchXAIData]),
     onGradCAMReady: useCallback(async (data: GradCAMEventData) => {
-      if (data.prediction_id) await fetchXAIData(data.prediction_id);
+      if (data.prediction_id) await fetchXAIData(data.prediction_id, true);
     }, [fetchXAIData]),
     onSeverityReady: useCallback(async (data: SeverityEventData) => {
       if (data.prediction_id) {
-        await fetchXAIData(data.prediction_id);
+        await fetchXAIData(data.prediction_id, true);
         setNeedsRefresh(prev => ({ ...prev, xai: true }));
       }
     }, [fetchXAIData]),

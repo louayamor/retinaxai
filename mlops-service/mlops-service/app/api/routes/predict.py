@@ -147,6 +147,18 @@ async def predict(
         await send_prediction_log(patient_id, prediction_id, "error", "error", f"Prediction failed: {type(e).__name__}: {str(e)[:50]}")
         logger.error(f"[PREDICT ERROR] {type(e).__name__}: {e}", exc_info=True)
         await send_prediction_log(patient_id, prediction_id, "error", "error", f"Prediction failed: {type(e).__name__}: {str(e)[:50]}")
+        await send_prediction_event(
+            prediction_id=prediction_id,
+            patient_id=patient_id,
+            dr_grade=0,
+            confidence=0.0,
+            imaging_confidence=0.0,
+            clinical_confidence=None,
+            combined_grade=0,
+            overall_severity="unknown",
+            triggers_xai=False,
+            error=str(e)[:200],
+        )
         raise HTTPException(
             status_code=500, detail=f"prediction failed: {type(e).__name__}: {e}"
         )

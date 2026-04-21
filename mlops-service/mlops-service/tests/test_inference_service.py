@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
 import torch
+import pytest
+from fastapi import HTTPException
 
+from app.api.schemas import MLPredictHttpRequest
 import app.services.inference.inference_service as module
+from app.api.routes import predict as predict_route
 
 
 class DummyImage:
@@ -85,3 +90,67 @@ def test_predict_imaging_retries_on_cuda_oom(monkeypatch):
     assert result["predicted_label"] == "Proliferative DR"
     assert service.device.type == "cpu"
     assert model.calls == 2
+
+
+def test_get_embedding_returns_1536_dim_vector(monkeypatch):
+    service = module.InferenceService.__new__(module.InferenceService)
+    service.settings = SimpleNamespace()
+    service.params = SimpleNamespace()
+
+    class DummyModel:
+        def __init__(self):
+            self.module = self
+
+        def forward_features(self, image_tensor):
+            return torch.ones((1, 1536, 7, 7), dtype=torch.float32)
+
+        def global_pool(self, features):
+            return torch.ones((1, 1536, 1, 1), dtype=torch.float32)
+
+    service._load_imaging_model = lambda: DummyModel()
+
+    embedding = module.InferenceService.get_embedding(
+        service, torch.ones((1, 3, 224, 224), dtype=torch.float32)
+    )
+
+    assert len(embedding) == 1536
+    assert all(isinstance(value, float) for value in embedding)
+
+
+def test_predict_route_emits_failure_event(monkeypatch):
+    emitted = {}
+
+    class DummyService:
+        def predict_imaging_with_gradcam(self, _image_bytes):
+            raise RuntimeError("boom")
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    async def fake_event(**kwargs):
+        emitted.update(kwargs)
+
+    monkeypatch.setattr(predict_route, "get_inference_service", lambda: DummyService())
+    monkeypatch.setattr(predict_route, "send_prediction_log", fake_log)
+    monkeypatch.setattr(predict_route, "send_prediction_event", fake_event)
+    monkeypatch.setattr(predict_route, "_decode_base64_image", lambda value: b"fake-bytes")
+    monkeypatch.setattr(predict_route, "_validate_image_bytes", lambda value: None)
+
+    request = MLPredictHttpRequest(
+        model_name="efficientnet_b3",
+        model_version="1.0.0",
+        patient_id="patient-1",
+        patient_age=70,
+        patient_gender="M",
+        left_scan="ZmFrZQ==",
+        right_scan="ZmFrZQ==",
+        features={},
+    )
+
+    async def run():
+        with pytest.raises(HTTPException):
+            await predict_route.predict(request, service=DummyService())
+
+    asyncio.run(run())
+
+    assert emitted["error"] == "boom"

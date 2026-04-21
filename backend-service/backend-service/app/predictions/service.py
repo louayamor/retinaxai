@@ -75,6 +75,8 @@ class PredictionService:
             )
 
             output_payload = {**ml_response.prediction}
+            if ml_response.embedding:
+                output_payload["embedding"] = ml_response.embedding
             if ml_response.gradcam_left:
                 output_payload["gradcam_left"] = ml_response.gradcam_left
             if ml_response.gradcam_right:

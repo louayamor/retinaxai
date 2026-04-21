@@ -193,6 +193,21 @@ class InferenceService:
             ]
         )
 
+    def get_embedding(self, image_tensor: torch.Tensor) -> list[float]:
+        """Extract the 1536-dim EfficientNet-B3 embedding before classification."""
+        model = self._load_imaging_model()
+
+        if hasattr(model, "module"):
+            model = model.module
+
+        with torch.inference_mode():
+            features = model.forward_features(image_tensor)
+            embedding = model.global_pool(features)
+            if embedding.ndim > 2:
+                embedding = embedding.flatten(start_dim=1)
+
+        return embedding.squeeze(0).detach().cpu().numpy().astype(float).tolist()
+
     def predict_imaging(self, image_bytes: bytes) -> dict:
         start = time.time()
         model = self._load_imaging_model()
@@ -337,6 +352,7 @@ class InferenceService:
 
         pred_class = int(np.argmax(probs))
         confidence = float(probs[pred_class])
+        embedding = self.get_embedding(tensor)
 
         gradcam_service = GradCAMService(model)
         gradcam_base64, regions, top_hotspots = gradcam_service.generate_with_regions_numeric(
@@ -356,6 +372,7 @@ class InferenceService:
             "severity": DR_SEVERITY.get(pred_class, "unknown"),
             "confidence": round(confidence, 4),
             "probabilities": {DR_CLASSES[i]: float(p) for i, p in enumerate(probs)},
+            "embedding": embedding,
             "gradcam_heatmap": gradcam_base64,
             "regions": regions,
             "top_hotspots": top_hotspots,

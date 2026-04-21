@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 export interface PatientWebSocketOptions {
   patientId: string;
   onPredictionComplete?: (data: PredictionEventData) => void;
+  onPredictionFailed?: (data: PredictionEventData) => void;
   onXAIReady?: (data: XAIEventData) => void;
   onSeverityReady?: (data: SeverityEventData) => void;
   onGradCAMReady?: (data: GradCAMEventData) => void;
@@ -75,6 +76,7 @@ interface WebSocketMessage {
 export function usePatientWebSocket({
   patientId,
   onPredictionComplete,
+  onPredictionFailed,
   onXAIReady,
   onSeverityReady,
   onGradCAMReady,
@@ -101,6 +103,9 @@ export function usePatientWebSocket({
         description: `DR Grade: ${predictionData.dr_grade}, Severity: ${predictionData.overall_severity}`,
       });
     } else if (event === 'prediction.failed') {
+      if (onPredictionFailed && predictionData.prediction_id) {
+        onPredictionFailed(predictionData);
+      }
       toast.error('Prediction Failed', {
         description: predictionData.error || 'An unknown error occurred',
       });

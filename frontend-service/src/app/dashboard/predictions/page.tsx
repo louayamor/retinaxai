@@ -166,8 +166,17 @@ export default function PredictionsPage() {
       setWorkflow({
         status: 'xai',
         stage: 'xai',
-        progress: 65,
+        progress: 60,
         message: 'Prediction complete. Generating explanations...',
+      });
+    },
+    onPredictionFailed: (data) => {
+      appendLog('prediction', 'error', data.error || 'Prediction failed');
+      setWorkflow({
+        status: 'failed',
+        stage: 'failed',
+        progress: 100,
+        message: data.error || 'Prediction failed',
       });
     },
     onGradCAMReady: (data) => {
@@ -176,7 +185,7 @@ export default function PredictionsPage() {
         ...prev,
         status: 'xai',
         stage: 'xai',
-        progress: Math.max(prev.progress, 80),
+        progress: Math.max(prev.progress, 75),
         message: data.message || 'GradCAM analysis complete',
       }));
     },
@@ -199,6 +208,7 @@ export default function PredictionsPage() {
         progress: 100,
         message: data.message || 'Workflow completed',
       }));
+      void loadPredictions();
     },
   });
 
@@ -356,7 +366,7 @@ export default function PredictionsPage() {
         ...prev,
         status: 'predicting',
         stage: 'prediction',
-        progress: 45,
+        progress: 50,
         message: 'Prediction request accepted. Waiting for backend events...',
       }));
 
@@ -399,6 +409,28 @@ export default function PredictionsPage() {
       setGeneratingReport(false);
     }
   };
+
+  useEffect(() => {
+    if (!wsConnected || !selectedPatientId) return;
+
+    const handleVisibilityRefresh = () => {
+      void loadPredictions();
+    };
+
+    const timer = window.setTimeout(() => {
+      if (workflow.status === 'predicting' || workflow.status === 'xai') {
+        appendLog('prediction', 'warning', 'Waiting for backend events... refreshing prediction list');
+        void loadPredictions();
+      }
+    }, 30000);
+
+    window.addEventListener('visibilitychange', handleVisibilityRefresh);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('visibilitychange', handleVisibilityRefresh);
+    };
+  }, [wsConnected, selectedPatientId, workflow.status]);
 
   return (
     <PageContainer className='flex flex-col gap-6'>

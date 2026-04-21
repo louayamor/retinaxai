@@ -199,6 +199,9 @@ class PredictResponse(BaseModel):
     top_hotspots_right: Optional[list[TopHotspot]] = Field(
         None, description="Top 5 hotspots ranked by intensity for right eye"
     )
+    embedding: Optional[list[float]] = Field(
+        None, description="Global image embedding from EfficientNet-B3 features"
+    )
     shap_explanation: Optional[dict] = Field(
         None, description="SHAP feature explanations for clinical model"
     )

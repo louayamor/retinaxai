@@ -7,6 +7,7 @@ def test_ml_predict_response_accepts_numeric_gradcam_regions() -> None:
         "confidence_score": 0.91,
         "model_name": "efficientnet_b3",
         "model_version": "v1.0.0",
+        "embedding": [0.1, 0.2, 0.3],
         "regions_left": [
             {
                 "name": "macula_center",
@@ -30,3 +31,4 @@ def test_ml_predict_response_accepts_numeric_gradcam_regions() -> None:
     assert model.regions_left[0].name == "macula_center"
     assert model.top_hotspots_left is not None
     assert model.top_hotspots_left[0].rank == 1
+    assert model.embedding == [0.1, 0.2, 0.3]
