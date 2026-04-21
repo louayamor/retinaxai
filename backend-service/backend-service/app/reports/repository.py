@@ -31,6 +31,15 @@ class ReportRepository:
         )
         return list(result.scalars().all())
 
+    async def get_all(self, skip: int = 0, limit: int = 20) -> list[Report]:
+        result = await self.db.execute(
+            select(Report)
+            .order_by(Report.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
     async def get_by_type(
         self, report_type: ReportType, skip: int = 0, limit: int = 100
     ) -> list[Report]:
@@ -70,6 +79,10 @@ class ReportRepository:
             .select_from(Report)
             .where(Report.patient_id == patient_id)
         )
+        return result.scalar_one()
+
+    async def count_all(self) -> int:
+        result = await self.db.execute(select(func.count()).select_from(Report))
         return result.scalar_one()
 
     async def create(self, report: Report) -> Report:

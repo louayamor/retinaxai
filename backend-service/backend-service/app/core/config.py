@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "retinaxai-backend"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
+    SQLALCHEMY_ECHO: bool = False
 
     DATABASE_URL: str = "postgresql+asyncpg://louay:louay@localhost:5432/retinaxai_db"
     DATABASE_POOL_SIZE: int = 20
