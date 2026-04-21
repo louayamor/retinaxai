@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import io
+
+import numpy as np
+from PIL import Image
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.service import BiomarkerExtractionError, BiomarkerService
 
 
 def test_health_endpoint_returns_service_metadata():
@@ -51,3 +56,27 @@ def test_extract_endpoint_accepts_multipart_form(monkeypatch):
     assert body["status"] == "success"
     assert body["contract_version"] == "0.1.0"
     assert body["biomarkers"]["tortuosity"] == 0.1
+
+
+def test_service_extracts_biomarkers_from_valid_image():
+    service = BiomarkerService()
+    image = Image.fromarray(np.full((64, 64, 3), 180, dtype=np.uint8), mode="RGB")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+
+    biomarkers = service.extract_biomarkers(buffer.getvalue())
+
+    assert biomarkers.bifurcation_angles is not None
+    assert biomarkers.raw_feature_vector
+    assert biomarkers.vessel_density is not None
+
+
+def test_service_rejects_empty_payload():
+    service = BiomarkerService()
+
+    try:
+        service.extract_biomarkers(b"")
+    except BiomarkerExtractionError as exc:
+        assert "empty image payload" in str(exc)
+    else:
+        raise AssertionError("Expected BiomarkerExtractionError")
