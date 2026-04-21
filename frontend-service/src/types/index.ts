@@ -137,5 +137,14 @@ export interface OCTReport {
   thickness_center_fovea: number | null;
   thickness_average_thickness: number | null;
   thickness_total_volume_mm3: number | null;
+  thickness_inner_superior?: number | null;
+  thickness_inner_nasal?: number | null;
+  thickness_inner_inferior?: number | null;
+  thickness_inner_temporal?: number | null;
+  thickness_outer_superior?: number | null;
+  thickness_outer_nasal?: number | null;
+  thickness_outer_inferior?: number | null;
+  thickness_outer_temporal?: number | null;
+  source_file?: string | null;
   created_at: string;
 }

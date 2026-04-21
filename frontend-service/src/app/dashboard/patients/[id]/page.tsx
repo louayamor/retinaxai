@@ -34,7 +34,6 @@ import {
 import {
   getPatient,
   getPatientScans,
-  getPatientOctReports,
   listPatientPredictions,
   listPatientReports,
   createReport,
@@ -58,7 +57,6 @@ import { toast } from 'sonner';
 import type {
   Patient,
   MRIScan,
-  OCTReport,
   Prediction,
   Report,
   PaginatedResponse,
@@ -66,7 +64,7 @@ import type {
 import Image from 'next/image';
 import MedicalReport from '@/components/features/reports/medical-report';
 import XAICard from '@/components/features/xai/xai-card';
-
+import { GradCAMMetricsBlock, type GradCAMRegion, type GradCAMHotspot } from '@/components/features/patients/gradcam-metrics';
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
 
 const GRADE_LABELS = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative'];
@@ -79,14 +77,6 @@ const GRADE_META: Record<number, { label: string; color: string; bg: string; bor
   4: { label: 'Proliferative', color: 'text-rose-400',    bg: 'bg-rose-500/10',    border: 'border-rose-500/30' },
 };
 
-const OCT_GRADE_COLORS: Record<string, string> = {
-  no_dr: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30',
-  mild: 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30',
-  moderate: 'bg-amber-500/15 text-amber-400 border border-amber-500/30',
-  severe: 'bg-orange-500/15 text-orange-400 border border-orange-500/30',
-  proliferative: 'bg-rose-500/15 text-rose-400 border border-rose-500/30',
-};
-
 const RISK_META: Record<string, { color: string; bg: string; border: string }> = {
   low:      { color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
   moderate: { color: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/30' },
@@ -94,13 +84,13 @@ const RISK_META: Record<string, { color: string; bg: string; border: string }> =
   critical: { color: 'text-rose-400',    bg: 'bg-rose-500/10',    border: 'border-rose-500/30' },
 };
 
-type TabId = 'scans' | 'analysis' | 'reports' | 'oct';
+type TabId = 'scans' | 'gradcam' | 'xai' | 'reports';
 
 const TABS: { id: TabId; label: string; icon: typeof Scan }[] = [
-  { id: 'scans',    label: 'MRI Scans',  icon: Scan },
-  { id: 'analysis', label: 'AI Analysis', icon: Brain },
-  { id: 'reports',  label: 'Reports',    icon: FileText },
-  { id: 'oct',      label: 'OCT',        icon: Activity },
+  { id: 'scans',   label: 'MRI Scans',        icon: Scan },
+  { id: 'gradcam', label: 'GradCAM Report',   icon: Eye },
+  { id: 'xai',     label: 'XAI Explanations', icon: Brain },
+  { id: 'reports', label: 'Reports',          icon: FileText },
 ];
 
 export default function PatientProfilePage() {
@@ -111,7 +101,6 @@ export default function PatientProfilePage() {
 
   const [patient, setPatient] = useState<Patient | null>(null);
   const [scans, setScans] = useState<MRIScan[]>([]);
-  const [octReports, setOctReports] = useState<OCTReport[]>([]);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
@@ -170,16 +159,14 @@ export default function PatientProfilePage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [patientData, scansData, octData, predsData, repsData] = await Promise.all([
+        const [patientData, scansData, predsData, repsData] = await Promise.all([
           getPatient(patientId),
           getPatientScans(patientId),
-          getPatientOctReports(patientId),
           listPatientPredictions(patientId, 1, 100),
           listPatientReports(patientId, 1, 100),
         ]);
         setPatient(patientData);
         setScans(scansData);
-        setOctReports(octData);
         setPredictions((predsData as PaginatedResponse<Prediction>).items);
         setReports((repsData as PaginatedResponse<Report>).items);
       } catch {
@@ -198,6 +185,20 @@ export default function PatientProfilePage() {
   useEffect(() => {
     if (needsRefresh.reports) { refreshReports(); setNeedsRefresh(p => ({ ...p, reports: false })); }
   }, [needsRefresh.reports, refreshReports]);
+
+  useEffect(() => {
+    const loadExistingXAI = async () => {
+      const successfulPredictions = predictions.filter(
+        (prediction) => prediction.status?.toLowerCase() === 'success'
+      );
+
+      if (successfulPredictions.length === 0) return;
+
+      await Promise.allSettled(successfulPredictions.map((prediction) => fetchXAIData(prediction.id)));
+    };
+
+    void loadExistingXAI();
+  }, [predictions, fetchXAIData]);
 
   const handleGenerateXAI = async (prediction: Prediction) => {
     if (!patient) return;
@@ -249,8 +250,11 @@ export default function PatientProfilePage() {
         });
         toast.success('XAI generation complete');
       } catch (e) {
-        if (e instanceof ApiError && e.status === 409) toast.warning('XAI already exists for this prediction');
-        else throw e;
+        if (e instanceof ApiError && e.status === 409) {
+          toast.warning('XAI already exists for this prediction');
+        } else {
+          throw e;
+        }
       }
 
       await fetchXAIData(prediction.id);
@@ -280,12 +284,11 @@ export default function PatientProfilePage() {
   const latestGradeMeta = latestGrade !== undefined ? GRADE_META[latestGrade] : null;
   const latestSeverity = latestPrediction?.output_payload?.overall_severity as string | undefined;
   const successPredictions = predictions.filter(p => p.status?.toLowerCase() === 'success');
-
   const tabCounts: Record<TabId, number> = {
     scans: scans.length,
-    analysis: successPredictions.length,
+    gradcam: successPredictions.length,
+    xai: successPredictions.length,
     reports: reports.length,
-    oct: octReports.length,
   };
 
   if (loading) {
@@ -437,7 +440,7 @@ export default function PatientProfilePage() {
                 <StatCell label="MRI Scans" value={scans.length} accent="teal" />
                 <StatCell label="Predictions" value={predictions.length} accent="gold" />
                 <StatCell label="Reports" value={reports.length} accent="blue" />
-                <StatCell label="OCT" value={octReports.length} accent="purple" />
+                <StatCell label="XAI" value={successPredictions.length} accent="purple" />
               </div>
             </div>
           </aside>
@@ -519,8 +522,8 @@ export default function PatientProfilePage() {
                   </div>
                 )}
 
-                {/* ANALYSIS TAB */}
-                {activeTab === 'analysis' && (
+                {/* GRADCAM REPORT TAB */}
+                {activeTab === 'gradcam' && (
                   <div className="flex flex-col gap-4">
                     {/* GradCAM section */}
                     <SectionHeader
@@ -557,12 +560,26 @@ export default function PatientProfilePage() {
                               <GradCAMPanel title="Left Eye (OS)" gradcamBase64={pred.output_payload?.gradcam_left as string | undefined} />
                               <GradCAMPanel title="Right Eye (OD)" gradcamBase64={pred.output_payload?.gradcam_right as string | undefined} />
                             </div>
+                            <div className="px-4 pb-4">
+                              <GradCAMMetricsBlock
+                                leftRegions={pred.output_payload?.gradcam_left_regions as GradCAMRegion[] | undefined}
+                                rightRegions={pred.output_payload?.gradcam_right_regions as GradCAMRegion[] | undefined}
+                                leftHotspots={pred.output_payload?.top_hotspots_left as GradCAMHotspot[] | undefined}
+                                rightHotspots={pred.output_payload?.top_hotspots_right as GradCAMHotspot[] | undefined}
+                              />
+                            </div>
                           </div>
                         );
                       })
                     }
 
-                    {/* XAI Explanations section */}
+                    {/* existing GradCAM report UI only */}
+                  </div>
+                )}
+
+                {/* XAI EXPLANATIONS TAB */}
+                {activeTab === 'xai' && (
+                  <div className="flex flex-col gap-4">
                     <div className="flex items-center justify-between mt-2">
                       <SectionHeader icon={Brain} title="AI Explanations" iconColor="text-purple-500" count={successPredictions.length} />
                       {latestPrediction && !xaiData[latestPrediction.id] && (
@@ -767,60 +784,7 @@ export default function PatientProfilePage() {
                   </div>
                 )}
 
-                {/* OCT TAB */}
-                {activeTab === 'oct' && (
-                  <div className="flex flex-col gap-3">
-                    <SectionHeader icon={Activity} title="OCT Analysis" iconColor="text-purple-500" count={octReports.length} />
-                    {octReports.length === 0 ? (
-                      <EmptyState icon={Activity} title="No OCT Reports" description="Process OCT scans to see results here." />
-                    ) : (
-                      <div className="rounded-md border border-border bg-card overflow-hidden">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="border-b border-border bg-muted/30">
-                              {['Eye', 'DR Grade', 'Edema', 'ERM', 'Image Quality', 'Center Fovea'].map(h => (
-                                <th key={h} className="text-left px-4 py-2.5 font-semibold uppercase tracking-widest text-muted-foreground text-[10px]">{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border">
-                            {octReports.map(oct => (
-                              <tr key={oct.id} className="hover:bg-muted/10 transition-colors">
-                                <td className="px-4 py-3 font-medium">{oct.eye}</td>
-                                <td className="px-4 py-3">
-                                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${OCT_GRADE_COLORS[oct.dr_grade || ''] ?? 'bg-muted text-muted-foreground'}`}>
-                                    {oct.dr_grade?.replace('_', ' ') || 'N/A'}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <span className={`text-xs font-medium ${oct.edema ? 'text-amber-400' : 'text-muted-foreground'}`}>
-                                    {oct.edema ? 'Yes' : 'No'}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 text-muted-foreground">{oct.erm_status || '—'}</td>
-                                <td className="px-4 py-3">
-                                  {oct.image_quality != null ? (
-                                    <div className="flex items-center gap-2">
-                                      <div className="w-16 h-1 bg-muted rounded-full overflow-hidden">
-                                        <div
-                                          className="h-full bg-[var(--brand-teal)] rounded-full"
-                                          style={{ width: `${oct.image_quality}%` }}
-                                        />
-                                      </div>
-                                      <span className="font-mono">{oct.image_quality}%</span>
-                                    </div>
-                                  ) : '—'}
-                                </td>
-                                <td className="px-4 py-3 font-mono text-muted-foreground">{oct.thickness_center_fovea ?? '—'}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-
-                    {/* Activity timeline */}
-                    <div className="mt-2">
+                <div className="mt-2">
                       <SectionHeader icon={Layers} title="Recent Activity" iconColor="text-muted-foreground" />
                       {predictions.length === 0 && reports.length === 0 && scans.length === 0
                         ? <EmptyState icon={Activity} title="No Activity" description="Patient activity will appear here." />
@@ -866,9 +830,7 @@ export default function PatientProfilePage() {
                           </div>
                         )
                       }
-                    </div>
-                  </div>
-                )}
+                </div>
 
               </motion.div>
             </AnimatePresence>
@@ -977,3 +939,5 @@ function GradCAMPanel({ title, gradcamBase64 }: { title: string; gradcamBase64?:
     </div>
   );
 }
+
+// OCT helpers removed: the patient page no longer renders OCT.

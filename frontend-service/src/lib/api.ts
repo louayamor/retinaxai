@@ -156,6 +156,10 @@ export async function getPatientOctReports(patientId: string) {
   return request<OCTReport[]>(`/api/v1/oct-reports/patients/${patientId}`);
 }
 
+export async function getPatientOctReportsFromReports(patientId: string) {
+  return request<OCTReport[]>(`/api/v1/reports/oct/patient/${patientId}`);
+}
+
 export interface PredictionRequest {
   patient_id: string;
   mri_scan_id: string;
