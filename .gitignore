@@ -86,6 +86,7 @@ mlops-service/mlops-service/artifacts/monitoring/
 mlops-service/mlops-service/artifacts/ocr/output/reports.csv
 
 # service-local data directories
+data/
 backend-service/backend-service/data/
 mlops-service/mlops-service/data/
 llmops-service/llmops-service/data/
@@ -137,5 +138,4 @@ infra/template.py
 # ML research and thesis documents
 mlops-service/mlops-thesis.md/
 llmops-service/llmops-thesis.md/
-
 
