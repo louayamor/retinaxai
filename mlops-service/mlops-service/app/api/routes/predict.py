@@ -116,6 +116,7 @@ async def predict(
             confidence_score=left_imaging_result["confidence"],
             model_name=request.model_name,
             model_version=request.model_version,
+            embedding=left_imaging_result.get("embedding"),
             gradcam_left=left_imaging_result.get("gradcam_heatmap"),
             gradcam_right=right_imaging_result.get("gradcam_heatmap"),
             regions_left=left_imaging_result.get("regions"),
@@ -145,7 +146,7 @@ async def predict(
         raise
     except Exception as e:
         await send_prediction_log(patient_id, prediction_id, "error", "error", f"Prediction failed: {type(e).__name__}: {str(e)[:50]}")
-        logger.error(f"[PREDICT ERROR] {type(e).__name__}: {e}", exc_info=True)
+        logger.opt(exception=True).error("[PREDICT ERROR] {}: {}", type(e).__name__, e)
         await send_prediction_log(patient_id, prediction_id, "error", "error", f"Prediction failed: {type(e).__name__}: {str(e)[:50]}")
         await send_prediction_event(
             prediction_id=prediction_id,

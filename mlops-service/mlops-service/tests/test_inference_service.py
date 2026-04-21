@@ -154,3 +154,50 @@ def test_predict_route_emits_failure_event(monkeypatch):
     asyncio.run(run())
 
     assert emitted["error"] == "boom"
+
+
+def test_predict_route_includes_embedding(monkeypatch):
+    class DummyService:
+        def predict_imaging_with_gradcam(self, image_bytes):
+            return {
+                "predicted_grade": 2,
+                "predicted_label": "Moderate",
+                "severity": "moderate",
+                "confidence": 0.91,
+                "probabilities": {"Moderate": 0.91},
+                "gradcam_heatmap": "heatmap",
+                "regions": [],
+                "top_hotspots": [],
+                "embedding": [0.1, 0.2, 0.3],
+            }
+
+        def predict_clinical(self, features):
+            return {}
+
+    async def fake_log(*_args, **_kwargs):
+        return None
+
+    async def fake_event(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(predict_route, "send_prediction_log", fake_log)
+    monkeypatch.setattr(predict_route, "send_prediction_event", fake_event)
+    monkeypatch.setattr(predict_route, "_decode_base64_image", lambda value: b"fake-bytes")
+    monkeypatch.setattr(predict_route, "_validate_image_bytes", lambda value: None)
+
+    request = MLPredictHttpRequest(
+        model_name="efficientnet_b3",
+        model_version="1.0.0",
+        patient_id="patient-1",
+        patient_age=70,
+        patient_gender="M",
+        left_scan="ZmFrZQ==",
+        right_scan="ZmFrZQ==",
+        features={},
+    )
+
+    async def run():
+        response = await predict_route.predict(request, service=DummyService())
+        assert response.embedding == [0.1, 0.2, 0.3]
+
+    asyncio.run(run())
