@@ -71,8 +71,21 @@ def create_app() -> FastAPI:
             image.filename or "unknown",
         )
         try:
-            if not image.content_type or not image.content_type.startswith("image/"):
-                raise HTTPException(status_code=415, detail="Uploaded file must be an image")
+            if not image.content_type:
+                logger.warning(
+                    "biomarker extraction missing content_type prediction_id={} patient_id={} eye_side={}",
+                    prediction_id,
+                    patient_id,
+                    eye_side or "unknown",
+                )
+            else:
+                logger.debug(
+                    "biomarker extraction content_type={} prediction_id={} patient_id={} eye_side={}",
+                    image.content_type,
+                    prediction_id,
+                    patient_id,
+                    eye_side or "unknown",
+                )
 
             image_bytes, image_size = await _read_upload_bytes_with_limit(image, MAX_UPLOAD_BYTES)
             logger.debug(

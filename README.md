@@ -53,8 +53,9 @@
 1. **Upload**: Frontend uploads fundus scans → Backend stores in local data directory
 2. **Predict**: Backend sends base64 images to MLOps → Runs EfficientNet + XGBoost
 3. **Store**: Prediction results saved to PostgreSQL
-4. **Report**: Backend requests LLM report → LLMOps retrieves RAG context → Generates report
-5. **Visualize**: Grad-CAM outputs displayed in frontend dashboard
+4. **Biomarkers**: Backend sends raw image bytes to biomarker-service → VascX extracts vascular biomarkers
+5. **Report**: Backend requests LLM report → LLMOps retrieves RAG context → Generates report after biomarker success
+6. **Visualize**: Grad-CAM and biomarker outputs displayed in frontend dashboard
 
 ---
 
@@ -80,6 +81,7 @@ Services available at:
 - API Docs: http://localhost:8000/docs
 - MLOps API: http://localhost:8004
 - LLMOps API: http://localhost:8002
+- Biomarker API: http://localhost:8010
 
 ### Option 2: Manual Setup
 
@@ -88,7 +90,7 @@ Services available at:
 cd backend-service
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn uvicorn app.main:app --reload
+uvicorn app.main:app --reload
 
 # 2. MLOps Service
 cd mlops-service
@@ -154,6 +156,13 @@ RetinaXAI/
 │   │   ├── pipeline/         # Indexing, inference
 │   │   └── vectorstore/      # ChromaDB store
 │   └── Dockerfile
+├── biomarker-service/       # VascX vascular biomarker extraction (port 8010)
+│   ├── app/
+│   │   ├── main.py          # FastAPI entry point
+│   │   ├── service.py       # Biomarker extraction pipeline
+│   │   ├── schemas.py       # Request/response contract
+│   │   └── metrics.py       # Prometheus metrics
+│   └── Dockerfile
 ├── infra/
 │   └── infra/
 │       ├── docker-compose.yml
@@ -189,6 +198,12 @@ RAG_CHROMA_PERSIST_DIRECTORY=./data/chroma
 **frontend-service/.env:**
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+**biomarker-service/.env:**
+```env
+BIOMARKER_SERVICE_URL=http://localhost:8010
+BIOMARKER_SERVICE_TIMEOUT=60
 ```
 
 ---
@@ -288,6 +303,9 @@ GitHub Actions workflows:
 - **AGENTS.md**: Development guide for AI agents
 - **docs/plan.md**: Development roadmap
 - **docs/llmops-plan.md**: RAG implementation details
+- **docs/phase3-plan.md**: Biomarker extraction rollout and gating plan
+- **docs/prediction-workflow.md**: End-to-end prediction, biomarker, and XAI flow
+- **docs/vascx-replace.md**: VascX migration and biomarker-service architecture
 
 ---
 
