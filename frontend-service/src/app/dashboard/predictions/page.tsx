@@ -242,8 +242,8 @@ export default function PredictionsPage() {
         message: data.message || 'Workflow completed',
       }));
       setBiomarkerStages((prev) => ({
-        left: prev.left.status === 'idle' ? { ...prev.left, status: 'completed', progress: 100 } : prev.left,
-        right: prev.right.status === 'idle' ? { ...prev.right, status: 'completed', progress: 100 } : prev.right,
+        left: prev.left.status !== 'completed' ? { ...prev.left, status: 'completed', progress: 100 } : prev.left,
+        right: prev.right.status !== 'completed' ? { ...prev.right, status: 'completed', progress: 100 } : prev.right,
       }));
       void loadPredictions();
     },
@@ -454,7 +454,10 @@ export default function PredictionsPage() {
     if (!wsConnected || !selectedPatientId) return;
 
     const handleVisibilityRefresh = () => {
-      void loadPredictions();
+      if (document.visibilityState === 'visible') {
+        appendLog('prediction', 'info', 'Tab is visible. Refreshing prediction list');
+        void loadPredictions();
+      }
     };
 
     const timer = window.setTimeout(() => {
@@ -560,6 +563,7 @@ export default function PredictionsPage() {
                       <button
                         onClick={() => clearFile('left')}
                         className='absolute right-2 top-2 rounded-full bg-destructive p-1 text-white hover:bg-destructive/90'
+                        title='Remove left eye image'
                       >
                         <X className='h-4 w-4' />
                       </button>
@@ -600,6 +604,7 @@ export default function PredictionsPage() {
                       <button
                         onClick={() => clearFile('right')}
                         className='absolute right-2 top-2 rounded-full bg-destructive p-1 text-white hover:bg-destructive/90'
+                        title='Remove right eye image'
                       >
                         <X className='h-4 w-4' />
                       </button>

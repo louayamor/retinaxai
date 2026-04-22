@@ -175,10 +175,13 @@ function MetricTable({ title, biomarkers }: { title: string; biomarkers?: Biomar
 }
 
 function SideBySideChart({ left, right, metric }: { left?: BiomarkerMetrics | null; right?: BiomarkerMetrics | null; metric: keyof BiomarkerMetrics }) {
+  const leftValue = typeof left?.[metric] === 'number' ? (left?.[metric] as number) : null;
+  const rightValue = typeof right?.[metric] === 'number' ? (right?.[metric] as number) : null;
   const data = [
-    { eye: 'Left', value: typeof left?.[metric] === 'number' ? (left?.[metric] as number) : 0 },
-    { eye: 'Right', value: typeof right?.[metric] === 'number' ? (right?.[metric] as number) : 0 },
+    { eye: 'Left', value: leftValue },
+    { eye: 'Right', value: rightValue },
   ];
+  const missingEyes = data.filter((entry) => entry.value === null).map((entry) => entry.eye);
 
   return (
     <Card className='border-border/80 bg-card/80'>
@@ -186,16 +189,19 @@ function SideBySideChart({ left, right, metric }: { left?: BiomarkerMetrics | nu
         <CardTitle className='text-sm'>{metricLabel(metric)}</CardTitle>
         <CardDescription className='text-xs'>Left/right comparison</CardDescription>
       </CardHeader>
-      <CardContent className='h-56'>
+      <CardContent className='h-56 space-y-2'>
         <ResponsiveContainer width='100%' height='100%'>
           <BarChart data={data} margin={{ top: 12, right: 12, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray='3 3' opacity={0.25} />
             <XAxis dataKey='eye' tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} />
-            <Tooltip />
+            <Tooltip formatter={(value) => (typeof value === 'number' ? formatValue(value) : 'No data')} />
             <Bar dataKey='value' fill='#14b8a6' radius={[6, 6, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
+        {missingEyes.length > 0 && (
+          <p className='text-xs text-muted-foreground'>No data for: {missingEyes.join(', ')}</p>
+        )}
       </CardContent>
     </Card>
   );
@@ -344,6 +350,14 @@ export function BiomarkerPanel({
   const tortuositySeriesRight = extractSeries(predictions, 'right', 'tortuosity');
   const densityComparison = extractComparisonSeries(predictions, 'vessel_density');
   const tortuosityComparison = extractComparisonSeries(predictions, 'tortuosity');
+  const tortuosityByDate = new Map(tortuosityComparison.map((point) => [point.date, point] as const));
+  const buildScatterSeries = (eye: EyeSide) => densityComparison.flatMap((densityPoint) => {
+    const tortuosityPoint = tortuosityByDate.get(densityPoint.date);
+    if (!tortuosityPoint) return [];
+    return [{ x: densityPoint[eye], y: tortuosityPoint[eye] }];
+  });
+  const scatterLeft = buildScatterSeries('left');
+  const scatterRight = buildScatterSeries('right');
   const latestLeftDensity = latestLeft?.vessel_density ?? null;
   const latestRightDensity = latestRight?.vessel_density ?? null;
   const densityDelta = typeof latestLeftDensity === 'number' && typeof latestRightDensity === 'number'
@@ -418,8 +432,8 @@ export function BiomarkerPanel({
 
       <ScatterMetric
         title='Density vs Tortuosity Scatter'
-        left={densityComparison.map((point, index) => ({ x: point.left, y: tortuosityComparison[index]?.left ?? null }))}
-        right={densityComparison.map((point, index) => ({ x: point.right, y: tortuosityComparison[index]?.right ?? null }))}
+        left={scatterLeft}
+        right={scatterRight}
       />
 
       <Card className='border-border/80 bg-card/80'>
