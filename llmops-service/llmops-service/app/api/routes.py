@@ -246,6 +246,7 @@ class XAIPredictionRequest(BaseModel):
     confidence: float
     clinical_features: dict | None = None
     gradcam_regions: dict | None = None
+    vascular_biomarkers: dict | None = None
 
 
 class XAIGradCAMRequest(BaseModel):
@@ -276,6 +277,7 @@ async def explain_prediction(payload: XAIPredictionRequest) -> dict:
         confidence=payload.confidence,
         clinical_features=payload.clinical_features,
         gradcam_regions=payload.gradcam_regions,
+        vascular_biomarkers=payload.vascular_biomarkers,
     )
 
 

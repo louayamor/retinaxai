@@ -115,6 +115,7 @@ class XAIPipeline:
         confidence: float,
         clinical_features: dict | None = None,
         gradcam_regions: dict | None = None,
+        vascular_biomarkers: dict | None = None,
     ) -> dict:
         """Generate natural language explanation of DR prediction using SHAP values or GradCAM regions."""
         await send_xai_event(
@@ -200,11 +201,11 @@ class XAIPipeline:
         try:
             if imaging_explanation:
                 prompt = self._build_imaging_prompt_with_regions(
-                    dr_grade, confidence, gradcam_regions, shap_values
+                    dr_grade, confidence, gradcam_regions, shap_values, vascular_biomarkers
                 )
             else:
                 prompt = self._build_prediction_prompt_with_shap(
-                    dr_grade, confidence, clinical_features, shap_values
+                    dr_grade, confidence, clinical_features, shap_values, vascular_biomarkers
                 )
             logger.info(f"Starting LLM generation for prediction {prediction_id}")
             response = await self.client.generate(prompt)
@@ -270,6 +271,7 @@ class XAIPipeline:
         confidence: float,
         gradcam_regions: dict | None,
         shap_values: dict | None,
+        vascular_biomarkers: dict | None,
     ) -> str:
         """Build prompt for imaging-based explanation using GradCAM regions."""
         grade_int = int(dr_grade) if dr_grade.isdigit() else 2
@@ -301,6 +303,13 @@ Region Importance Analysis:
 {regions_str}
 """
 
+        biomarker_context = ""
+        if vascular_biomarkers:
+            biomarker_context = f"""
+Vascular Biomarkers:
+{json.dumps(vascular_biomarkers, indent=2)}
+"""
+
         prompt = f"""You are a medical AI assistant explaining diabetic retinopathy (DR) prediction results from fundus imaging.
 
 Explain this prediction in patient-friendly terms addressing these key areas:
@@ -309,10 +318,12 @@ Explain this prediction in patient-friendly terms addressing these key areas:
 
 2. IMAGING ANALYSIS:{regions_context}
 {shap_context}
+{biomarker_context}
 
 3. CLINICAL INTERPRETATION:
 Explain what these highlighted anatomical regions mean for the patient's eye health.
 Describe how the identified regions correlate with the DR grade.
+Integrate the vascular biomarkers into the explanation and clinical reasoning.
 
 4. RECOMMENDATIONS:
 Provide appropriate follow-up actions based on the diagnosis.
@@ -492,6 +503,7 @@ Generate structured explanation as JSON."""
         confidence: float,
         clinical_features: dict | None,
         shap_values: dict | None,
+        vascular_biomarkers: dict | None,
     ) -> str:
         shap_context = ""
         if shap_values:
@@ -525,6 +537,10 @@ SHAP Feature Analysis:
         if clinical_features:
             clinical_context = f"\nClinical Features: {clinical_features}"
 
+        biomarker_context = ""
+        if vascular_biomarkers:
+            biomarker_context = f"\nVascular Biomarkers: {json.dumps(vascular_biomarkers)}"
+
         prompt = f"""You are a medical AI assistant explaining diabetic retinopathy (DR) prediction results.
 
 Explain this prediction in patient-friendly terms addressing these key areas:
@@ -533,7 +549,7 @@ Explain this prediction in patient-friendly terms addressing these key areas:
 
 2. FEATURE CONTRIBUTIONS:{shap_context}
 
-3. CLINICAL CONTEXT:{clinical_context}
+3. CLINICAL CONTEXT:{clinical_context}{biomarker_context}
 
 Please provide:
 - A clear explanation of what this diagnosis means for the patient

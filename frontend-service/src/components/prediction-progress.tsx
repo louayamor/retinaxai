@@ -6,7 +6,7 @@ interface PredictionProgressProps {
   progress: number;
   stage: string;
   message?: string;
-  status: 'idle' | 'uploading' | 'predicting' | 'xai' | 'reporting' | 'completed' | 'failed';
+  status: 'idle' | 'uploading' | 'predicting' | 'biomarker' | 'xai' | 'reporting' | 'completed' | 'failed';
   className?: string;
 }
 
@@ -14,6 +14,7 @@ const STATUS_COLORS: Record<PredictionProgressProps['status'], string> = {
   idle: 'bg-muted-foreground/40',
   uploading: 'bg-blue-500',
   predicting: 'bg-cyan-500',
+  biomarker: 'bg-emerald-500',
   xai: 'bg-violet-500',
   reporting: 'bg-amber-500',
   completed: 'bg-emerald-500',
@@ -23,6 +24,9 @@ const STATUS_COLORS: Record<PredictionProgressProps['status'], string> = {
 const STAGE_LABELS: Record<string, string> = {
   upload: 'Uploading scans',
   prediction: 'Running prediction',
+  biomarker_left: 'Extracting left-eye biomarkers',
+  biomarker_right: 'Extracting right-eye biomarkers',
+  biomarker: 'Extracting biomarkers',
   xai: 'Generating explanations',
   report: 'Generating report',
   completed: 'Completed',

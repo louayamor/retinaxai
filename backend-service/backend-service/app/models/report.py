@@ -9,9 +9,9 @@ from app.db.base import Base, TimestampMixin, UUIDMixin
 
 
 class ReportStatus(str, enum.Enum):
-    GENERATING = "GENERATING"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
+    GENERATING = "generating"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class ReportType(str, enum.Enum):
@@ -43,7 +43,7 @@ class Report(Base, UUIDMixin, TimestampMixin):
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[ReportStatus] = mapped_column(
-        Enum(ReportStatus),
+        Enum(ReportStatus, values_callable=lambda obj: [e.value for e in obj]),
         default=ReportStatus.GENERATING,
         nullable=False,
     )

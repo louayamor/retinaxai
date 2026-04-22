@@ -63,6 +63,7 @@ class PredictionRepository:
         return prediction
 
     async def update(self, prediction: Prediction) -> Prediction:
+        prediction = await self.db.merge(prediction)
         await self.db.flush()
         await self.db.refresh(prediction)
         return prediction

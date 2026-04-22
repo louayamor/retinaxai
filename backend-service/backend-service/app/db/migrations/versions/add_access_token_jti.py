@@ -19,16 +19,23 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "auth_sessions",
-        sa.Column("access_token_jti", sa.String(length=36), nullable=True),
-    )
-    op.create_index(
-        "ix_auth_sessions_access_token_jti",
-        "auth_sessions",
-        ["access_token_jti"],
-        unique=False,
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_columns = {column['name'] for column in inspector.get_columns('auth_sessions')}
+    existing_indexes = {index['name'] for index in inspector.get_indexes('auth_sessions')} if inspector.has_table('auth_sessions') else set()
+
+    if "access_token_jti" not in existing_columns:
+        op.add_column(
+            "auth_sessions",
+            sa.Column("access_token_jti", sa.String(length=36), nullable=True),
+        )
+    if "ix_auth_sessions_access_token_jti" not in existing_indexes:
+        op.create_index(
+            "ix_auth_sessions_access_token_jti",
+            "auth_sessions",
+            ["access_token_jti"],
+            unique=False,
+        )
 
 
 def downgrade() -> None:

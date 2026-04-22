@@ -54,3 +54,8 @@ class BiomarkerResponse(BaseModel):
     extracted_at: str | None = None
     biomarkers: dict
     error: str | None = None
+
+
+class BiomarkerSet(BaseModel):
+    left_eye: dict | None = None
+    right_eye: dict | None = None

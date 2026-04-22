@@ -18,26 +18,39 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE TYPE reporttype AS ENUM ('LLM', 'OCT')")
-    op.add_column('reports', sa.Column('report_type', sa.Enum('LLM', 'OCT', name='reporttype'), server_default='LLM', nullable=False))
-    op.alter_column('reports', 'prediction_id', existing_type=sa.dialects.postgresql.UUID(as_uuid=True), nullable=True)
-    op.add_column('reports', sa.Column('eye', sa.String(length=2), nullable=True))
-    op.add_column('reports', sa.Column('source_file', sa.String(length=255), nullable=True))
-    op.add_column('reports', sa.Column('dr_grade', sa.String(length=50), nullable=True))
-    op.add_column('reports', sa.Column('edema', sa.Boolean(), nullable=True))
-    op.add_column('reports', sa.Column('erm_status', sa.String(length=50), nullable=True))
-    op.add_column('reports', sa.Column('image_quality', sa.Float(), nullable=True))
-    op.add_column('reports', sa.Column('thickness_center_fovea', sa.Float(), nullable=True))
-    op.add_column('reports', sa.Column('thickness_average_thickness', sa.Float(), nullable=True))
-    op.add_column('reports', sa.Column('thickness_total_volume_mm3', sa.Float(), nullable=True))
-    op.add_column('reports', sa.Column('thickness_inner_superior', sa.Float(), nullable=True))
-    op.add_column('reports', sa.Column('thickness_inner_nasal', sa.Float(), nullable=True))
-    op.add_column('reports', sa.Column('thickness_inner_inferior', sa.Float(), nullable=True))
-    op.add_column('reports', sa.Column('thickness_inner_temporal', sa.Float(), nullable=True))
-    op.add_column('reports', sa.Column('thickness_outer_superior', sa.Float(), nullable=True))
-    op.add_column('reports', sa.Column('thickness_outer_nasal', sa.Float(), nullable=True))
-    op.add_column('reports', sa.Column('thickness_outer_inferior', sa.Float(), nullable=True))
-    op.add_column('reports', sa.Column('thickness_outer_temporal', sa.Float(), nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_columns = {column['name'] for column in inspector.get_columns('reports')}
+
+    if 'reporttype' not in {enum['name'] for enum in inspector.get_enums()}:
+        op.execute("CREATE TYPE reporttype AS ENUM ('LLM', 'OCT')")
+
+    if 'report_type' not in existing_columns:
+        op.add_column('reports', sa.Column('report_type', sa.Enum('LLM', 'OCT', name='reporttype'), server_default='LLM', nullable=False))
+    if 'prediction_id' in existing_columns:
+        op.alter_column('reports', 'prediction_id', existing_type=sa.dialects.postgresql.UUID(as_uuid=True), nullable=True)
+
+    for column_name, column_type in [
+        ('eye', sa.String(length=2)),
+        ('source_file', sa.String(length=255)),
+        ('dr_grade', sa.String(length=50)),
+        ('edema', sa.Boolean()),
+        ('erm_status', sa.String(length=50)),
+        ('image_quality', sa.Float()),
+        ('thickness_center_fovea', sa.Float()),
+        ('thickness_average_thickness', sa.Float()),
+        ('thickness_total_volume_mm3', sa.Float()),
+        ('thickness_inner_superior', sa.Float()),
+        ('thickness_inner_nasal', sa.Float()),
+        ('thickness_inner_inferior', sa.Float()),
+        ('thickness_inner_temporal', sa.Float()),
+        ('thickness_outer_superior', sa.Float()),
+        ('thickness_outer_nasal', sa.Float()),
+        ('thickness_outer_inferior', sa.Float()),
+        ('thickness_outer_temporal', sa.Float()),
+    ]:
+        if column_name not in existing_columns:
+            op.add_column('reports', sa.Column(column_name, column_type, nullable=True))
 
 
 def downgrade() -> None:

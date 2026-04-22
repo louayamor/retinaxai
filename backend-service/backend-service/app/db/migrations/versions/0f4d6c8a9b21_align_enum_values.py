@@ -8,6 +8,7 @@ Create Date: 2026-04-17 02:10:00.000000
 
 from collections.abc import Sequence
 
+import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0f4d6c8a9b21"
@@ -39,56 +40,62 @@ def _replace_enum(
 
 
 def upgrade() -> None:
-    _replace_enum(
-        table_name="patients",
-        column_name="gender",
-        type_name="gender",
-        new_values=["M", "F"],
-        mapping_sql=(
-            "CASE gender::text "
-            "WHEN 'MALE' THEN 'M' "
-            "WHEN 'FEMALE' THEN 'F' "
-            "WHEN 'M' THEN 'M' "
-            "WHEN 'F' THEN 'F' "
-            "ELSE gender::text END"
-        ),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
 
-    _replace_enum(
-        table_name="predictions",
-        column_name="status",
-        type_name="predictionstatus",
-        new_values=["pending", "success", "partial", "failed"],
-        mapping_sql=(
-            "CASE status::text "
-            "WHEN 'PENDING' THEN 'pending' "
-            "WHEN 'SUCCESS' THEN 'success' "
-            "WHEN 'FAILED' THEN 'failed' "
-            "WHEN 'PARTIAL' THEN 'partial' "
-            "WHEN 'pending' THEN 'pending' "
-            "WHEN 'success' THEN 'success' "
-            "WHEN 'failed' THEN 'failed' "
-            "WHEN 'partial' THEN 'partial' "
-            "ELSE status::text END"
-        ),
-    )
+    if "patients" in inspector.get_table_names():
+        _replace_enum(
+            table_name="patients",
+            column_name="gender",
+            type_name="gender",
+            new_values=["M", "F"],
+            mapping_sql=(
+                "CASE gender::text "
+                "WHEN 'MALE' THEN 'M' "
+                "WHEN 'FEMALE' THEN 'F' "
+                "WHEN 'M' THEN 'M' "
+                "WHEN 'F' THEN 'F' "
+                "ELSE gender::text END"
+            ),
+        )
 
-    _replace_enum(
-        table_name="reports",
-        column_name="status",
-        type_name="reportstatus",
-        new_values=["generating", "completed", "failed"],
-        mapping_sql=(
-            "CASE status::text "
-            "WHEN 'GENERATING' THEN 'generating' "
-            "WHEN 'COMPLETED' THEN 'completed' "
-            "WHEN 'FAILED' THEN 'failed' "
-            "WHEN 'generating' THEN 'generating' "
-            "WHEN 'completed' THEN 'completed' "
-            "WHEN 'failed' THEN 'failed' "
-            "ELSE status::text END"
-        ),
-    )
+    if "predictions" in inspector.get_table_names():
+        _replace_enum(
+            table_name="predictions",
+            column_name="status",
+            type_name="predictionstatus",
+            new_values=["pending", "success", "partial", "failed"],
+            mapping_sql=(
+                "CASE status::text "
+                "WHEN 'PENDING' THEN 'pending' "
+                "WHEN 'SUCCESS' THEN 'success' "
+                "WHEN 'FAILED' THEN 'failed' "
+                "WHEN 'PARTIAL' THEN 'partial' "
+                "WHEN 'pending' THEN 'pending' "
+                "WHEN 'success' THEN 'success' "
+                "WHEN 'failed' THEN 'failed' "
+                "WHEN 'partial' THEN 'partial' "
+                "ELSE status::text END"
+            ),
+        )
+
+    if "reports" in inspector.get_table_names():
+        _replace_enum(
+            table_name="reports",
+            column_name="status",
+            type_name="reportstatus",
+            new_values=["generating", "completed", "failed"],
+            mapping_sql=(
+                "CASE status::text "
+                "WHEN 'GENERATING' THEN 'generating' "
+                "WHEN 'COMPLETED' THEN 'completed' "
+                "WHEN 'FAILED' THEN 'failed' "
+                "WHEN 'generating' THEN 'generating' "
+                "WHEN 'completed' THEN 'completed' "
+                "WHEN 'failed' THEN 'failed' "
+                "ELSE status::text END"
+            ),
+        )
 
 
 def downgrade() -> None:

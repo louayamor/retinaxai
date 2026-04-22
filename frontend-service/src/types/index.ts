@@ -73,6 +73,28 @@ export interface MRIScan {
   uploaded_at: string;
 }
 
+export interface BiomarkerCreMetrics {
+  artery_cre?: number | null;
+  vein_cre?: number | null;
+  width_samples?: number | null;
+}
+
+export interface BiomarkerMetrics {
+  tortuosity?: number | null;
+  avr?: number | null;
+  fractal_dimension?: number | null;
+  vessel_density?: number | null;
+  bifurcation_count?: number | null;
+  bifurcation_angles?: number[] | null;
+  cre?: BiomarkerCreMetrics | null;
+  raw_feature_vector?: number[] | null;
+}
+
+export interface PredictionBiomarkers {
+  left_eye?: BiomarkerMetrics | null;
+  right_eye?: BiomarkerMetrics | null;
+}
+
 export type DRSeverity =
   | 'no_dr'
   | 'mild'

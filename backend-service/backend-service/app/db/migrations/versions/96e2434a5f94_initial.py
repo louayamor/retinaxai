@@ -66,6 +66,8 @@ def upgrade() -> None:
     sa.Column('output_payload', sa.JSON(), nullable=True),
     sa.Column('confidence_score', sa.Float(), nullable=True),
     sa.Column('status', sa.Enum('PENDING', 'SUCCESS', 'FAILED', name='predictionstatus'), nullable=False),
+    sa.Column('biomarker_status', sa.Enum('PENDING', 'COMPLETED', 'FAILED', name='biomarkerstatus'), nullable=True),
+    sa.Column('biomarker_error_message', sa.String(length=500), nullable=True),
     sa.Column('error_message', sa.String(length=500), nullable=True),
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),

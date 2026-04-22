@@ -33,6 +33,11 @@ class DummyScanRepo:
         return SimpleNamespace(left_scan_path="/tmp/left.png", right_scan_path="/tmp/right.png")
 
 
+class DummySocketManager:
+    async def emit_prediction_event(self, **_kwargs):
+        return None
+
+
 class DummyMLResponse:
     prediction = {"combined_grade": 3}
     confidence_score = 0.88
@@ -53,7 +58,15 @@ class DummyMLClient:
 
 class DummyBiomarkerClient:
     async def extract_from_scan_path(self, **_kwargs):
-        return {"biomarkers": {"tortuosity": 0.4, "vessel_density": 0.2}}
+        eye_side = _kwargs.get("eye_side")
+        if eye_side == "left":
+            return {"biomarkers": {"tortuosity": 0.4, "vessel_density": 0.2}}
+        return {"biomarkers": {"tortuosity": 0.6, "vessel_density": 0.3}}
+
+
+class FailingBiomarkerClient:
+    async def extract_from_scan_path(self, **_kwargs):
+        raise RuntimeError("biomarker extraction failed")
 
 
 class DummyExplanationService:
@@ -62,7 +75,8 @@ class DummyExplanationService:
 
     async def trigger_xai_for_prediction(self, prediction, patient_data):
         self.called = True
-        assert patient_data["vascular_biomarkers"]["tortuosity"] == 0.4
+        assert patient_data["vascular_biomarkers"]["left_eye"]["tortuosity"] == 0.4
+        assert patient_data["vascular_biomarkers"]["right_eye"]["tortuosity"] == 0.6
         return {"status": "ok"}
 
 
@@ -75,7 +89,7 @@ async def test_prediction_service_stores_biomarkers_before_xai(monkeypatch):
 
     monkeypatch.setattr("app.predictions.service.ml_client", DummyMLClient())
     monkeypatch.setattr("app.predictions.service.biomarker_client", DummyBiomarkerClient())
-    monkeypatch.setattr("app.predictions.service.get_socket_manager", lambda: SimpleNamespace(emit_prediction_event=lambda **_kwargs: None))
+    monkeypatch.setattr("app.predictions.service.get_socket_manager", lambda: DummySocketManager())
 
     fake_explanations_service = types.ModuleType("app.explanations.service")
     fake_explanations_service.ExplanationService = DummyExplanationService
@@ -90,7 +104,33 @@ async def test_prediction_service_stores_biomarkers_before_xai(monkeypatch):
     )
 
     prediction = await service.run(data, "user-1")
-    await asyncio.sleep(0)
 
     assert prediction.status == PredictionStatus.SUCCESS
-    assert prediction.output_payload["vascular_biomarkers"]["tortuosity"] == 0.4
+    assert prediction.output_payload["vascular_biomarkers_left"]["tortuosity"] == 0.4
+    assert prediction.output_payload["vascular_biomarkers_right"]["tortuosity"] == 0.6
+
+
+@pytest.mark.asyncio
+async def test_prediction_service_keeps_success_when_biomarkers_fail(monkeypatch):
+    service = PredictionService(db=SimpleNamespace())
+    service.repo = DummyRepo()
+    service.patient_repo = DummyPatientRepo()
+    service.mri_scan_repo = DummyScanRepo()
+
+    monkeypatch.setattr("app.predictions.service.ml_client", DummyMLClient())
+    monkeypatch.setattr("app.predictions.service.biomarker_client", FailingBiomarkerClient())
+    monkeypatch.setattr("app.predictions.service.get_socket_manager", lambda: DummySocketManager())
+
+    data = SimpleNamespace(
+        patient_id="patient-1",
+        mri_scan_id="scan-1",
+        model_name="model",
+        model_version="v1",
+        input_payload={},
+    )
+
+    prediction = await service.run(data, "user-1")
+
+    assert prediction.status == PredictionStatus.SUCCESS
+    assert prediction.biomarker_status.value == "FAILED"
+    assert "biomarker extraction failed" in (prediction.biomarker_error_message or "")

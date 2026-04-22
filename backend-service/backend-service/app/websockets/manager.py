@@ -90,11 +90,23 @@ class SocketManager:
         if self._server:
             await self._server.emit(event, data, room=room)
             logger.debug(f"Emitted {event} to room {room}: {data}")
+        try:
+            from app.api.v1.websockets import emit_to_clients
+
+            await emit_to_clients(event, data, room=room)
+        except Exception as exc:
+            logger.debug(f"Native websocket bridge skipped for {event}: {exc}")
 
     async def emit_to_all(self, event: str, data: dict[str, Any]) -> None:
         if self._server:
             await self._server.emit(event, data)
             logger.debug(f"Emitted {event} to all: {data}")
+        try:
+            from app.api.v1.websockets import emit_to_clients
+
+            await emit_to_clients(event, data, room=None)
+        except Exception as exc:
+            logger.debug(f"Native websocket bridge skipped for broadcast {event}: {exc}")
 
     async def emit_training_event(
         self,
@@ -214,6 +226,54 @@ class SocketManager:
         await self.emit_to_all("prediction.log", legacy_payload)
 
         logger.info(f"Emitted prediction event: {event_type} for {prediction_id}")
+
+    async def emit_biomarker_event(
+        self,
+        prediction_id: str,
+        patient_id: str,
+        eye_side: str,
+        status: str,
+        progress: int,
+        message: str,
+        biomarkers: dict[str, Any] | None = None,
+        error: str | None = None,
+    ) -> None:
+        event_type = f"biomarker.{status}"
+        payload = {
+            "event": event_type,
+            "data": {
+                "prediction_id": prediction_id,
+                "patient_id": patient_id,
+                "eye_side": eye_side,
+                "status": status,
+                "progress": progress,
+                "message": message,
+                "biomarkers": biomarkers or {},
+                "error": error,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        }
+        room = f"prediction:{patient_id}"
+        await self.emit_to_room(room, event_type, payload)
+        await self.emit_to_all(event_type, payload)
+
+        legacy_payload = {
+            "event": "prediction.log",
+            "data": {
+                "prediction_id": prediction_id,
+                "patient_id": patient_id,
+                "step": f"biomarker:{eye_side}",
+                "status": "success" if status == "completed" else status,
+                "message": message,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        }
+        await self.emit_to_room(room, "prediction.log", legacy_payload)
+        await self.emit_to_all("prediction.log", legacy_payload)
+
+        logger.info(
+            f"Emitted biomarker event: {event_type} for {prediction_id} eye={eye_side}"
+        )
 
     async def emit_xai_event(
         self,
