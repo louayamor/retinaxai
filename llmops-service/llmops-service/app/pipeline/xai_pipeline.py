@@ -310,6 +310,12 @@ Vascular Biomarkers:
 {json.dumps(vascular_biomarkers, indent=2)}
 """
 
+        biomarker_instruction = (
+            "\nIntegrate the vascular biomarkers into the explanation and clinical reasoning."
+            if biomarker_context
+            else ""
+        )
+
         prompt = f"""You are a medical AI assistant explaining diabetic retinopathy (DR) prediction results from fundus imaging.
 
 Explain this prediction in patient-friendly terms addressing these key areas:
@@ -323,7 +329,7 @@ Explain this prediction in patient-friendly terms addressing these key areas:
 3. CLINICAL INTERPRETATION:
 Explain what these highlighted anatomical regions mean for the patient's eye health.
 Describe how the identified regions correlate with the DR grade.
-Integrate the vascular biomarkers into the explanation and clinical reasoning.
+{biomarker_instruction}
 
 4. RECOMMENDATIONS:
 Provide appropriate follow-up actions based on the diagnosis.
