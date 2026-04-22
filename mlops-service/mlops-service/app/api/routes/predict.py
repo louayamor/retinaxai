@@ -145,7 +145,6 @@ async def predict(
     except HTTPException:
         raise
     except Exception as e:
-        await send_prediction_log(patient_id, prediction_id, "error", "error", f"Prediction failed: {type(e).__name__}: {str(e)[:50]}")
         logger.opt(exception=True).error("[PREDICT ERROR] {}: {}", type(e).__name__, e)
         await send_prediction_log(patient_id, prediction_id, "error", "error", f"Prediction failed: {type(e).__name__}: {str(e)[:50]}")
         await send_prediction_event(
@@ -161,5 +160,5 @@ async def predict(
             error=str(e)[:200],
         )
         raise HTTPException(
-            status_code=500, detail=f"prediction failed: {type(e).__name__}: {e}"
+            status_code=500, detail=f"prediction failed: {type(e).__name__}"
         )
