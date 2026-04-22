@@ -14,6 +14,20 @@ logger = logging.getLogger(__name__)
 
 LLM_SERVICE_URL = "http://localhost:8002"
 
+RISK_LEVEL_ALIASES: dict[str, str] = {
+    "very_high": "severe",
+}
+
+
+def _normalize_risk_level(risk_level: str | None) -> RiskLevel:
+    if not risk_level:
+        return RiskLevel.MODERATE
+    normalized = RISK_LEVEL_ALIASES.get(risk_level.lower(), risk_level.lower())
+    try:
+        return RiskLevel(normalized)
+    except ValueError:
+        return RiskLevel.MODERATE
+
 
 class ExplanationService:
     def __init__(self, db: AsyncSession):
@@ -36,6 +50,7 @@ class ExplanationService:
         gradcam_right = output_payload.get("gradcam_right")
         gradcam_left_regions = output_payload.get("gradcam_left_regions", [])
         gradcam_right_regions = output_payload.get("gradcam_right_regions", [])
+        vascular_biomarkers = patient_data.get("vascular_biomarkers", {})
 
         left_region_names = [
             r.get("name") for r in gradcam_left_regions if isinstance(r, dict) and r.get("name")
@@ -69,6 +84,7 @@ class ExplanationService:
                             "confidence": confidence,
                             "clinical_features": prediction.input_payload,
                             "gradcam_regions": gradcam_regions,
+                            "vascular_biomarkers": vascular_biomarkers,
                         },
                     )
                     if resp.status_code == 200:
@@ -143,7 +159,7 @@ class ExplanationService:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    risk_level = RiskLevel(data.get("risk_level", "moderate"))
+                    risk_level = _normalize_risk_level(data.get("risk_level", "moderate"))
                     severity = SeverityReport(
                         id=uuid.uuid4(),
                         prediction_id=prediction.id,
@@ -252,9 +268,7 @@ class ExplanationService:
                     report_type="prediction",
                 )
                 report_service = ReportService(self.db)
-                asyncio.create_task(
-                    report_service.generate(report_data, prediction.requested_by)
-                )
+                await report_service.generate(report_data, prediction.requested_by)
                 logger.info(
                     f"[EXPLAIN SERVICE] Report generation triggered for prediction {prediction.id}"
                 )

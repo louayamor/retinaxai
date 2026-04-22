@@ -13,7 +13,7 @@ import {
   listAllReports,
   PredictionRequest
 } from '@/lib/api';
-import { usePatientWebSocket, type LogMessageData } from '@/hooks/use-patient-websocket';
+import { usePatientWebSocket, type LogMessageData, type BiomarkerEventData } from '@/hooks/use-patient-websocket';
 import PageContainer from '@/components/layout/page-container';
 import { PageHero } from '@/components/ui/page-hero';
 import { PageSection } from '@/components/ui/page-section';
@@ -106,10 +106,16 @@ interface FileUpload {
 }
 
 interface PredictionWorkflowState {
-  status: 'idle' | 'uploading' | 'predicting' | 'xai' | 'reporting' | 'completed' | 'failed';
+  status: 'idle' | 'uploading' | 'predicting' | 'biomarker' | 'xai' | 'reporting' | 'completed' | 'failed';
   stage: string;
   progress: number;
   message: string;
+}
+
+interface BiomarkerStageState {
+  status: 'idle' | 'started' | 'completed' | 'failed';
+  message: string;
+  progress: number;
 }
 
 const INITIAL_WORKFLOW: PredictionWorkflowState = {
@@ -141,6 +147,10 @@ export default function PredictionsPage() {
   const [patientNames, setPatientNames] = useState<Record<string, string>>({});
   const [logMessages, setLogMessages] = useState<LogMessageData[]>([]);
   const [workflow, setWorkflow] = useState<PredictionWorkflowState>(INITIAL_WORKFLOW);
+  const [biomarkerStages, setBiomarkerStages] = useState<Record<string, BiomarkerStageState>>({
+    left: { status: 'idle', message: 'Waiting for left-eye biomarkers', progress: 0 },
+    right: { status: 'idle', message: 'Waiting for right-eye biomarkers', progress: 0 },
+  });
 
   const appendLog = (step: string, status: LogMessageData['status'], message: string) => {
     setLogMessages((prev) => [
@@ -179,6 +189,29 @@ export default function PredictionsPage() {
         message: data.error || 'Prediction failed',
       });
     },
+    onBiomarkerUpdate: (data: BiomarkerEventData) => {
+      setBiomarkerStages((prev) => ({
+        ...prev,
+        [data.eye_side]: {
+          status: data.status === 'completed' ? 'completed' : data.status === 'failed' ? 'failed' : 'started',
+          message: data.message,
+          progress: data.progress,
+        },
+      }));
+
+      appendLog(
+        `biomarker:${data.eye_side}`,
+        data.status === 'failed' ? 'error' : data.status === 'completed' ? 'success' : 'info',
+        data.message,
+      );
+      setWorkflow((prev) => ({
+        ...prev,
+        status: data.status === 'failed' ? 'failed' : prev.status === 'completed' ? 'completed' : 'biomarker',
+        stage: data.status === 'failed' ? 'failed' : prev.stage === 'completed' ? 'completed' : 'biomarker',
+        progress: data.status === 'failed' ? 100 : Math.max(prev.progress, 65),
+        message: data.message,
+      }));
+    },
     onGradCAMReady: (data) => {
       appendLog('xai', 'success', data.message || 'GradCAM analysis complete');
       setWorkflow((prev) => ({
@@ -207,6 +240,10 @@ export default function PredictionsPage() {
         stage: 'completed',
         progress: 100,
         message: data.message || 'Workflow completed',
+      }));
+      setBiomarkerStages((prev) => ({
+        left: prev.left.status === 'idle' ? { ...prev.left, status: 'completed', progress: 100 } : prev.left,
+        right: prev.right.status === 'idle' ? { ...prev.right, status: 'completed', progress: 100 } : prev.right,
       }));
       void loadPredictions();
     },
@@ -325,12 +362,16 @@ export default function PredictionsPage() {
 
     setUploading(true);
     setLogMessages([]);
-    setWorkflow({
-      status: 'uploading',
-      stage: 'upload',
-      progress: 5,
-      message: 'Uploading scans...',
-    });
+      setWorkflow({
+        status: 'uploading',
+        stage: 'upload',
+        progress: 5,
+        message: 'Uploading scans...',
+      });
+      setBiomarkerStages({
+        left: { status: 'idle', message: 'Waiting for left-eye biomarkers', progress: 0 },
+        right: { status: 'idle', message: 'Waiting for right-eye biomarkers', progress: 0 },
+      });
 
     try {
       const formData = new FormData();
@@ -347,7 +388,6 @@ export default function PredictionsPage() {
         progress: 35,
         message: 'Scans uploaded. Starting prediction...',
       });
-
       const predictionData: PredictionRequest = {
         patient_id: selectedPatientId,
         mri_scan_id: scan.id,
@@ -484,6 +524,21 @@ export default function PredictionsPage() {
               progress={workflow.progress}
               message={workflow.message}
             />
+
+            <div className='grid gap-3 md:grid-cols-2'>
+              <PredictionProgress
+                status={biomarkerStages.left.status === 'failed' ? 'failed' : biomarkerStages.left.status === 'started' || biomarkerStages.left.status === 'completed' ? 'biomarker' : 'idle'}
+                stage='biomarker_left'
+                progress={biomarkerStages.left.progress}
+                message={biomarkerStages.left.message}
+              />
+              <PredictionProgress
+                status={biomarkerStages.right.status === 'failed' ? 'failed' : biomarkerStages.right.status === 'started' || biomarkerStages.right.status === 'completed' ? 'biomarker' : 'idle'}
+                stage='biomarker_right'
+                progress={biomarkerStages.right.progress}
+                message={biomarkerStages.right.message}
+              />
+            </div>
 
             <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-3'>
               <div className='space-y-2'>

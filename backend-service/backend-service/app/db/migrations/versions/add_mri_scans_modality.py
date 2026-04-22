@@ -18,10 +18,15 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        'mri_scans',
-        sa.Column('modality', sa.String(length=50), nullable=False, server_default='fundus')
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_columns = {column['name'] for column in inspector.get_columns('mri_scans')}
+
+    if 'modality' not in existing_columns:
+        op.add_column(
+            'mri_scans',
+            sa.Column('modality', sa.String(length=50), nullable=False, server_default='fundus')
+        )
 
 
 def downgrade() -> None:

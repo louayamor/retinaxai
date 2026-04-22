@@ -40,3 +40,22 @@ class MLPredictResponse(BaseModel):
     top_hotspots_left: list[TopHotspot] | None = None
     top_hotspots_right: list[TopHotspot] | None = None
     shap_explanation: dict | None = None
+
+
+class BiomarkerResponse(BaseModel):
+    contract_version: str
+    prediction_id: str
+    patient_id: str
+    eye_side: str | None = None
+    model_version: str | None = None
+    status: str
+    service_name: str
+    service_version: str
+    extracted_at: str | None = None
+    biomarkers: dict
+    error: str | None = None
+
+
+class BiomarkerSet(BaseModel):
+    left_eye: dict | None = None
+    right_eye: dict | None = None

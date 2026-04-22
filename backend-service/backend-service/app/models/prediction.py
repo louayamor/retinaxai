@@ -6,13 +6,14 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
+from app.models.vascular_biomarker import BiomarkerStatus
 
 
 class PredictionStatus(str, enum.Enum):
-    PENDING = "PENDING"
-    SUCCESS = "SUCCESS"
-    PARTIAL = "PARTIAL"  # Prediction succeeded but XAI failed
-    FAILED = "FAILED"
+    PENDING = "pending"
+    SUCCESS = "success"
+    PARTIAL = "partial"  # Prediction succeeded but XAI failed
+    FAILED = "failed"
 
 
 class Prediction(Base, UUIDMixin, TimestampMixin):
@@ -43,10 +44,15 @@ class Prediction(Base, UUIDMixin, TimestampMixin):
     output_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[PredictionStatus] = mapped_column(
-        Enum(PredictionStatus),
+        Enum(PredictionStatus, values_callable=lambda obj: [e.value for e in obj]),
         default=PredictionStatus.PENDING,
         nullable=False,
     )
+    biomarker_status: Mapped[BiomarkerStatus | None] = mapped_column(
+        Enum(BiomarkerStatus, values_callable=lambda obj: [e.value for e in obj]),
+        nullable=True,
+    )
+    biomarker_error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     patient = relationship("Patient", back_populates="predictions")
@@ -60,4 +66,7 @@ class Prediction(Base, UUIDMixin, TimestampMixin):
     )
     severity_report = relationship(
         "SeverityReport", back_populates="prediction", uselist=False
+    )
+    vascular_biomarker = relationship(
+        "VascularBiomarker", back_populates="prediction", uselist=False
     )

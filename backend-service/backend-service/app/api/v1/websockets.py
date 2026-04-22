@@ -43,6 +43,21 @@ _connected_clients: list[WebSocket] = []
 _client_rooms: dict[WebSocket, set[str]] = {}
 
 
+async def emit_to_clients(event: str, data: dict[str, Any], room: str | None = None) -> int:
+    message = {"event": event, "data": data}
+    target_clients = _get_clients_in_room(room) if room else _connected_clients
+    sent_count = 0
+
+    for client in target_clients:
+        try:
+            await client.send_json(message)
+            sent_count += 1
+        except Exception as e:
+            logger.warning(f"Failed to send bridged websocket event to client: {e}")
+
+    return sent_count
+
+
 async def get_redis() -> aioredis.Redis | None:
     global _redis
     if _redis is None:
@@ -205,13 +220,7 @@ async def emit_event(request: EmitRequest, db: AsyncSession = Depends(get_db)):
             channel = "ws:broadcast"
             await redis.publish(channel, json.dumps(message))
 
-    sent_count = 0
-    for client in target_clients:
-        try:
-            await client.send_json(message)
-            sent_count += 1
-        except Exception as e:
-            logger.warning(f"Failed to send to client: {e}")
+    sent_count = await emit_to_clients(request.event, request.data, request.room)
 
     logger.debug(f"Emitted {request.event} to {sent_count} clients")
 

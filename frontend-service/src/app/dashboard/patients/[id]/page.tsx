@@ -7,6 +7,7 @@ import PageContainer from '@/components/layout/page-container';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import type { LucideIcon } from 'lucide-react';
 import {
   ArrowLeft,
   Calendar,
@@ -65,6 +66,7 @@ import Image from 'next/image';
 import MedicalReport from '@/components/features/reports/medical-report';
 import XAICard from '@/components/features/xai/xai-card';
 import { GradCAMMetricsBlock, type GradCAMRegion, type GradCAMHotspot } from '@/components/features/patients/gradcam-metrics';
+import { BiomarkerPanel } from '@/components/features/patients/biomarker-panel';
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
 
 const GRADE_LABELS = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative'];
@@ -84,10 +86,11 @@ const RISK_META: Record<string, { color: string; bg: string; border: string }> =
   critical: { color: 'text-rose-400',    bg: 'bg-rose-500/10',    border: 'border-rose-500/30' },
 };
 
-type TabId = 'scans' | 'gradcam' | 'xai' | 'reports';
+type TabId = 'scans' | 'biomarkers' | 'gradcam' | 'xai' | 'reports';
 
-const TABS: { id: TabId; label: string; icon: typeof Scan }[] = [
+const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id: 'scans',   label: 'MRI Scans',        icon: Scan },
+  { id: 'biomarkers', label: 'Biomarkers',    icon: BarChart3 },
   { id: 'gradcam', label: 'GradCAM Report',   icon: Eye },
   { id: 'xai',     label: 'XAI Explanations', icon: Brain },
   { id: 'reports', label: 'Reports',          icon: FileText },
@@ -295,9 +298,13 @@ export default function PatientProfilePage() {
   const latestGrade = latestPrediction?.output_payload?.combined_grade as number | undefined;
   const latestGradeMeta = latestGrade !== undefined ? GRADE_META[latestGrade] : null;
   const latestSeverity = latestPrediction?.output_payload?.overall_severity as string | undefined;
+  const latestBiomarkers = latestPrediction?.output_payload as Record<string, unknown> | null;
+  const latestLeftBiomarkers = latestBiomarkers?.vascular_biomarkers_left as Record<string, unknown> | undefined;
+  const latestRightBiomarkers = latestBiomarkers?.vascular_biomarkers_right as Record<string, unknown> | undefined;
   const successPredictions = predictions.filter(p => p.status?.toLowerCase() === 'success');
   const tabCounts: Record<TabId, number> = {
     scans: scans.length,
+    biomarkers: predictions.filter(p => Boolean(p.output_payload?.vascular_biomarkers_left || p.output_payload?.vascular_biomarkers_right)).length,
     gradcam: successPredictions.length,
     xai: successPredictions.length,
     reports: reports.length,
@@ -531,6 +538,25 @@ export default function PatientProfilePage() {
                         </div>
                       ))
                     }
+                  </div>
+                )}
+
+                {/* BIOMARKERS TAB */}
+                {activeTab === 'biomarkers' && (
+                  <div className="flex flex-col gap-4">
+                    <SectionHeader icon={BarChart3} title="Vascular Biomarkers" iconColor="text-emerald-500" count={tabCounts.biomarkers} />
+                    {latestLeftBiomarkers || latestRightBiomarkers ? (
+                      <BiomarkerPanel
+                        latestLeft={latestLeftBiomarkers as any}
+                        latestRight={latestRightBiomarkers as any}
+                        predictions={predictions.map((prediction) => ({
+                          created_at: prediction.created_at,
+                          output_payload: prediction.output_payload,
+                        }))}
+                      />
+                    ) : (
+                      <EmptyState icon={BarChart3} title="No Biomarkers Yet" description="Run a prediction to generate vascular biomarker metrics." />
+                    )}
                   </div>
                 )}
 

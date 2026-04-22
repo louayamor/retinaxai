@@ -8,6 +8,7 @@ from app.models.prediction import Prediction, PredictionStatus
 from app.models.prediction_explanation import ExplanationStatus, PredictionExplanation
 from app.models.report import Report, ReportStatus
 from app.models.severity_report import RiskLevel, SeverityReport
+from app.models.vascular_biomarker import BiomarkerStatus, VascularBiomarker
 from app.models.user import User
 
 __all__ = [
@@ -22,6 +23,8 @@ __all__ = [
     "GradCAMExplanation",
     "SeverityReport",
     "RiskLevel",
+    "VascularBiomarker",
+    "BiomarkerStatus",
     "Report",
     "ReportStatus",
     "AuthSession",

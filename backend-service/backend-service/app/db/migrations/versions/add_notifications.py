@@ -19,40 +19,49 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "notifications",
-        sa.Column(
-            "id",
-            sa.dialects.postgresql.UUID(as_uuid=True),
-            primary_key=True,
-            nullable=False,
-        ),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=False,
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=False,
-        ),
-        sa.Column(
-            "user_id",
-            sa.dialects.postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("users.id", ondelete="CASCADE"),
-            nullable=True,
-        ),
-        sa.Column("type", sa.String(length=50), nullable=False),
-        sa.Column("title", sa.String(length=255), nullable=False),
-        sa.Column("message", sa.String(length=1000), nullable=False),
-        sa.Column("read", sa.Boolean(), nullable=False, server_default=sa.false()),
-    )
-    op.create_index("ix_notifications_user_id", "notifications", ["user_id"])
-    op.create_index("ix_notifications_type", "notifications", ["type"])
-    op.create_index("ix_notifications_read", "notifications", ["read"])
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    if not inspector.has_table("notifications"):
+        op.create_table(
+            "notifications",
+            sa.Column(
+                "id",
+                sa.dialects.postgresql.UUID(as_uuid=True),
+                primary_key=True,
+                nullable=False,
+            ),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
+            sa.Column(
+                "user_id",
+                sa.dialects.postgresql.UUID(as_uuid=True),
+                sa.ForeignKey("users.id", ondelete="CASCADE"),
+                nullable=True,
+            ),
+            sa.Column("type", sa.String(length=50), nullable=False),
+            sa.Column("title", sa.String(length=255), nullable=False),
+            sa.Column("message", sa.String(length=1000), nullable=False),
+            sa.Column("read", sa.Boolean(), nullable=False, server_default=sa.false()),
+        )
+
+    existing_indexes = {index['name'] for index in inspector.get_indexes('notifications')} if inspector.has_table('notifications') else set()
+    if "ix_notifications_user_id" not in existing_indexes:
+        op.create_index("ix_notifications_user_id", "notifications", ["user_id"])
+    if "ix_notifications_type" not in existing_indexes:
+        op.create_index("ix_notifications_type", "notifications", ["type"])
+    if "ix_notifications_read" not in existing_indexes:
+        op.create_index("ix_notifications_read", "notifications", ["read"])
 
 
 def downgrade() -> None:
