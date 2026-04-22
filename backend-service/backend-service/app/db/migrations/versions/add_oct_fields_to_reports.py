@@ -54,23 +54,42 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column('reports', 'thickness_outer_temporal')
-    op.drop_column('reports', 'thickness_outer_inferior')
-    op.drop_column('reports', 'thickness_outer_nasal')
-    op.drop_column('reports', 'thickness_outer_superior')
-    op.drop_column('reports', 'thickness_inner_temporal')
-    op.drop_column('reports', 'thickness_inner_inferior')
-    op.drop_column('reports', 'thickness_inner_nasal')
-    op.drop_column('reports', 'thickness_inner_superior')
-    op.drop_column('reports', 'thickness_total_volume_mm3')
-    op.drop_column('reports', 'thickness_average_thickness')
-    op.drop_column('reports', 'thickness_center_fovea')
-    op.drop_column('reports', 'image_quality')
-    op.drop_column('reports', 'erm_status')
-    op.drop_column('reports', 'edema')
-    op.drop_column('reports', 'dr_grade')
-    op.drop_column('reports', 'source_file')
-    op.drop_column('reports', 'eye')
-    op.alter_column('reports', 'prediction_id', existing_type=sa.dialects.postgresql.UUID(as_uuid=True), nullable=False)
-    op.drop_column('reports', 'report_type')
-    op.execute('DROP TYPE IF EXISTS reporttype')
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_columns = {column['name'] for column in inspector.get_columns('reports')}
+    existing_enums = {enum['name'] for enum in inspector.get_enums()}
+
+    removable_columns = [
+        'thickness_outer_temporal',
+        'thickness_outer_inferior',
+        'thickness_outer_nasal',
+        'thickness_outer_superior',
+        'thickness_inner_temporal',
+        'thickness_inner_inferior',
+        'thickness_inner_nasal',
+        'thickness_inner_superior',
+        'thickness_total_volume_mm3',
+        'thickness_average_thickness',
+        'thickness_center_fovea',
+        'image_quality',
+        'erm_status',
+        'edema',
+        'dr_grade',
+        'source_file',
+        'eye',
+    ]
+
+    for column_name in removable_columns:
+        if column_name in existing_columns:
+            op.drop_column('reports', column_name)
+            existing_columns.discard(column_name)
+
+    if 'prediction_id' in existing_columns:
+        op.alter_column('reports', 'prediction_id', existing_type=sa.dialects.postgresql.UUID(as_uuid=True), nullable=False)
+
+    if 'report_type' in existing_columns:
+        op.drop_column('reports', 'report_type')
+        existing_columns.discard('report_type')
+
+    if 'report_type' not in existing_columns and 'reporttype' in existing_enums:
+        op.execute('DROP TYPE IF EXISTS reporttype')

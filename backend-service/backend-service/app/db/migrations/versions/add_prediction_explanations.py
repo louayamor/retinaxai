@@ -49,7 +49,7 @@ def upgrade() -> None:
             sa.Column("content", sa.Text(), nullable=False),
             sa.Column("summary", sa.String(length=500), nullable=True),
             sa.Column("model_used", sa.String(length=100), nullable=False),
-            sa.Column("status", explanation_status, nullable=False, default="pending"),
+            sa.Column("status", explanation_status, nullable=False, server_default=sa.text("'pending'")),
             sa.Column("error_message", sa.String(length=500), nullable=True),
             sa.Column("shap_values", postgresql.JSON(), nullable=True),
             sa.Column(

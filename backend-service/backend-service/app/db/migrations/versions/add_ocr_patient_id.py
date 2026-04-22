@@ -25,7 +25,7 @@ def upgrade() -> None:
 
     if 'ocr_patient_id' not in existing_columns:
         op.add_column('patients', sa.Column('ocr_patient_id', sa.String(length=50), nullable=True))
-    if op.f('ix_patients_ocr_patient_id') not in existing_indexes:
+    if 'ix_patients_ocr_patient_id' not in existing_indexes:
         op.create_index(op.f('ix_patients_ocr_patient_id'), 'patients', ['ocr_patient_id'], unique=False)
 
 

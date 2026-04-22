@@ -47,5 +47,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("predictions", "biomarker_error_message")
-    op.drop_column("predictions", "biomarker_status")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_columns = {column["name"] for column in inspector.get_columns("predictions")}
+    existing_enums = {enum["name"] for enum in inspector.get_enums()}
+
+    if "biomarker_error_message" in existing_columns:
+        op.drop_column("predictions", "biomarker_error_message")
+    if "biomarker_status" in existing_columns:
+        op.drop_column("predictions", "biomarker_status")
+    if "biomarkerstatus" in existing_enums:
+        op.execute("DROP TYPE IF EXISTS biomarkerstatus")

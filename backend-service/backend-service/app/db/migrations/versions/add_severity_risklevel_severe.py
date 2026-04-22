@@ -45,6 +45,18 @@ def upgrade() -> None:
     inspector = sa.inspect(bind)
 
     if "severity_reports" in inspector.get_table_names():
+        allowed_values = {"low", "moderate", "high", "very_high", "severe"}
+        existing_values = {
+            value
+            for value in bind.execute(sa.text("SELECT DISTINCT risk_level::text FROM severity_reports WHERE risk_level IS NOT NULL")).scalars()
+            if value is not None
+        }
+        invalid_values = existing_values - allowed_values
+        if invalid_values:
+            raise RuntimeError(
+                f"Unexpected risk_level values found before enum migration: {sorted(invalid_values)}"
+            )
+
         _replace_enum(
             table_name="severity_reports",
             column_name="risk_level",
@@ -63,6 +75,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "severity_reports" not in inspector.get_table_names():
+        return
+
     _replace_enum(
         table_name="severity_reports",
         column_name="risk_level",

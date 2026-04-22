@@ -67,8 +67,10 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
+    op.create_index("ix_vascular_biomarkers_patient_id", "vascular_biomarkers", ["patient_id"], unique=False)
 
 
 def downgrade() -> None:
+    op.drop_index("ix_vascular_biomarkers_patient_id", table_name="vascular_biomarkers")
     op.drop_table("vascular_biomarkers")
     op.execute("DROP TYPE IF EXISTS biomarkerstatus")

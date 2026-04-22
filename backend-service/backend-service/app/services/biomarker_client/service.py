@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -42,8 +43,9 @@ class BiomarkerServiceClient:
                 "eye_side": eye_side,
                 "model_version": model_version,
             }
+            image_bytes = await asyncio.to_thread(path.read_bytes)
             files = {
-                "image": (path.name, path.read_bytes(), "application/octet-stream"),
+                "image": (path.name, image_bytes, "application/octet-stream"),
             }
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(

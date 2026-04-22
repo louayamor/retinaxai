@@ -29,7 +29,7 @@ def upgrade() -> None:
             sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
             sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
             sa.Column('user_id', sa.dialects.postgresql.UUID(as_uuid=True), sa.ForeignKey('users.id', ondelete='CASCADE'), nullable=False),
-            sa.Column('refresh_token', sa.String(length=512), nullable=False, unique=True),
+            sa.Column('refresh_token', sa.String(length=512), nullable=False),
             sa.Column('revoked', sa.Boolean(), nullable=False, server_default=sa.false()),
             sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
         )

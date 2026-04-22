@@ -21,8 +21,9 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
-    existing_columns = {column['name'] for column in inspector.get_columns('auth_sessions')}
-    existing_indexes = {index['name'] for index in inspector.get_indexes('auth_sessions')} if inspector.has_table('auth_sessions') else set()
+    has_auth_sessions = inspector.has_table('auth_sessions')
+    existing_columns = {column['name'] for column in inspector.get_columns('auth_sessions')} if has_auth_sessions else set()
+    existing_indexes = {index['name'] for index in inspector.get_indexes('auth_sessions')} if has_auth_sessions else set()
 
     if "access_token_jti" not in existing_columns:
         op.add_column(

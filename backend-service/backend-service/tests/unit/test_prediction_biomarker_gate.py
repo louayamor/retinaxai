@@ -91,8 +91,15 @@ async def test_prediction_service_stores_biomarkers_before_xai(monkeypatch):
     monkeypatch.setattr("app.predictions.service.biomarker_client", DummyBiomarkerClient())
     monkeypatch.setattr("app.predictions.service.get_socket_manager", lambda: DummySocketManager())
 
+    captured_explanation_service: dict[str, DummyExplanationService] = {}
+
+    def explanation_service_factory(db):
+        instance = DummyExplanationService(db)
+        captured_explanation_service["instance"] = instance
+        return instance
+
     fake_explanations_service = types.ModuleType("app.explanations.service")
-    fake_explanations_service.ExplanationService = DummyExplanationService
+    fake_explanations_service.ExplanationService = explanation_service_factory
     monkeypatch.setitem(sys.modules, "app.explanations.service", fake_explanations_service)
 
     data = SimpleNamespace(
@@ -108,6 +115,7 @@ async def test_prediction_service_stores_biomarkers_before_xai(monkeypatch):
     assert prediction.status == PredictionStatus.SUCCESS
     assert prediction.output_payload["vascular_biomarkers_left"]["tortuosity"] == 0.4
     assert prediction.output_payload["vascular_biomarkers_right"]["tortuosity"] == 0.6
+    assert captured_explanation_service["instance"].called is True
 
 
 @pytest.mark.asyncio

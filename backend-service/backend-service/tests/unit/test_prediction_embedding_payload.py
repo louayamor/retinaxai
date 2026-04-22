@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -39,9 +38,9 @@ class DummyScanRepo:
 async def test_prediction_service_persists_embedding_into_output_payload(monkeypatch):
     service = PredictionService.__new__(PredictionService)
     service.db = AsyncMock()
-    service.repo = DummyRepo()
-    service.patient_repo = DummyPatientRepo()
-    service.mri_scan_repo = DummyScanRepo()
+    service.repo = DummyRepo()  # type: ignore
+    service.patient_repo = DummyPatientRepo()  # type: ignore
+    service.mri_scan_repo = DummyScanRepo()  # type: ignore
 
     prediction = SimpleNamespace(
         id="pred-1",
@@ -74,16 +73,16 @@ async def test_prediction_service_persists_embedding_into_output_payload(monkeyp
         ),
     )
     monkeypatch.setattr("app.predictions.service.get_socket_manager", lambda: SimpleNamespace(emit_prediction_event=AsyncMock()))
-    sys.modules["app.explanations.service"] = SimpleNamespace(
+    monkeypatch.setitem(__import__("sys").modules, "app.explanations.service", SimpleNamespace(
         ExplanationService=lambda _db: SimpleNamespace(
             trigger_xai_for_prediction=AsyncMock()
         )
-    )
+    ))
 
     result = await PredictionService.run(
         service,
-        SimpleNamespace(patient_id="patient-1", mri_scan_id="scan-1", model_name="efficientnet_b3", model_version="v1", input_payload={"risk_factors": []}),
-        requested_by="user-1",
+        SimpleNamespace(patient_id="patient-1", mri_scan_id="scan-1", model_name="efficientnet_b3", model_version="v1", input_payload={"risk_factors": []}),  # type: ignore
+        requested_by="user-1",  # type: ignore
     )
 
     assert result.output_payload is not None
