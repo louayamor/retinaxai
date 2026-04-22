@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass
-from math import atan2, degrees
 
 import cv2
 import numpy as np
@@ -58,7 +57,7 @@ class BiomarkerService:
         )
 
         return VascularBiomarkers(
-            tortuosity=self._clamp01(tortuosity),
+            tortuosity=tortuosity,
             avr=avr,
             fractal_dimension=fractal_dimension,
             vessel_density=self._clamp01(vessel_density),
@@ -163,14 +162,62 @@ class BiomarkerService:
         points = np.argwhere(bifurcation_points)
         angles: list[float] = []
         for y, x in points[:20]:
-            patch = padded[y : y + 3, x : x + 3]
-            coords = np.argwhere(patch > 0) - 1
-            if len(coords) >= 3:
-                vecs = coords[:3].astype(float)
-                base = vecs[0]
-                for vec in vecs[1:3]:
-                    angle = abs(degrees(atan2(vec[0], vec[1]) - atan2(base[0], base[1])))
-                    angles.append(round(angle % 180.0, 2))
+            center_y, center_x = y + 1, x + 1
+            branch_neighbors: list[tuple[int, int]] = []
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dy == 0 and dx == 0:
+                        continue
+                    ny, nx = center_y + dy, center_x + dx
+                    if padded[ny, nx] > 0:
+                        branch_neighbors.append((ny, nx))
+
+            if len(branch_neighbors) < 3:
+                continue
+
+            direction_vectors: list[np.ndarray] = []
+            for start_y, start_x in branch_neighbors:
+                prev = (center_y, center_x)
+                current = (start_y, start_x)
+
+                for _ in range(8):
+                    next_pixels: list[tuple[int, int]] = []
+                    for dy in (-1, 0, 1):
+                        for dx in (-1, 0, 1):
+                            if dy == 0 and dx == 0:
+                                continue
+                            ny, nx = current[0] + dy, current[1] + dx
+                            if padded[ny, nx] == 0 or (ny, nx) == prev:
+                                continue
+                            next_pixels.append((ny, nx))
+
+                    if not next_pixels:
+                        break
+
+                    if len(next_pixels) == 1:
+                        next_pixel = next_pixels[0]
+                    else:
+                        next_pixel = max(
+                            next_pixels,
+                            key=lambda pt: (pt[0] - center_y) ** 2 + (pt[1] - center_x) ** 2,
+                        )
+
+                    prev, current = current, next_pixel
+
+                vector = np.array([current[0] - center_y, current[1] - center_x], dtype=float)
+                norm = float(np.linalg.norm(vector))
+                if norm > 0:
+                    direction_vectors.append(vector / norm)
+
+            if len(direction_vectors) < 2:
+                continue
+
+            for i in range(len(direction_vectors)):
+                for j in range(i + 1, len(direction_vectors)):
+                    dot = float(np.clip(np.dot(direction_vectors[i], direction_vectors[j]), -1.0, 1.0))
+                    angle = float(np.degrees(np.arccos(dot)))
+                    if 0.0 < angle < 180.0:
+                        angles.append(round(angle, 2))
 
         return int(len(points)), angles[:10]
 
@@ -208,7 +255,7 @@ class BiomarkerService:
                 np.arange(0, arr.shape[1], k),
                 axis=1,
             )
-            return int(((S > 0) & (S < k * k)).sum())
+            return int((S > 0).sum())
 
         p = min(binary.shape)
         n = 2 ** int(np.floor(np.log2(p)))

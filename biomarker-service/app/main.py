@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime, timezone
 
@@ -17,6 +18,24 @@ from app.schemas import BiomarkerExtractionResponse, VascularBiomarkers
 from app.service import BiomarkerService
 
 service = BiomarkerService()
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+async def _read_upload_bytes_with_limit(upload: UploadFile, max_bytes: int) -> tuple[bytes, int]:
+    chunks: list[bytes] = []
+    total = 0
+
+    await upload.seek(0)
+    while True:
+        chunk = await upload.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(status_code=413, detail=f"Image exceeds maximum size of {max_bytes} bytes")
+        chunks.append(chunk)
+    await upload.seek(0)
+    return b"".join(chunks), total
 
 
 def create_app() -> FastAPI:
@@ -52,14 +71,17 @@ def create_app() -> FastAPI:
             image.filename or "unknown",
         )
         try:
-            image_bytes = await image.read()
+            if not image.content_type or not image.content_type.startswith("image/"):
+                raise HTTPException(status_code=415, detail="Uploaded file must be an image")
+
+            image_bytes, image_size = await _read_upload_bytes_with_limit(image, MAX_UPLOAD_BYTES)
             logger.debug(
                 "biomarker extraction payload loaded prediction_id={} patient_id={} bytes={}",
                 prediction_id,
                 patient_id,
-                len(image_bytes),
+                image_size,
             )
-            extracted = service.extract_biomarkers(image_bytes)
+            extracted = await asyncio.to_thread(service.extract_biomarkers, image_bytes)
             biomarkers = (
                 extracted
                 if isinstance(extracted, VascularBiomarkers)
@@ -93,6 +115,8 @@ def create_app() -> FastAPI:
                 response.biomarkers.model_dump(),
             )
             return response
+        except HTTPException:
+            raise
         except Exception as exc:
             elapsed = time.perf_counter() - started_at
             EXTRACTION_REQUESTS_TOTAL.labels(status="failed").inc()
@@ -105,7 +129,7 @@ def create_app() -> FastAPI:
                 eye_side or "unknown",
                 elapsed,
             )
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     return app
 
