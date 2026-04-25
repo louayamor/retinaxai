@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import io
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any
 
-import cv2
-import numpy as np
-from PIL import Image
+from loguru import logger
 
 from app.schemas import VascularBiomarkers
-from loguru import logger
 
 
 class BiomarkerExtractionError(ValueError):
@@ -16,265 +14,118 @@ class BiomarkerExtractionError(ValueError):
 
 
 @dataclass(slots=True)
+class VascXAdapter:
+    model: Any
+
+    def predict(self, image_bytes: bytes) -> dict[str, Any]:
+        if not image_bytes:
+            raise BiomarkerExtractionError("empty image payload")
+        try:
+            return self.model.run(image_bytes)
+        except Exception as exc:
+            raise BiomarkerExtractionError(f"vascx inference failed: {exc}") from exc
+
+
+class VascXRegistry:
+    _instance: "VascXRegistry | None" = None
+
+    def __new__(cls) -> "VascXRegistry":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self) -> None:
+        if self._initialized:
+            return
+        self._adapter: VascXAdapter | None = None
+        self._initialized = True
+
+    def load(self) -> VascXAdapter:
+        if self._adapter is None:
+            from rtnls_inference import VascX
+
+            logger.info("loading vascx model")
+            model = VascX()
+            self._adapter = VascXAdapter(model=model)
+            logger.info("vascx model loaded")
+        return self._adapter
+
+    def get(self) -> VascXAdapter:
+        return self.load()
+
+
+def get_vascx_registry() -> VascXRegistry:
+    return VascXRegistry()
+
+
+def _coerce_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_list(value: Any) -> list[float] | None:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return [float(v) for v in value if v is not None]
+    return None
+
+
+@dataclass(slots=True)
 class BiomarkerService:
     service_name: str = "biomarker-service"
     service_version: str = "0.1.0"
 
-    def extract_biomarkers(self, _image_bytes: bytes) -> VascularBiomarkers:
+    def __post_init__(self) -> None:
+        self._registry = get_vascx_registry()
+
+    def warm(self) -> None:
+        self._registry.load()
+
+    def extract_biomarkers(self, image_bytes: bytes) -> VascularBiomarkers:
         logger.info("starting biomarker feature extraction")
-        image = self._load_image(_image_bytes)
-        logger.debug("loaded image shape={} dtype={}", image.shape, image.dtype)
-        vessel_mask = self._segment_vessels(image)
-        logger.debug(
-            "segmented vessels mask_shape={} vessel_pixels={}",
-            vessel_mask.shape,
-            int(cv2.countNonZero(vessel_mask)),
-        )
-        skeleton = self._skeletonize(vessel_mask)
-        logger.debug(
-            "skeletonized vessel tree skeleton_pixels={}",
-            int(cv2.countNonZero(skeleton)),
-        )
+        adapter = self._registry.get()
+        raw = adapter.predict(image_bytes)
+        logger.debug("vascx raw output keys={}", sorted(raw.keys()))
 
-        vessel_density = self._vessel_density(vessel_mask)
-        tortuosity = self._tortuosity(skeleton)
-        bifurcation_count, bifurcation_angles = self._bifurcations(skeleton)
-        avr, cre = self._calibrate_vessel_widths(vessel_mask, skeleton)
-        fractal_dimension = self._fractal_dimension(vessel_mask)
-
+        biomarkers = VascularBiomarkers(
+            tortuosity=_coerce_float(raw.get("tortuosity")),
+            avr=_coerce_float(raw.get("avr")),
+            fractal_dimension=_coerce_float(raw.get("fractal_dimension")),
+            vessel_density=_coerce_float(raw.get("vessel_density")),
+            bifurcation_count=_coerce_int(raw.get("bifurcation_count")),
+            bifurcation_angles=_coerce_list(raw.get("bifurcation_angles")),
+            cre=raw.get("cre") if raw.get("cre") is not None else None,
+            raw_feature_vector=(
+                raw.get("raw_feature_vector")
+                if raw.get("raw_feature_vector") is not None
+                else None
+            ),
+        )
         logger.info(
-            "computed biomarkers vessel_density={:.4f} tortuosity={:.4f} bifurcations={} avr={} fractal_dimension={:.4f}",
-            vessel_density,
-            tortuosity,
-            bifurcation_count,
-            avr,
-            fractal_dimension,
+            "computed biomarkers vessel_density={} tortuosity={} avr={} fractal_dimension={}",
+            biomarkers.vessel_density,
+            biomarkers.tortuosity,
+            biomarkers.avr,
+            biomarkers.fractal_dimension,
         )
         logger.debug(
-            "biomarker detail bifurcation_angles={} cre={}",
-            bifurcation_angles,
-            cre,
+            "biomarker payload={} extracted_at={}",
+            biomarkers.model_dump(),
+            datetime.now(timezone.utc),
         )
-
-        return VascularBiomarkers(
-            tortuosity=tortuosity,
-            avr=avr,
-            fractal_dimension=fractal_dimension,
-            vessel_density=self._clamp01(vessel_density),
-            bifurcation_count=bifurcation_count,
-            bifurcation_angles=bifurcation_angles,
-            cre=cre,
-            raw_feature_vector=[
-                float(tortuosity),
-                float(avr or 0.0),
-                float(fractal_dimension),
-                float(vessel_density),
-                float(bifurcation_count),
-            ],
-        )
-
-    def _load_image(self, image_bytes: bytes) -> np.ndarray:
-        if not image_bytes:
-            logger.warning("received empty image payload")
-            raise BiomarkerExtractionError("empty image payload")
-
-        try:
-            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        except Exception as exc:
-            logger.exception("failed to parse image payload")
-            raise BiomarkerExtractionError(f"invalid image payload: {exc}") from exc
-
-        return np.array(image)
-
-    def _segment_vessels(self, image: np.ndarray) -> np.ndarray:
-        logger.debug("starting vessel segmentation")
-        green = image[:, :, 1]
-        blurred = cv2.GaussianBlur(green, (5, 5), 0)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        enhanced = clahe.apply(blurred)
-
-        _, vessel_mask = cv2.threshold(
-            enhanced,
-            0,
-            255,
-            cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
-        )
-
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        vessel_mask = cv2.morphologyEx(vessel_mask, cv2.MORPH_OPEN, kernel, iterations=1)
-        vessel_mask = cv2.morphologyEx(vessel_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
-        logger.debug("completed vessel segmentation")
-        return vessel_mask
-
-    def _skeletonize(self, mask: np.ndarray) -> np.ndarray:
-        logger.debug("starting skeletonization")
-        skeleton = np.zeros(mask.shape, np.uint8)
-        element = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
-        working = mask.copy()
-
-        while True:
-            eroded = cv2.erode(working, element)
-            opened = cv2.dilate(eroded, element)
-            temp = cv2.subtract(working, opened)
-            skeleton = cv2.bitwise_or(skeleton, temp)
-            working = eroded.copy()
-            if cv2.countNonZero(working) == 0:
-                break
-
-        logger.debug("completed skeletonization")
-        return skeleton
-
-    def _vessel_density(self, vessel_mask: np.ndarray) -> float:
-        total = vessel_mask.size
-        if total == 0:
-            return 0.0
-        return float(cv2.countNonZero(vessel_mask) / total)
-
-    def _tortuosity(self, skeleton: np.ndarray) -> float:
-        logger.debug("computing tortuosity")
-        contours, _ = cv2.findContours(skeleton, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        ratios: list[float] = []
-        for contour in contours:
-            if len(contour) < 5:
-                continue
-            path_len = float(cv2.arcLength(contour, False))
-            start = contour[0][0]
-            end = contour[-1][0]
-            straight = float(np.linalg.norm(start - end))
-            if straight > 0:
-                ratios.append(path_len / straight)
-        return float(np.mean(ratios)) if ratios else 0.0
-
-    def _bifurcations(self, skeleton: np.ndarray) -> tuple[int, list[float]]:
-        logger.debug("computing bifurcations")
-        padded = np.pad((skeleton > 0).astype(np.uint8), 1)
-        bifurcation_points = np.zeros_like(skeleton, dtype=bool)
-
-        for y in range(1, padded.shape[0] - 1):
-            for x in range(1, padded.shape[1] - 1):
-                if padded[y, x] == 0:
-                    continue
-                neighborhood = padded[y - 1 : y + 2, x - 1 : x + 2]
-                neighbors = int(neighborhood.sum() - 1)
-                if neighbors >= 3:
-                    bifurcation_points[y - 1, x - 1] = True
-
-        points = np.argwhere(bifurcation_points)
-        angles: list[float] = []
-        for y, x in points[:20]:
-            center_y, center_x = y + 1, x + 1
-            branch_neighbors: list[tuple[int, int]] = []
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
-                    if dy == 0 and dx == 0:
-                        continue
-                    ny, nx = center_y + dy, center_x + dx
-                    if padded[ny, nx] > 0:
-                        branch_neighbors.append((ny, nx))
-
-            if len(branch_neighbors) < 3:
-                continue
-
-            direction_vectors: list[np.ndarray] = []
-            for start_y, start_x in branch_neighbors:
-                prev = (center_y, center_x)
-                current = (start_y, start_x)
-
-                for _ in range(8):
-                    next_pixels: list[tuple[int, int]] = []
-                    for dy in (-1, 0, 1):
-                        for dx in (-1, 0, 1):
-                            if dy == 0 and dx == 0:
-                                continue
-                            ny, nx = current[0] + dy, current[1] + dx
-                            if padded[ny, nx] == 0 or (ny, nx) == prev:
-                                continue
-                            next_pixels.append((ny, nx))
-
-                    if not next_pixels:
-                        break
-
-                    if len(next_pixels) == 1:
-                        next_pixel = next_pixels[0]
-                    else:
-                        next_pixel = max(
-                            next_pixels,
-                            key=lambda pt: (pt[0] - center_y) ** 2 + (pt[1] - center_x) ** 2,
-                        )
-
-                    prev, current = current, next_pixel
-
-                vector = np.array([current[0] - center_y, current[1] - center_x], dtype=float)
-                norm = float(np.linalg.norm(vector))
-                if norm > 0:
-                    direction_vectors.append(vector / norm)
-
-            if len(direction_vectors) < 2:
-                continue
-
-            for i in range(len(direction_vectors)):
-                for j in range(i + 1, len(direction_vectors)):
-                    dot = float(np.clip(np.dot(direction_vectors[i], direction_vectors[j]), -1.0, 1.0))
-                    angle = float(np.degrees(np.arccos(dot)))
-                    if 0.0 < angle < 180.0:
-                        angles.append(round(angle, 2))
-
-        return int(len(points)), angles[:10]
-
-    def _calibrate_vessel_widths(self, vessel_mask: np.ndarray, skeleton: np.ndarray) -> tuple[float | None, dict]:
-        logger.debug("computing vessel width calibration")
-        if cv2.countNonZero(vessel_mask) == 0 or cv2.countNonZero(skeleton) == 0:
-            return None, {"artery_cre": None, "vein_cre": None}
-
-        distance = cv2.distanceTransform(vessel_mask, cv2.DIST_L2, 5)
-        skeleton_points = skeleton > 0
-        widths = (distance[skeleton_points] * 2.0).astype(float)
-        widths = widths[widths > 0]
-        if widths.size == 0:
-            return None, {"artery_cre": None, "vein_cre": None}
-
-        artery_width = float(np.percentile(widths, 25))
-        vein_width = float(np.percentile(widths, 75))
-        avr = float(artery_width / vein_width) if vein_width > 0 else None
-        cre = {
-            "artery_cre": round(artery_width, 4),
-            "vein_cre": round(vein_width, 4),
-            "width_samples": int(widths.size),
-        }
-        return avr, cre
-
-    def _fractal_dimension(self, vessel_mask: np.ndarray) -> float:
-        logger.debug("computing fractal dimension")
-        binary = vessel_mask > 0
-        if not binary.any():
-            return 0.0
-
-        def boxcount(arr: np.ndarray, k: int) -> int:
-            S = np.add.reduceat(
-                np.add.reduceat(arr, np.arange(0, arr.shape[0], k), axis=0),
-                np.arange(0, arr.shape[1], k),
-                axis=1,
-            )
-            return int((S > 0).sum())
-
-        p = min(binary.shape)
-        n = 2 ** int(np.floor(np.log2(p)))
-        if n < 4:
-            return 0.0
-
-        sizes = 2 ** np.arange(1, int(np.log2(n)))
-        counts = []
-        for size in sizes:
-            counts.append(boxcount(binary[:n, :n], int(size)))
-
-        valid = [(s, c) for s, c in zip(sizes, counts) if c > 0]
-        if len(valid) < 2:
-            return 0.0
-
-        sizes_arr = np.array([v[0] for v in valid], dtype=float)
-        counts_arr = np.array([v[1] for v in valid], dtype=float)
-        coeffs = np.polyfit(np.log(1.0 / sizes_arr), np.log(counts_arr), 1)
-        return float(max(0.0, coeffs[0]))
-
-    def _clamp01(self, value: float) -> float:
-        return float(max(0.0, min(1.0, value)))
+        return biomarkers

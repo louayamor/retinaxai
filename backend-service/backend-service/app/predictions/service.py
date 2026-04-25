@@ -11,6 +11,8 @@ from app.models.vascular_biomarker import BiomarkerStatus
 from app.mri_scans.repository import MRIScanRepository
 from app.patients.repository import PatientRepository
 from app.predictions.repository import PredictionRepository
+from app.biomarkers.service import BiomarkerService
+from app.models.vascular_biomarker import VascularBiomarker
 from app.schemas.prediction_schema import PredictionRequest
 from app.services.biomarker_client.service import biomarker_client
 from app.services.ml_client.ml_service import ml_client
@@ -26,6 +28,7 @@ class PredictionService:
         self.repo = PredictionRepository(db)
         self.patient_repo = PatientRepository(db)
         self.mri_scan_repo = MRIScanRepository(db)
+        self.biomarker_service = BiomarkerService(db)
 
     async def run(self, data: PredictionRequest, requested_by: uuid.UUID) -> Prediction:
         logger.info(
@@ -206,6 +209,43 @@ class PredictionService:
                 prediction.output_payload = output_payload
                 prediction.biomarker_status = BiomarkerStatus.COMPLETED
                 prediction.biomarker_error_message = None
+                prediction.biomarker_error_code = None
+
+                biomarker_record = await self.biomarker_service.get_by_prediction_id(
+                    prediction.id
+                )
+                biomarker_payload = {
+                    "left_eye": left_biomarker_payload.get("biomarkers", {}),
+                    "right_eye": right_biomarker_payload.get("biomarkers", {}),
+                }
+                if biomarker_record is None:
+                    biomarker_record = VascularBiomarker(
+                        prediction_id=prediction.id,
+                        patient_id=prediction.patient_id,
+                        eye_side="both",
+                        service_name=left_biomarker_payload.get(
+                            "service_name", "biomarker-service"
+                        ),
+                        service_version=left_biomarker_payload.get(
+                            "service_version", "unknown"
+                        ),
+                        contract_version=left_biomarker_payload.get(
+                            "contract_version", "1.0"
+                        ),
+                        status=BiomarkerStatus.COMPLETED,
+                        biomarkers=biomarker_payload,
+                        error_code=None,
+                        error_message=None,
+                        extracted_at=left_biomarker_payload.get("extracted_at"),
+                    )
+                    await self.biomarker_service.create(biomarker_record)
+                else:
+                    biomarker_record.status = BiomarkerStatus.COMPLETED
+                    biomarker_record.biomarkers = biomarker_payload
+                    biomarker_record.error_code = None
+                    biomarker_record.error_message = None
+                    biomarker_record.extracted_at = left_biomarker_payload.get("extracted_at")
+                    await self.biomarker_service.update(biomarker_record)
 
                 try:
                     from app.explanations.service import ExplanationService
@@ -224,6 +264,34 @@ class PredictionService:
             except Exception as biomarker_error:
                 prediction.biomarker_status = BiomarkerStatus.FAILED
                 prediction.biomarker_error_message = str(biomarker_error)[:497]
+                prediction.biomarker_error_code = getattr(
+                    biomarker_error, "error_code", "BIOMARKER_ERROR"
+                )
+                biomarker_record = await self.biomarker_service.get_by_prediction_id(
+                    prediction.id
+                )
+                if biomarker_record is None:
+                    biomarker_record = VascularBiomarker(
+                        prediction_id=prediction.id,
+                        patient_id=prediction.patient_id,
+                        eye_side="both",
+                        service_name="biomarker-service",
+                        service_version="unknown",
+                        contract_version="1.0",
+                        status=BiomarkerStatus.FAILED,
+                        biomarkers={},
+                        error_code=prediction.biomarker_error_code,
+                        error_message=prediction.biomarker_error_message,
+                        extracted_at=None,
+                    )
+                    await self.biomarker_service.create(biomarker_record)
+                else:
+                    biomarker_record.status = BiomarkerStatus.FAILED
+                    biomarker_record.biomarkers = {}
+                    biomarker_record.error_code = prediction.biomarker_error_code
+                    biomarker_record.error_message = prediction.biomarker_error_message
+                    biomarker_record.extracted_at = None
+                    await self.biomarker_service.update(biomarker_record)
                 try:
                     socket_manager = get_socket_manager()
                     await socket_manager.emit_biomarker_event(

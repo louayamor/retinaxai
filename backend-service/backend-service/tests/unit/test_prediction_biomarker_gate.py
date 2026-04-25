@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.models.prediction import PredictionStatus
+from app.models.vascular_biomarker import BiomarkerStatus
 from app.predictions.service import PredictionService
 
 
@@ -31,6 +32,23 @@ class DummyPatientRepo:
 class DummyScanRepo:
     async def get_by_id(self, _scan_id):
         return SimpleNamespace(left_scan_path="/tmp/left.png", right_scan_path="/tmp/right.png")
+
+
+class DummyBiomarkerService:
+    def __init__(self):
+        self.created = None
+        self.updated = None
+
+    async def get_by_prediction_id(self, _prediction_id):
+        return None
+
+    async def create(self, biomarker):
+        self.created = biomarker
+        return biomarker
+
+    async def update(self, biomarker):
+        self.updated = biomarker
+        return biomarker
 
 
 class DummySocketManager:
@@ -60,13 +78,25 @@ class DummyBiomarkerClient:
     async def extract_from_scan_path(self, **_kwargs):
         eye_side = _kwargs.get("eye_side")
         if eye_side == "left":
-            return {"biomarkers": {"tortuosity": 0.4, "vessel_density": 0.2}}
-        return {"biomarkers": {"tortuosity": 0.6, "vessel_density": 0.3}}
+            return {
+                "biomarkers": {"tortuosity": 0.4, "vessel_density": 0.2},
+                "service_name": "biomarker-service",
+                "service_version": "0.1.0",
+                "contract_version": "1.0",
+            }
+        return {
+            "biomarkers": {"tortuosity": 0.6, "vessel_density": 0.3},
+            "service_name": "biomarker-service",
+            "service_version": "0.1.0",
+            "contract_version": "1.0",
+        }
 
 
 class FailingBiomarkerClient:
     async def extract_from_scan_path(self, **_kwargs):
-        raise RuntimeError("biomarker extraction failed")
+        error = RuntimeError("biomarker extraction failed")
+        error.error_code = "BIOMARKER_ERROR"
+        raise error
 
 
 class DummyExplanationService:
@@ -86,6 +116,7 @@ async def test_prediction_service_stores_biomarkers_before_xai(monkeypatch):
     service.repo = DummyRepo()
     service.patient_repo = DummyPatientRepo()
     service.mri_scan_repo = DummyScanRepo()
+    service.biomarker_service = DummyBiomarkerService()
 
     monkeypatch.setattr("app.predictions.service.ml_client", DummyMLClient())
     monkeypatch.setattr("app.predictions.service.biomarker_client", DummyBiomarkerClient())
@@ -116,6 +147,10 @@ async def test_prediction_service_stores_biomarkers_before_xai(monkeypatch):
     assert prediction.output_payload["vascular_biomarkers_left"]["tortuosity"] == 0.4
     assert prediction.output_payload["vascular_biomarkers_right"]["tortuosity"] == 0.6
     assert captured_explanation_service["instance"].called is True
+    assert service.biomarker_service.created is not None
+    assert service.biomarker_service.created.status == BiomarkerStatus.COMPLETED
+    assert service.biomarker_service.created.biomarkers["left_eye"]["tortuosity"] == 0.4
+    assert service.biomarker_service.created.biomarkers["right_eye"]["tortuosity"] == 0.6
 
 
 @pytest.mark.asyncio
@@ -124,6 +159,7 @@ async def test_prediction_service_keeps_success_when_biomarkers_fail(monkeypatch
     service.repo = DummyRepo()
     service.patient_repo = DummyPatientRepo()
     service.mri_scan_repo = DummyScanRepo()
+    service.biomarker_service = DummyBiomarkerService()
 
     monkeypatch.setattr("app.predictions.service.ml_client", DummyMLClient())
     monkeypatch.setattr("app.predictions.service.biomarker_client", FailingBiomarkerClient())
@@ -142,3 +178,6 @@ async def test_prediction_service_keeps_success_when_biomarkers_fail(monkeypatch
     assert prediction.status == PredictionStatus.SUCCESS
     assert prediction.biomarker_status.value == "FAILED"
     assert "biomarker extraction failed" in (prediction.biomarker_error_message or "")
+    assert prediction.biomarker_error_code == "BIOMARKER_ERROR"
+    assert service.biomarker_service.created is not None
+    assert service.biomarker_service.created.status == BiomarkerStatus.FAILED

@@ -53,6 +53,7 @@ class Prediction(Base, UUIDMixin, TimestampMixin):
         nullable=True,
     )
     biomarker_error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    biomarker_error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     patient = relationship("Patient", back_populates="predictions")

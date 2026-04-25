@@ -14,7 +14,11 @@ from app.metrics import (
     EXTRACTION_FAILURES_TOTAL,
     EXTRACTION_REQUESTS_TOTAL,
 )
-from app.schemas import BiomarkerExtractionResponse, VascularBiomarkers
+from app.schemas import (
+    BIOMARKER_CONTRACT_VERSION,
+    BiomarkerExtractionResponse,
+    VascularBiomarkers,
+)
 from app.service import BiomarkerService
 
 service = BiomarkerService()
@@ -40,6 +44,13 @@ async def _read_upload_bytes_with_limit(upload: UploadFile, max_bytes: int) -> t
 
 def create_app() -> FastAPI:
     app = FastAPI(title="RetinaXAI Biomarker Service", version=service.service_version)
+
+    @app.on_event("startup")
+    async def _load_vascx() -> None:
+        try:
+            service.warm()
+        except Exception as exc:
+            logger.exception("vascx warmup failed: {}", exc)
 
     @app.get("/health")
     async def health():
@@ -101,7 +112,7 @@ def create_app() -> FastAPI:
                 else VascularBiomarkers.model_validate(extracted)
             )
             response = BiomarkerExtractionResponse(
-                contract_version=service.service_version,
+                contract_version=BIOMARKER_CONTRACT_VERSION,
                 prediction_id=prediction_id,
                 patient_id=patient_id,
                 eye_side=eye_side,

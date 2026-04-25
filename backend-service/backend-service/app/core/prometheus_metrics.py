@@ -38,6 +38,34 @@ REPORTS_GENERATED_TOTAL = Counter(
     ["status"],
 )
 
+BIOMARKER_EXTRACTION_REQUESTS_TOTAL = Counter(
+    "retinaxai_backend_biomarker_requests_total",
+    "Total biomarker extraction attempts",
+    ["status"],
+)
+
+BIOMARKER_EXTRACTION_FAILURES_TOTAL = Counter(
+    "retinaxai_backend_biomarker_failures_total",
+    "Total biomarker extraction failures",
+    ["error_type"],
+)
+
+BIOMARKER_EXTRACTION_DURATION_SECONDS = Histogram(
+    "retinaxai_backend_biomarker_extraction_duration_seconds",
+    "Biomarker extraction latency in seconds",
+    buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
+)
+
+BIOMARKER_RETRY_ATTEMPTS_TOTAL = Counter(
+    "retinaxai_backend_biomarker_retry_attempts_total",
+    "Total biomarker extraction retry attempts",
+)
+
+BIOMARKER_CIRCUIT_BREAKER_STATE = Gauge(
+    "retinaxai_backend_biomarker_circuit_open",
+    "Biomarker circuit breaker open (1=open, 0=closed)",
+)
+
 
 def start_metrics_server(port: int = 9102) -> None:
     try:

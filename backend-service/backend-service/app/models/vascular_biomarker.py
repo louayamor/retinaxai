@@ -41,6 +41,7 @@ class VascularBiomarker(Base, UUIDMixin, TimestampMixin):
         nullable=False,
     )
     biomarkers: Mapped[dict] = mapped_column(JSON, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     extracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

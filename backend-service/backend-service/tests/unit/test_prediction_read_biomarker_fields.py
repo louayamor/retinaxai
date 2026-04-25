@@ -18,6 +18,7 @@ def test_prediction_read_includes_biomarker_fields() -> None:
         "confidence_score": 0.9,
         "status": "SUCCESS",
         "biomarker_status": "COMPLETED",
+        "biomarker_error_code": None,
         "biomarker_error_message": None,
         "error_message": None,
         "created_at": datetime.now(timezone.utc),

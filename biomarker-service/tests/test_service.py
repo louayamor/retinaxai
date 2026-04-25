@@ -19,16 +19,37 @@ def _make_image_bytes(size: tuple[int, int] = (64, 64), fill: int = 180) -> byte
 def test_extract_biomarkers_returns_typed_result():
     service = BiomarkerService()
 
+    class DummyAdapter:
+        def predict(self, _image_bytes):
+            return {
+                "tortuosity": 0.2,
+                "avr": None,
+                "fractal_dimension": 1.2,
+                "vessel_density": 0.5,
+                "bifurcation_count": 2,
+                "bifurcation_angles": None,
+                "cre": None,
+                "raw_feature_vector": None,
+            }
+
+    service._registry.load = lambda: DummyAdapter()
+
     biomarkers = service.extract_biomarkers(_make_image_bytes())
 
     assert isinstance(biomarkers, VascularBiomarkers)
-    assert biomarkers.tortuosity is not None
-    assert biomarkers.vessel_density is not None
-    assert biomarkers.raw_feature_vector
+    assert biomarkers.tortuosity == 0.2
+    assert biomarkers.vessel_density == 0.5
+    assert biomarkers.raw_feature_vector is None
 
 
 def test_extract_biomarkers_rejects_invalid_bytes():
     service = BiomarkerService()
+
+    class DummyAdapter:
+        def predict(self, _image_bytes):
+            raise BiomarkerExtractionError("invalid image payload")
+
+    service._registry.load = lambda: DummyAdapter()
 
     try:
         service.extract_biomarkers(b"not-an-image")
