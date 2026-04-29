@@ -1,0 +1,68 @@
+# CI workflow for the RetinaXAI Biomarker Service
+
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install pip-tools
+          pip-compile requirements.in
+          pip install -r requirements.txt
+
+      - name: Install package in development mode
+        run: |
+          cd biomarker-service
+          pip install -e .
+
+      - name: Run linter
+        run: |
+          cd biomarker-service
+          ruff check biomarker_service/
+
+      - name: Run tests
+        run: |
+          cd biomarker-service
+          pytest tests/ -v --tb=short
+
+      - name: Run type checker
+        run: |
+          cd biomarker-service
+          mypy biomarker_service/
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install pip-tools
+          pip-compile requirements.in
+          pip install -r requirements.txt
+
+      - name: Build Docker image
+        run: |
+          cd biomarker-service
+          docker build -f .docker/Dockerfile -t retinaxai/biomarker-service:latest .
