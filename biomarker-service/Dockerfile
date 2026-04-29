@@ -9,9 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    HF_HOME=/app/.cache/huggingface \
-    TRANSFORMERS_CACHE=/app/.cache/huggingface
+    PYTHONDONTWRITEBYTECODE=1
 
 
 FROM base AS deps
@@ -20,15 +18,11 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 
-
 FROM base AS builder
 
 COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
 COPY . .
-
-# Pre-download model weights at build time for reproducible startup
-RUN python -m app.vascx_weights
 
 RUN addgroup --system appgroup && \
     adduser --system --ingroup appgroup appuser && \

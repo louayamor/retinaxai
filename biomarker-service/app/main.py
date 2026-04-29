@@ -25,7 +25,9 @@ service = BiomarkerService()
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
-async def _read_upload_bytes_with_limit(upload: UploadFile, max_bytes: int) -> tuple[bytes, int]:
+async def _read_upload_bytes_with_limit(
+    upload: UploadFile, max_bytes: int
+) -> tuple[bytes, int]:
     chunks: list[bytes] = []
     total = 0
 
@@ -36,7 +38,10 @@ async def _read_upload_bytes_with_limit(upload: UploadFile, max_bytes: int) -> t
             break
         total += len(chunk)
         if total > max_bytes:
-            raise HTTPException(status_code=413, detail=f"Image exceeds maximum size of {max_bytes} bytes")
+            raise HTTPException(
+                status_code=413,
+                detail=f"Image exceeds maximum size of {max_bytes} bytes",
+            )
         chunks.append(chunk)
     await upload.seek(0)
     return b"".join(chunks), total
@@ -45,16 +50,13 @@ async def _read_upload_bytes_with_limit(upload: UploadFile, max_bytes: int) -> t
 def create_app() -> FastAPI:
     app = FastAPI(title="RetinaXAI Biomarker Service", version=service.service_version)
 
-    @app.on_event("startup")
-    async def _load_vascx() -> None:
-        try:
-            service.warm()
-        except Exception as exc:
-            logger.exception("vascx warmup failed: {}", exc)
-
     @app.get("/health")
     async def health():
-        return {"status": "ok", "service": service.service_name, "version": service.service_version}
+        return {
+            "status": "ok",
+            "service": service.service_name,
+            "version": service.service_version,
+        }
 
     @app.get("/ready")
     async def ready():
@@ -98,7 +100,9 @@ def create_app() -> FastAPI:
                     eye_side or "unknown",
                 )
 
-            image_bytes, image_size = await _read_upload_bytes_with_limit(image, MAX_UPLOAD_BYTES)
+            image_bytes, image_size = await _read_upload_bytes_with_limit(
+                image, MAX_UPLOAD_BYTES
+            )
             logger.debug(
                 "biomarker extraction payload loaded prediction_id={} patient_id={} bytes={}",
                 prediction_id,
@@ -153,7 +157,9 @@ def create_app() -> FastAPI:
                 eye_side or "unknown",
                 elapsed,
             )
-            raise HTTPException(status_code=500, detail="Internal server error") from exc
+            raise HTTPException(
+                status_code=500, detail="Internal server error"
+            ) from exc
 
     return app
 

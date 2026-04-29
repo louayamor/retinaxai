@@ -22,15 +22,9 @@ class VascularBiomarkers(BaseModel):
     fractal_dimension: float | None = Field(default=None, description="Fractal dimension of the vascular tree")
     vessel_density: float | None = Field(default=None, description="Vessel area ratio")
     bifurcation_count: int | None = Field(default=None, description="Number of vessel bifurcations")
-    bifurcation_angles: list[float] | None = Field(
-        default=None, description="Angles at bifurcation points"
-    )
-    cre: dict[str, Any] | None = Field(
-        default=None, description="Central retinal equivalent metrics"
-    )
-    raw_feature_vector: list[float] | None = Field(
-        default=None, description="Flattened feature vector for downstream use"
-    )
+    bifurcation_angles: list[float] = Field(default_factory=list, description="Angles at bifurcation points")
+    cre: dict[str, Any] = Field(default_factory=dict, description="Central retinal equivalent metrics")
+    raw_feature_vector: list[float] = Field(default_factory=list, description="Flattened feature vector for downstream use")
 
 
 class BiomarkerExtractionResponse(BaseModel):

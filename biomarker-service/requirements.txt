@@ -8,4 +8,3 @@ loguru==0.7.3
 numpy==2.2.5
 Pillow==11.2.1
 opencv-python-headless==4.11.0.86
-rtnls-inference

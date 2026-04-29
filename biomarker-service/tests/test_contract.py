@@ -22,22 +22,21 @@ def test_health_endpoint_returns_service_metadata():
 
 
 def test_extract_endpoint_accepts_multipart_form(monkeypatch):
-    class DummyAdapter:
-        def predict(self, _image_bytes):
-            return {
-                "tortuosity": 0.1,
-                "avr": 0.2,
-                "fractal_dimension": 1.5,
-                "vessel_density": 0.3,
-                "bifurcation_count": 4,
-                "bifurcation_angles": [15.0],
-                "cre": {"artery_cre": 1.1, "vein_cre": 1.4},
-                "raw_feature_vector": [0.1, 0.2],
-            }
-
-    monkeypatch.setattr("app.service.VascXRegistry.load", lambda _self: DummyAdapter())
-
     client = TestClient(app)
+
+    monkeypatch.setattr(
+        "app.service.BiomarkerService.extract_biomarkers",
+        lambda _self, _image_bytes: {
+            "tortuosity": 0.1,
+            "avr": 0.2,
+            "fractal_dimension": 1.5,
+            "vessel_density": 0.3,
+            "bifurcation_count": 4,
+            "bifurcation_angles": [15.0],
+            "cre": {"artery_cre": 1.1, "vein_cre": 1.4},
+            "raw_feature_vector": [0.1, 0.2],
+        },
+    )
 
     response = client.post(
         "/biomarkers/extract",
@@ -61,21 +60,6 @@ def test_extract_endpoint_accepts_multipart_form(monkeypatch):
 
 def test_service_extracts_biomarkers_from_valid_image():
     service = BiomarkerService()
-
-    class DummyAdapter:
-        def predict(self, _image_bytes):
-            return {
-                "tortuosity": 0.1,
-                "avr": 0.2,
-                "fractal_dimension": 1.5,
-                "vessel_density": 0.3,
-                "bifurcation_count": 4,
-                "bifurcation_angles": [15.0],
-                "cre": {"artery_cre": 1.1, "vein_cre": 1.4},
-                "raw_feature_vector": [0.1, 0.2],
-            }
-
-    service._registry.load = lambda: DummyAdapter()
     image = Image.fromarray(np.full((64, 64, 3), 180, dtype=np.uint8), mode="RGB")
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
@@ -89,12 +73,6 @@ def test_service_extracts_biomarkers_from_valid_image():
 
 def test_service_rejects_empty_payload():
     service = BiomarkerService()
-
-    class DummyAdapter:
-        def predict(self, _image_bytes):
-            raise BiomarkerExtractionError("empty image payload")
-
-    service._registry.load = lambda: DummyAdapter()
 
     try:
         service.extract_biomarkers(b"")

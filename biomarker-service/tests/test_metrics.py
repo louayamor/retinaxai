@@ -18,14 +18,6 @@ def test_metrics_endpoint_exposes_biomarker_metrics():
 
 
 def test_failed_extraction_updates_failure_metrics():
-    class DummyAdapter:
-        def predict(self, _image_bytes):
-            raise Exception("boom")
-
-    from app import service as biomarker_service
-
-    biomarker_service.get_vascx_registry()._adapter = DummyAdapter()
-
     client = TestClient(app)
 
     response = client.post(
