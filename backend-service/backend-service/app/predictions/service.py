@@ -2,6 +2,7 @@ import asyncio
 import logging
 import traceback
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -203,8 +204,8 @@ class PredictionService:
                 output_payload["vascular_biomarkers_left"] = left_biomarker_payload.get(
                     "biomarkers", {}
                 )
-                output_payload["vascular_biomarkers_right"] = right_biomarker_payload.get(
-                    "biomarkers", {}
+                output_payload["vascular_biomarkers_right"] = (
+                    right_biomarker_payload.get("biomarkers", {})
                 )
                 prediction.output_payload = output_payload
                 prediction.biomarker_status = BiomarkerStatus.COMPLETED
@@ -236,7 +237,11 @@ class PredictionService:
                         biomarkers=biomarker_payload,
                         error_code=None,
                         error_message=None,
-                        extracted_at=left_biomarker_payload.get("extracted_at"),
+                        extracted_at=datetime.fromisoformat(
+                            left_biomarker_payload["extracted_at"]
+                        ).replace(tzinfo=timezone.utc)
+                        if left_biomarker_payload.get("extracted_at")
+                        else None,
                     )
                     await self.biomarker_service.create(biomarker_record)
                 else:
@@ -244,7 +249,13 @@ class PredictionService:
                     biomarker_record.biomarkers = biomarker_payload
                     biomarker_record.error_code = None
                     biomarker_record.error_message = None
-                    biomarker_record.extracted_at = left_biomarker_payload.get("extracted_at")
+                    biomarker_record.extracted_at = (
+                        datetime.fromisoformat(
+                            left_biomarker_payload["extracted_at"]
+                        ).replace(tzinfo=timezone.utc)
+                        if left_biomarker_payload.get("extracted_at")
+                        else None
+                    )
                     await self.biomarker_service.update(biomarker_record)
 
                 try:
@@ -255,7 +266,9 @@ class PredictionService:
                         "left_eye": left_biomarker_payload.get("biomarkers", {}),
                         "right_eye": right_biomarker_payload.get("biomarkers", {}),
                     }
-                    await explain_service.trigger_xai_for_prediction(prediction, patient_data)
+                    await explain_service.trigger_xai_for_prediction(
+                        prediction, patient_data
+                    )
                     logger.info(
                         f"[PREDICT SERVICE] XAI pipeline triggered for {prediction.id}"
                     )
@@ -316,8 +329,10 @@ class PredictionService:
             )
             logger.error(f"[PREDICT SERVICE] Traceback: {traceback.format_exc()}")
             prediction.status = PredictionStatus.FAILED
-            error_str = f'{type(e).__name__}: {str(e)}'
-            prediction.error_message = error_str[:497] if len(error_str) <= 497 else error_str[:497] + '...'
+            error_str = f"{type(e).__name__}: {str(e)}"
+            prediction.error_message = (
+                error_str[:497] if len(error_str) <= 497 else error_str[:497] + "..."
+            )
 
             try:
                 socket_manager = get_socket_manager()

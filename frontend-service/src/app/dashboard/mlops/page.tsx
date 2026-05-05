@@ -17,6 +17,9 @@ import {
   RefreshCw,
   Database,
   TrendingUp,
+  Cpu,
+  Gauge,
+  FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -68,30 +71,48 @@ interface Metrics {
   clinical?: { accuracy?: number; quadratic_weighted_kappa?: number; roc_auc_macro?: number; precision_macro?: number; recall_macro?: number; num_samples?: number };
 }
 
+interface PrometheusMetrics {
+  training_runs_total: number;
+  active_training_jobs: number;
+  best_val_accuracy_imaging: number | null;
+  best_val_accuracy_clinical: number | null;
+  drift_detected_imaging: number | null;
+  drift_detected_clinical: number | null;
+  evidently_dataset_shift_imaging: number | null;
+  evidently_dataset_shift_clinical: number | null;
+  evidently_features_drifted_imaging: number | null;
+  evidently_features_drifted_clinical: number | null;
+  inference_latency_p95: number | null;
+  gpu_utilization: number | null;
+}
+
 const PIPELINES = ['imaging', 'clinical'];
 
 export default function MLOpsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [driftStatus, setDriftStatus] = useState<Record<string, DriftStatus>>({});
-  const [driftHistory, setDriftHistory] = useState<Array<{ pipeline: string; psi: number; status: string; timestamp: string }>>([]);
+  const [driftHistory, setDriftHistory] = useState<Array<{ pipeline: string; overall_psi: number; status: string; generated_at: string; drift_detected: boolean }>>([]);
   const [features, setFeatures] = useState<Feature[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [promMetrics, setPromMetrics] = useState<PrometheusMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [retraining, setRetraining] = useState<string | null>(null);
 
   const fetchData = async () => {
     try {
-      const [jobsRes, driftRes, featuresRes, metricsRes] = await Promise.all([
+      const [jobsRes, driftRes, featuresRes, metricsRes, promRes] = await Promise.all([
         fetch(`${MLOPS_BASE}/api/train/jobs`).then(r => r.json()).catch(() => ({ jobs: [], total: 0 })),
         fetch(`${MLOPS_BASE}/drift/history`).then(r => r.json()).catch(() => ({ history: [] })),
         fetch(`${MLOPS_BASE}/features/list`).then(r => r.json()).catch(() => ({ features: [], total: 0 })),
         fetch(`${MLOPS_BASE}/metrics`).then(r => r.json()).catch(() => ({})),
+        fetch(`${MLOPS_BASE}/metrics/prometheus`).then(r => r.json()).catch(() => null),
       ]);
 
       setJobs(jobsRes.jobs || []);
       setDriftHistory(driftRes.history || []);
       setFeatures(featuresRes.features || []);
       setMetrics(metricsRes);
+      setPromMetrics(promRes);
 
       const driftStatusMap: Record<string, DriftStatus> = {};
       for (const pipeline of PIPELINES) {
@@ -154,10 +175,10 @@ export default function MLOpsPage() {
   const getDriftChartData = () => {
     const grouped: Record<string, { timestamp: string; imaging?: number; clinical?: number }> = {};
     driftHistory.forEach(h => {
-      const date = new Date(h.timestamp).toLocaleDateString();
+      const date = new Date(h.generated_at).toLocaleDateString();
       if (!grouped[date]) grouped[date] = { timestamp: date };
-      if (h.pipeline === 'imaging') grouped[date].imaging = h.psi;
-      if (h.pipeline === 'clinical') grouped[date].clinical = h.psi;
+      if (h.pipeline === 'imaging') grouped[date].imaging = h.overall_psi;
+      if (h.pipeline === 'clinical') grouped[date].clinical = h.overall_psi;
     });
     return Object.values(grouped).slice(-14);
   };
@@ -187,6 +208,11 @@ export default function MLOpsPage() {
 
   const activeJobs = jobs.filter(j => j.status === 'running').length;
   const overallDrift = Object.values(driftStatus).some(d => d.status === 'drift_detected');
+  const evidentlyShiftImaging = promMetrics?.evidently_dataset_shift_imaging ?? 0;
+  const evidentlyShiftClinical = promMetrics?.evidently_dataset_shift_clinical ?? 0;
+  const evidentlyFeaturesImaging = promMetrics?.evidently_features_drifted_imaging ?? 0;
+  const evidentlyFeaturesClinical = promMetrics?.evidently_features_drifted_clinical ?? 0;
+  const hasEvidentlyData = evidentlyShiftImaging > 0 || evidentlyShiftClinical > 0 || evidentlyFeaturesImaging > 0 || evidentlyFeaturesClinical > 0;
 
   return (
     <PageContainer className='flex flex-col gap-6'>
@@ -221,6 +247,57 @@ export default function MLOpsPage() {
           color='#3b82f6'
         />
       </StatsRow>
+
+      {promMetrics && (
+        <PageSection title='Live Prometheus Metrics'>
+          <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
+            <Card>
+              <CardContent className='pt-4'>
+                <div className='flex items-center gap-2'>
+                  <Activity className='h-4 w-4 text-muted-foreground' />
+                  <div>
+                    <p className='text-sm text-muted-foreground'>Training Runs</p>
+                    <p className='text-xl font-bold'>{promMetrics.training_runs_total?.toFixed(0) ?? '0'}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className='pt-4'>
+                <div className='flex items-center gap-2'>
+                  <Gauge className='h-4 w-4 text-muted-foreground' />
+                  <div>
+                    <p className='text-sm text-muted-foreground'>P95 Latency</p>
+                    <p className='text-xl font-bold'>{promMetrics.inference_latency_p95 != null ? `${(promMetrics.inference_latency_p95 * 1000).toFixed(0)}ms` : 'N/A'}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className='pt-4'>
+                <div className='flex items-center gap-2'>
+                  <Cpu className='h-4 w-4 text-muted-foreground' />
+                  <div>
+                    <p className='text-sm text-muted-foreground'>GPU Util</p>
+                    <p className='text-xl font-bold'>{promMetrics.gpu_utilization != null ? `${promMetrics.gpu_utilization.toFixed(0)}%` : 'N/A'}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className='pt-4'>
+                <div className='flex items-center gap-2'>
+                  <TrendingUp className='h-4 w-4 text-muted-foreground' />
+                  <div>
+                    <p className='text-sm text-muted-foreground'>Drift Detected</p>
+                    <p className='text-xl font-bold'>{promMetrics.drift_detected_imaging === 1 || promMetrics.drift_detected_clinical === 1 ? 'Yes' : 'No'}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </PageSection>
+      )}
 
       <PageGrid columns={2}>
         {metrics?.imaging && (
@@ -372,6 +449,39 @@ export default function MLOpsPage() {
           </div>
         </PageSection>
       </PageGrid>
+
+      {hasEvidentlyData && (
+        <PageSection title='Evidently Drift Analysis' icon={<FileText className='h-5 w-5' />}>
+          <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
+            <Card>
+              <CardContent className='pt-4'>
+                <p className='text-sm text-muted-foreground'>Imaging Shift Score</p>
+                <p className='text-xl font-bold'>{evidentlyShiftImaging.toFixed(4)}</p>
+                <p className='text-xs text-muted-foreground mt-1'>Threshold: 0.5</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className='pt-4'>
+                <p className='text-sm text-muted-foreground'>Clinical Shift Score</p>
+                <p className='text-xl font-bold'>{evidentlyShiftClinical.toFixed(4)}</p>
+                <p className='text-xs text-muted-foreground mt-1'>Threshold: 0.5</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className='pt-4'>
+                <p className='text-sm text-muted-foreground'>Imaging Features Drifted</p>
+                <p className='text-xl font-bold'>{evidentlyFeaturesImaging}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className='pt-4'>
+                <p className='text-sm text-muted-foreground'>Clinical Features Drifted</p>
+                <p className='text-xl font-bold'>{evidentlyFeaturesClinical}</p>
+              </CardContent>
+            </Card>
+          </div>
+        </PageSection>
+      )}
 
       <PageGrid columns={2}>
         <PageSection title='Drift History (PSI)'>

@@ -134,6 +134,7 @@ export default function PredictionsPage() {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string>('');
+  const [lockedPatientId, setLockedPatientId] = useState<string | null>(null);
   const [leftEyeFile, setLeftEyeFile] = useState<FileUpload | null>(null);
   const [rightEyeFile, setRightEyeFile] = useState<FileUpload | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -167,7 +168,7 @@ export default function PredictionsPage() {
   };
 
   const { connected: wsConnected, send: wsSend } = usePatientWebSocket({
-    patientId: selectedPatientId || 'global',
+    patientId: lockedPatientId || selectedPatientId || 'global',
     onLogMessage: (data) => {
       setLogMessages(prev => [...prev, data]);
     },
@@ -382,6 +383,10 @@ export default function PredictionsPage() {
       const scan = await uploadScans(selectedPatientId, formData);
       toast.success('Scans uploaded successfully');
       appendLog('upload', 'success', 'Scans uploaded successfully');
+      setLockedPatientId(selectedPatientId);
+      if (wsConnected && wsSend) {
+        wsSend('subscribe', { room: `prediction:${selectedPatientId}` });
+      }
       setWorkflow({
         status: 'predicting',
         stage: 'prediction',

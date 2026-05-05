@@ -15,8 +15,8 @@ from app.api.routes import (
     models,
     drift,
     features,
-    shap,
     automation,
+    prometheus_proxy,
 )
 from app.api.routes import models_download
 from app.api.dependencies import get_settings
@@ -56,7 +56,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[settings.frontend_url],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -71,10 +71,9 @@ def create_app() -> FastAPI:
     app.include_router(models.router, tags=["models"])  # type: ignore[arg-type]
     app.include_router(drift.router, tags=["drift"])  # type: ignore[arg-type]
     app.include_router(features.router, tags=["features"])  # type: ignore[arg-type]
-    app.include_router(shap.router, tags=["shap"])  # type: ignore[arg-type]
     app.include_router(automation.router, tags=["automation"])  # type: ignore[arg-type]
     app.include_router(models_download.router, tags=["models"])  # type: ignore[arg-type]
-    # app.include_router(reports.router, tags=["monitoring"]) # temporarily disabled (evidently dep conflict)
+    app.include_router(prometheus_proxy.router)  # type: ignore[arg-type]
 
     return app
 

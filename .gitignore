@@ -76,6 +76,7 @@ artifacts/ocr/
 
 .venv/
 frontend-service/docs/
+/.opencode/
 shared/
 research/
 
@@ -138,4 +139,4 @@ infra/template.py
 # ML research and thesis documents
 mlops-service/mlops-thesis.md/
 llmops-service/llmops-thesis.md/
-biomarker-service-copy/
+biomarker-service1/

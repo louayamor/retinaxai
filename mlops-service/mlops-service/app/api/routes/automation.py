@@ -70,9 +70,12 @@ async def drift_retrain(
 ) -> DriftRetrainResponse:
     service = _get_service(settings)
 
-    artifacts = settings.artifacts_root
-    reference_path = artifacts / "data" / "clinical" / "reference.csv"
-    current_path = artifacts / "data" / "clinical" / "current.csv"
+    if request.pipeline in ("imaging", "both"):
+        reference_path = settings.imaging_train_csv
+        current_path = settings.imaging_test_csv
+    else:
+        reference_path = settings.clinical_train_csv
+        current_path = settings.clinical_test_csv
 
     result = service.trigger_drift_retraining(
         reference_csv=reference_path,

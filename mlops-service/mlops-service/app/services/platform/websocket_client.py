@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import asyncio
 import os
+from functools import lru_cache
 from typing import Any
 
 import httpx
@@ -75,14 +78,10 @@ class WebSocketClient:
             logger.warning(f"Failed to send training event: {e}")
 
 
-_websocket_client: "WebSocketClient | None" = None
-
-
-def get_websocket_client() -> "WebSocketClient":
-    global _websocket_client
-    if _websocket_client is None:
-        _websocket_client = WebSocketClient.get_instance()
-    return _websocket_client
+@lru_cache(maxsize=1)
+def get_websocket_client() -> WebSocketClient:
+    """Get WebSocket client instance (cached singleton)."""
+    return WebSocketClient.get_instance()
 
 
 async def send_prediction_event(

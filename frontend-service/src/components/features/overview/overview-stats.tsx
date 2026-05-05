@@ -18,7 +18,8 @@ interface OverviewStats {
 }
 
 interface MLOpsMetrics {
-  imaging?: { accuracy?: number };
+  imaging?: { accuracy?: number; quadratic_weighted_kappa?: number };
+  clinical?: { accuracy?: number; quadratic_weighted_kappa?: number };
 }
 
 export interface GradeStat {
@@ -83,6 +84,7 @@ export function OverviewStats() {
     .reduce((sum, [, count]) => sum + count, 0);
   const drPercentage = stats?.totals?.predictions ? ((drDetected / stats.totals.predictions) * 100).toFixed(1) : '0';
   const accuracy = mlopsMetrics?.imaging?.accuracy ? (mlopsMetrics.imaging.accuracy * 100).toFixed(1) : 'N/A';
+  const clinicalAccuracy = mlopsMetrics?.clinical?.accuracy ? (mlopsMetrics.clinical.accuracy * 100).toFixed(1) : 'N/A';
 
   const GRADE_LABELS = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR'];
   const GRADE_COLORS = ['bg-emerald-500', 'bg-cyan-500', 'bg-amber-500', 'bg-orange-500', 'bg-rose-500'];
@@ -144,6 +146,12 @@ export function OverviewStats() {
           <p className="text-muted-foreground text-sm mt-1">
             EfficientNet-B3 on EyePACS
           </p>
+          {clinicalAccuracy !== 'N/A' && (
+            <div className="mt-2 pt-2 border-t">
+              <div className="text-lg font-semibold">{clinicalAccuracy}%</div>
+              <p className="text-muted-foreground text-xs">XGBoost Clinical</p>
+            </div>
+          )}
         </CardContent>
       </Card>
       </div>

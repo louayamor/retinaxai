@@ -27,9 +27,9 @@ class ModelVersion(BaseModel):
 
 
 class ModelRegisterResponse(BaseModel):
-    version: str
-    stage: ModelStage
+    model: ModelVersion
     message: str
+    next_action: str
 
 
 class ModelPromotionRequest(BaseModel):
@@ -37,10 +37,11 @@ class ModelPromotionRequest(BaseModel):
 
 
 class ModelPromotionResponse(BaseModel):
-    version: str
-    previous_stage: ModelStage
-    current_stage: ModelStage
-    message: str
+    success: bool
+    previous_version: Optional[str]
+    new_version: str
+    promotion_time: Optional[datetime]
+    notes: str
 
 
 class ModelRollbackRequest(BaseModel):
@@ -48,25 +49,25 @@ class ModelRollbackRequest(BaseModel):
 
 
 class ModelDetailResponse(BaseModel):
-    version: str
-    pipeline: str
-    stage: ModelStage
-    model_path: str
-    metrics: dict
-    metadata: dict = {}
-    created_at: Optional[str] = None
+    model: ModelVersion
+    is_current_production: bool
+    can_promote: bool
+    can_rollback: bool
+    promotion_history: list[dict]
 
 
 class ModelListResponse(BaseModel):
     models: list[ModelDetailResponse]
     total: int
+    staging_count: int
+    production_count: int
+    archived_count: int
 
 
 class CurrentProductionResponse(BaseModel):
-    pipeline: str
-    version: str
-    model_path: str
-    created_at: Optional[str] = None
+    imaging: Optional[ModelVersion]
+    clinical: Optional[ModelVersion]
+    promoted_at: Optional[str]
 
 
 class PipelineType(str, Enum):

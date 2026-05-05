@@ -183,6 +183,25 @@ async def predict(
 
         asyncio.create_task(_send_event())
 
+        try:
+            from app.services.platform.feature_store import get_feature_store
+
+            feature_store = get_feature_store()
+            feature_store.set(
+                f"prediction:{patient_id}:{prediction_id}",
+                {
+                    "combined_grade": combined_prediction["combined_grade"],
+                    "overall_severity": combined_prediction["overall_severity"],
+                    "left_grade": left_imaging_result["predicted_grade"],
+                    "right_grade": right_imaging_result["predicted_grade"],
+                    "left_confidence": left_imaging_result["confidence"],
+                    "right_confidence": right_imaging_result["confidence"],
+                },
+                ttl_seconds=86400,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to cache prediction in feature store: {e}")
+
         return response
 
     except HTTPException:

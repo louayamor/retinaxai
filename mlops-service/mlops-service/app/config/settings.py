@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 load_dotenv()
 
@@ -12,6 +12,12 @@ def _get_service_root() -> Path:
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     app_name: str = "RetinaXAI MLOps Service"
     app_version: str = "0.1.0"
     app_env: str = "production"
@@ -27,6 +33,7 @@ class Settings(BaseSettings):
     timeout_seconds: int = 30
 
     prometheus_metrics_port: int = 9101
+    prometheus_url: str = "http://localhost:9090"
     automation_enabled: bool = False
     automation_interval_hours: int = 24
     max_training_jobs: int = 2
@@ -36,10 +43,7 @@ class Settings(BaseSettings):
     retrain_min_improvement: float = 0.01
     retrain_cooldown_hours: int = 24
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        extra = "ignore"
+    frontend_url: str = "http://localhost:3000"
 
     @property
     def data_dir(self) -> Path:

@@ -185,7 +185,6 @@ class ClinicalModelTrainer:
             )
 
             mlflow.log_artifact(str(self.config.feature_importance_path))
-            mlflow.log_artifact(str(self.config.feature_importance_path))
 
         logger.info("=" * 60)
         logger.info("clinical model training complete")
