@@ -10,6 +10,10 @@ from typing import Optional
 from loguru import logger
 
 from app.api.schemas import ModelStage, ModelVersion
+from app.services.monitoring.prometheus_metrics import (
+    MODEL_PROMOTIONS_TOTAL,
+    MODEL_ROLLBACKS_TOTAL,
+)
 
 
 class ModelRegistryError(Exception):
@@ -316,6 +320,11 @@ class ModelRegistryService:
 
         self._save_version_metadata(model_version)
 
+        MODEL_PROMOTIONS_TOTAL.labels(
+            pipeline=model_version.pipeline,
+            target_stage=target_stage.value,
+        ).inc()
+
         logger.info(f"Successfully promoted {version} to {target_stage.value}")
         return model_version
 
@@ -380,6 +389,11 @@ class ModelRegistryService:
         # Add rollback note
         promoted.metadata["rollback_from"] = reason
         self._save_version_metadata(promoted)
+
+        MODEL_ROLLBACKS_TOTAL.labels(
+            pipeline=promoted.pipeline,
+            reason="rollback",
+        ).inc()
 
         logger.info(f"Successfully rolled back to {version}")
         return promoted

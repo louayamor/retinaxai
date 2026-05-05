@@ -29,15 +29,15 @@ groups:
 
       # Model performance degradation
       - alert: ModelAccuracyDrop
-        expr: rate(retinaxai_best_val_accuracy[1h]) < -0.05
-        for: 2h
+        expr: retinaxai_best_val_accuracy < 0.5
+        for: 24h
         labels:
           severity: critical
           service: mlops
         annotations:
-          summary: "Model accuracy degradation detected"
-          description: "Accuracy dropped by {{ $value }} in last hour"
-          remediation: "Investigate model performance, check for data drift"
+          summary: "Model accuracy critically low"
+          description: "{{ $labels.pipeline }} accuracy = {{ $value }} (threshold: 0.5)"
+          remediation: "Investigate data drift, review recent training runs"
 
       # High training error rate
       - alert: HighTrainingErrorRate
@@ -110,3 +110,51 @@ groups:
           summary: "Feature drift detected for {{ $labels.feature }}"
           description: "Drift score: {{ $value }}"
           remediation: "Review feature distribution, consider retraining"
+
+      # No production model
+      - alert: NoProductionModel
+        expr: sum by (pipeline) (retinaxai_model_registry_versions{stage="production"}) < 1
+        for: 10m
+        labels:
+          severity: critical
+          service: mlops
+        annotations:
+          summary: "No production model for {{ $labels.pipeline }}"
+          description: "{{ $labels.pipeline }} has zero production models"
+          remediation: "Promote a staging model to production or run training"
+
+      # Too many staging models
+      - alert: TooManyStagingModels
+        expr: retinaxai_model_registry_versions{stage="staging"} > 5
+        for: 1h
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Excessive staging models accumulating"
+          description: "{{ $labels.pipeline }} has {{ $value }} staging models"
+          remediation: "Review and promote top candidates, archive rest"
+
+      # Evidently dataset shift
+      - alert: EvidentlyDatasetShift
+        expr: retinaxai_evidently_dataset_shift > 0.5
+        for: 1h
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Evidently dataset shift detected in {{ $labels.pipeline }}"
+          description: "Evidently drift score = {{ $value }} (threshold: 0.5)"
+          remediation: "Review drift report HTML, consider retraining"
+
+      # Evidently features drifted
+      - alert: EvidentlyFeaturesDrifted
+        expr: retinaxai_evidently_features_drifted > 3
+        for: 30m
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "{{ $value }} features showing drift per Evidently ({{ $labels.pipeline }})"
+          description: "Number of drifted features exceeds threshold of 3"
+          remediation: "Check per-feature drift in Evidently report"

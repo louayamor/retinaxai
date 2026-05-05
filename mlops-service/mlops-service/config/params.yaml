@@ -89,7 +89,7 @@ ml_training:
 
 evaluation:
   dl:
-    batch_size: 1
+    batch_size: 16
     num_workers: 4
     metrics:
       - accuracy

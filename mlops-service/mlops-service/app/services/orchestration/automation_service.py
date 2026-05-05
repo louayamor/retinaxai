@@ -1,16 +1,24 @@
+from __future__ import annotations
+
 import json
 import threading
 import time
 from datetime import datetime, timedelta
+from functools import lru_cache
 from typing import Optional
 
 from loguru import logger
 
 from app.services.orchestration.training_service import create_job, run_pipeline_task
 from app.services.monitoring.drift_detection import DriftDetectionService, DriftStatus
-from app.services.monitoring.prometheus_metrics import AUTOMATION_SCHEDULER_RUNNING
+from app.services.monitoring.prometheus_metrics import (
+    AUTOMATION_SCHEDULER_RUNNING,
+    DRIFT_DETECTED,
+    DRIFT_PSI_SCORE,
+)
 from app.services.platform.automation_history import AutomationHistory
 from app.services.registry.model_registry import ModelRegistryService
+from app.services.monitoring.evidently_report import EvidentlyReportGenerator
 from app.config.settings import Settings
 
 
@@ -31,6 +39,7 @@ class AutomationService:
             artifacts_root=artifacts_root,
             reports_dir=reports_dir,
         )
+        self._evidently = EvidentlyReportGenerator(reports_dir)
 
     def start_scheduler(self, interval_hours: int = 24) -> None:
         with self._lock:
@@ -101,6 +110,22 @@ class AutomationService:
             current_csv=current_csv,
             pipeline=pipeline,
         )
+
+        DRIFT_DETECTED.labels(pipeline=pipeline).set(1 if report.drift_detected else 0)
+        DRIFT_PSI_SCORE.labels(pipeline=pipeline).set(report.overall_psi)
+        for feature in report.feature_results:
+            DRIFT_PSI_SCORE.labels(pipeline=pipeline, feature=feature.feature_name).set(
+                feature.psi
+            )
+
+        try:
+            self._evidently.run_drift_and_emit(
+                pipeline=pipeline,
+                reference_csv=reference_csv,
+                current_csv=current_csv,
+            )
+        except Exception as e:
+            logger.warning(f"Evidently drift check failed (non-fatal): {e}")
 
         if (
             report.status == DriftStatus.DRIFT_DETECTED
@@ -210,11 +235,9 @@ class AutomationService:
         return False
 
 
-_automation_service: Optional[AutomationService] = None
+@lru_cache(maxsize=1)
+def get_automation_service(artifacts_root: str, reports_dir: str) -> AutomationService:
+    """Get automation service instance (cached singleton)."""
+    from pathlib import Path
 
-
-def get_automation_service(artifacts_root, reports_dir) -> AutomationService:
-    global _automation_service
-    if _automation_service is None:
-        _automation_service = AutomationService(artifacts_root, reports_dir)
-    return _automation_service
+    return AutomationService(Path(artifacts_root), Path(reports_dir))

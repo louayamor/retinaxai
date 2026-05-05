@@ -25,7 +25,11 @@ from app.services.registry.model_registry import ModelRegistryService
 
 from app.services.monitoring.prometheus_metrics import (
     TRAINING_RUNS_TOTAL,
+    TRAINING_FAILURES_TOTAL,
     ACTIVE_TRAINING_JOBS,
+    TRAINING_SLOTS_USED,
+    DRIFT_DETECTED,
+    DRIFT_PSI_SCORE,
 )
 
 try:
@@ -46,6 +50,7 @@ def _run_async_in_loop(coro) -> None:
 
     if loop is not None:
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(asyncio.run, coro)
             future.result()
@@ -551,7 +556,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                     str(e),
                     error=str(e),
                 )
-            raise
+                raise
 
         # Register trained models in model registry
         try:
@@ -651,6 +656,61 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
         )
         logger.info(f"pipeline job completed: job_id={job_id}")
 
+        try:
+            from app.config.settings import settings as app_settings
+            from app.services.monitoring.drift_detection import DriftDetectionService
+            from app.services.monitoring.evidently_report import (
+                EvidentlyReportGenerator,
+            )
+
+            reports_dir = app_settings.artifacts_root / "monitoring" / "drift"
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            drift_service = DriftDetectionService(
+                app_settings.artifacts_root, reports_dir
+            )
+            evidently = EvidentlyReportGenerator(reports_dir)
+
+            pipes_to_check = (
+                ["imaging", "clinical"] if pipeline == "both" else [pipeline]
+            )
+            for pipe in pipes_to_check:
+                train_csv = (
+                    app_settings.imaging_train_csv
+                    if pipe == "imaging"
+                    else app_settings.clinical_train_csv
+                )
+                test_csv = (
+                    app_settings.imaging_test_csv
+                    if pipe == "imaging"
+                    else app_settings.clinical_test_csv
+                )
+                if not train_csv.exists() or not test_csv.exists():
+                    logger.warning(
+                        f"Skipping drift check for {pipe}: CSV files not found"
+                    )
+                    continue
+
+                report = drift_service.check_drift(train_csv, test_csv, pipeline=pipe)
+                DRIFT_DETECTED.labels(pipeline=pipe).set(
+                    1 if report.drift_detected else 0
+                )
+                DRIFT_PSI_SCORE.labels(pipeline=pipe).set(report.overall_psi)
+                for f in report.feature_results:
+                    DRIFT_PSI_SCORE.labels(pipeline=pipe, feature=f.feature_name).set(
+                        f.psi
+                    )
+
+                evidently.run_drift_and_emit(
+                    pipeline=pipe,
+                    reference_csv=train_csv,
+                    current_csv=test_csv,
+                )
+                logger.info(
+                    f"Drift check completed after training: {pipe} psi={report.overall_psi:.4f}"
+                )
+        except Exception as e:
+            logger.warning(f"Drift check after training failed (non-fatal): {e}")
+
     except Exception as e:
         _job_store[job_id]["status"] = "failed"
         _job_store[job_id]["error"] = str(e)
@@ -659,10 +719,16 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
         _emit_stage_event(
             job_id, pipeline, "pipeline", "failed", 0, str(e), error=str(e)
         )
+        TRAINING_FAILURES_TOTAL.labels(
+            pipeline=pipeline,
+            error_type=type(e).__name__,
+        ).inc()
         logger.error(f"pipeline job failed: job_id={job_id} error={e}")
 
     finally:
         ACTIVE_TRAINING_JOBS.dec()
+        TRAINING_SLOTS_USED.labels(pipeline="all").dec()
+        TRAINING_SLOTS_USED.labels(pipeline=pipeline).dec()
         _write_last_training_metrics()
 
 

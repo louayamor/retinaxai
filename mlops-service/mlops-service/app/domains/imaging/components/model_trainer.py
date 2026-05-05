@@ -4,11 +4,10 @@ import time
 import timm
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from loguru import logger
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 import pandas as pd
 from PIL import Image
@@ -20,6 +19,7 @@ from app.entity.config_entity import (
     ImagingTransformationConfig,
 )
 from app.utils.common import read_yaml, set_seed
+from app.domains.imaging.components.ordinal_loss import OrdinalCrossEntropyLoss
 from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
 from app.services.monitoring.prometheus_metrics import (
     BEST_VAL_ACCURACY,
@@ -44,19 +44,6 @@ class RetinalDataset(Dataset):
         if self.transform:
             img = self.transform(img)
         return img, int(row["label"])
-
-
-class FocalLoss(nn.Module):
-    def __init__(self, gamma: float = 2.0, num_classes: int = 5):
-        super().__init__()
-        self.gamma = gamma
-        self.num_classes = num_classes
-
-    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        ce_loss = F.cross_entropy(inputs, targets, reduction="none")
-        pt = torch.exp(-ce_loss)
-        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
-        return focal_loss.mean()
 
 
 class ImagingModelTrainer:
@@ -203,19 +190,6 @@ class ImagingModelTrainer:
 
         return model.to(self.device)
 
-    def _build_sampler(self, dataset: RetinalDataset) -> WeightedRandomSampler:
-        labels = [int(dataset.df.iloc[i]["label"]) for i in range(len(dataset))]
-        class_counts = np.bincount(
-            labels, minlength=self.params.dl_training.num_classes
-        )
-        class_weights = 1.0 / (class_counts + 1e-6)
-        sample_weights = [class_weights[lbl] for lbl in labels]
-        return WeightedRandomSampler(
-            weights=sample_weights,
-            num_samples=len(sample_weights),
-            replacement=True,
-        )
-
     def _log_best_model_to_mlflow(
         self, checkpoint_path: Path, num_classes: int
     ) -> None:
@@ -325,17 +299,18 @@ class ImagingModelTrainer:
             optimizer, T_max=self.phase_epochs
         )
 
-        # Always use FocalLoss for class imbalance (industry standard for retinal imaging)
-        criterion = FocalLoss(gamma=2.0, num_classes=p.num_classes)
-        logger.info("Using FocalLoss (gamma=2.0) for class imbalance handling")
+        criterion = OrdinalCrossEntropyLoss(
+            num_classes=p.num_classes, distance_weight=0.1
+        )
+        logger.info(
+            "Using OrdinalCrossEntropyLoss for ordinal DR grading (preserves grade ordering)"
+        )
 
         best_macro_f1 = 0.0
         best_val_acc = 0.0
         patience_counter = 0
         checkpoint_path = self.config.checkpoint_path
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-
-        import time
 
         run_suffix = f"_{int(time.time()) % 1000:03d}"
         with mlflow.start_run(

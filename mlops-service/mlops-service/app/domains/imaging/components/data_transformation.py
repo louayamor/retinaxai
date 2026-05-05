@@ -52,31 +52,6 @@ class ImagingDataTransformation:
         self.params = read_yaml(PARAMS_FILE_PATH)
         self.schema = read_yaml(SCHEMA_FILE_PATH)
 
-    def _build_clinical_augmentation_transforms(self):
-        """Build transforms with clinical-style augmentations for domain adaptation."""
-        aug = self.params.augmentation
-        norm = aug.normalize
-
-        train_tf = transforms.Compose(
-            [
-                transforms.Resize((224, 224)),
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomVerticalFlip(),
-                transforms.RandomRotation(aug.random_rotation),
-                transforms.ColorJitter(
-                    brightness=aug.color_jitter.brightness * 1.5,
-                    contrast=aug.color_jitter.contrast * 1.5,
-                    saturation=aug.color_jitter.saturation * 1.5,
-                    hue=aug.color_jitter.hue * 1.5,
-                ),
-                transforms.RandomAdjustSharpness(sharpness_factor=2, p=0.3),
-                transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=norm.mean, std=norm.std),
-            ]
-        )
-        return train_tf
-
     def _resize_and_save(self, img, path: Path) -> None:
         img.convert("RGB").resize(
             (self.config.image_size, self.config.image_size)

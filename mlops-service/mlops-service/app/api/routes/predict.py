@@ -1,32 +1,44 @@
+from __future__ import annotations
+
 import asyncio
 import base64
 import io
 from datetime import datetime
+from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from PIL import Image
+from starlette.concurrency import run_in_threadpool
 
 from app.api.dependencies import get_settings
 from app.api.schemas import ClinicalFeatures, MLPredictHttpRequest, PredictResponse
 from app.config.settings import Settings
-from app.services.inference.inference_service import InferenceService
-from app.services.platform.websocket_client import send_prediction_event, send_prediction_log
+from app.services.inference.inference_service import (
+    DR_SEVERITY,
+    InferenceService,
+)
+from app.services.platform.websocket_client import (
+    send_prediction_event,
+    send_prediction_log,
+)
+from app.services.monitoring.prometheus_metrics import (
+    PREDICTION_REQUESTS_TOTAL,
+    PREDICTION_ERRORS_TOTAL,
+    GRADCAM_GENERATION_FAILURES,
+)
 
 router = APIRouter()
-_inference_service = None
 
 MLOPS_BACKEND_WS_URL = "ws://localhost:8000/ws"
 MLOPS_BACKEND_API_KEY = ""
 
 
+@lru_cache()
 def get_inference_service(
     settings: Settings = Depends(get_settings),
 ) -> InferenceService:
-    global _inference_service
-    if _inference_service is None:
-        _inference_service = InferenceService(settings)
-    return _inference_service
+    return InferenceService(settings)
 
 
 def _decode_base64_image(base64_str: str) -> bytes:
@@ -48,6 +60,7 @@ async def predict(
     request: MLPredictHttpRequest,
     service: InferenceService = Depends(get_inference_service),
 ) -> PredictResponse:
+    PREDICTION_REQUESTS_TOTAL.labels(model=request.model_name).inc()
     patient_id = request.patient_id
     prediction_id = f"pred_{patient_id}_{int(datetime.utcnow().timestamp())}"
 
@@ -63,26 +76,48 @@ async def predict(
         _validate_image_bytes(left_bytes)
         await log_msg("step_4", "info", "Validating right image")
         _validate_image_bytes(right_bytes)
-        await log_msg("step_5", "info", f"Processing for patient (gender: {request.patient_gender}, age: {request.patient_age})")
+        await log_msg(
+            "step_5",
+            "info",
+            f"Processing for patient (gender: {request.patient_gender}, age: {request.patient_age})",
+        )
 
         await log_msg("step_6", "info", "Running EfficientNet-B3 for left eye")
-        left_imaging_result = service.predict_imaging_with_gradcam(left_bytes)
+        left_imaging_result = await run_in_threadpool(
+            service.predict_imaging_with_gradcam, left_bytes
+        )
         await log_msg("step_7", "info", "Running EfficientNet-B3 for right eye")
-        right_imaging_result = service.predict_imaging_with_gradcam(right_bytes)
-        await log_msg("step_8", "success", f"Left eye: DR Grade {left_imaging_result['predicted_grade']} ({(left_imaging_result['confidence']*100):.1f}%)")
-        await log_msg("step_9", "success", f"Right eye: DR Grade {right_imaging_result['predicted_grade']} ({(right_imaging_result['confidence']*100):.1f}%)")
+        right_imaging_result = await run_in_threadpool(
+            service.predict_imaging_with_gradcam, right_bytes
+        )
+        await log_msg(
+            "step_8",
+            "success",
+            f"Left eye: DR Grade {left_imaging_result['predicted_grade']} ({(left_imaging_result['confidence'] * 100):.1f}%)",
+        )
+        await log_msg(
+            "step_9",
+            "success",
+            f"Right eye: DR Grade {right_imaging_result['predicted_grade']} ({(right_imaging_result['confidence'] * 100):.1f}%)",
+        )
 
         try:
             features = ClinicalFeatures(**request.features)
             await log_msg("step_10", "info", "Processing clinical features")
-            clinical_result = service.predict_clinical(features)
-            await log_msg("step_11", "info", f"Clinical model: risk score {clinical_result.get('risk_score', 0):.2f}")
+            clinical_result = await run_in_threadpool(
+                service.predict_clinical, features
+            )
+            await log_msg(
+                "step_11",
+                "info",
+                f"Clinical model: risk score {clinical_result.get('risk_score', 0):.2f}",
+            )
         except Exception:
             features = None
-            await log_msg("step_10", "warning", "Skipping clinical model (no valid features)")
+            await log_msg(
+                "step_10", "warning", "Skipping clinical model (no valid features)"
+            )
             clinical_result = {}
-
-        severity_map = {0: "none", 1: "low", 2: "moderate", 3: "high", 4: "critical"}
 
         combined_prediction = {
             "left_eye": left_imaging_result,
@@ -91,7 +126,7 @@ async def predict(
                 "predicted_grade": clinical_result.get("predicted_grade"),
                 "predicted_label": clinical_result.get("predicted_label"),
                 "risk_score": clinical_result.get("risk_score"),
-                "severity": severity_map.get(
+                "severity": DR_SEVERITY.get(
                     clinical_result.get("predicted_grade", 0), "unknown"
                 ),
                 "probabilities": clinical_result.get("probabilities"),
@@ -100,7 +135,7 @@ async def predict(
                 left_imaging_result["predicted_grade"],
                 right_imaging_result["predicted_grade"],
             ),
-            "overall_severity": severity_map.get(
+            "overall_severity": DR_SEVERITY.get(
                 max(
                     left_imaging_result["predicted_grade"],
                     right_imaging_result["predicted_grade"],
@@ -109,7 +144,11 @@ async def predict(
             ),
         }
 
-        await log_msg("step_12", "success", f"Combined: DR Grade {combined_prediction['combined_grade']}")
+        await log_msg(
+            "step_12",
+            "success",
+            f"Combined: DR Grade {combined_prediction['combined_grade']}",
+        )
 
         response = PredictResponse(
             prediction=combined_prediction,
@@ -126,27 +165,40 @@ async def predict(
             shap_explanation=None,
         )
 
-        asyncio.create_task(
-            send_prediction_event(
-                prediction_id=prediction_id,
-                patient_id=patient_id,
-                dr_grade=combined_prediction["combined_grade"],
-                confidence=left_imaging_result["confidence"],
-                imaging_confidence=left_imaging_result["confidence"],
-                clinical_confidence=clinical_result.get("risk_score"),
-                combined_grade=combined_prediction["combined_grade"],
-                overall_severity=combined_prediction["overall_severity"],
-                triggers_xai=True,
-            )
-        )
+        async def _send_event():
+            try:
+                await send_prediction_event(
+                    prediction_id=prediction_id,
+                    patient_id=patient_id,
+                    dr_grade=combined_prediction["combined_grade"],
+                    confidence=left_imaging_result["confidence"],
+                    imaging_confidence=left_imaging_result["confidence"],
+                    clinical_confidence=clinical_result.get("risk_score"),
+                    combined_grade=combined_prediction["combined_grade"],
+                    overall_severity=combined_prediction["overall_severity"],
+                    triggers_xai=True,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send prediction event: {e}")
+
+        asyncio.create_task(_send_event())
 
         return response
 
     except HTTPException:
         raise
     except Exception as e:
+        PREDICTION_ERRORS_TOTAL.labels(
+            model=request.model_name, error_type=type(e).__name__
+        ).inc()
         logger.opt(exception=True).error("[PREDICT ERROR] {}: {}", type(e).__name__, e)
-        await send_prediction_log(patient_id, prediction_id, "error", "error", f"Prediction failed: {type(e).__name__}: {str(e)[:50]}")
+        await send_prediction_log(
+            patient_id,
+            prediction_id,
+            "error",
+            "error",
+            f"Prediction failed: {type(e).__name__}: {str(e)[:50]}",
+        )
         await send_prediction_event(
             prediction_id=prediction_id,
             patient_id=patient_id,

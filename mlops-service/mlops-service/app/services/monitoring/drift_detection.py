@@ -79,6 +79,10 @@ class DriftReport:
             ],
         }
 
+    @property
+    def num_features_drifted(self) -> int:
+        return sum(1 for f in self.feature_results if f.drift_detected)
+
 
 class DriftDetectionService:
     def __init__(self, artifacts_root: Path, reports_dir: Path):

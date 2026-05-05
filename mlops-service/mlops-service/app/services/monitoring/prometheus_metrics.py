@@ -8,6 +8,12 @@ TRAINING_RUNS_TOTAL = Counter(
     ["pipeline"],
 )
 
+TRAINING_FAILURES_TOTAL = Counter(
+    "retinaxai_training_failures_total",
+    "Total number of training job failures",
+    ["pipeline", "error_type"],
+)
+
 ACTIVE_TRAINING_JOBS = Gauge(
     "retinaxai_active_training_jobs",
     "Number of currently running training jobs",
@@ -39,6 +45,42 @@ INFERENCE_LATENCY = Histogram(
     buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0],
 )
 
+INFERENCE_OOM_KILLS = Counter(
+    "retinaxai_inference_oom_kills",
+    "Total number of CUDA OOM recoveries during inference",
+    ["model"],
+)
+
+PREDICTION_REQUESTS_TOTAL = Counter(
+    "retinaxai_prediction_requests_total",
+    "Total number of prediction requests",
+    ["model"],
+)
+
+PREDICTION_ERRORS_TOTAL = Counter(
+    "retinaxai_prediction_errors_total",
+    "Total number of prediction errors",
+    ["model", "error_type"],
+)
+
+GRADCAM_GENERATION_FAILURES = Counter(
+    "retinaxai_gradcam_generation_failures",
+    "Total number of GradCAM generation failures",
+    ["eye"],
+)
+
+GPU_MEMORY_USED_BYTES = Gauge(
+    "retinaxai_gpu_memory_used_bytes",
+    "GPU memory currently used in bytes",
+    ["device"],
+)
+
+GPU_UTILIZATION_PERCENT = Gauge(
+    "retinaxai_gpu_utilization_percent",
+    "GPU utilization percentage",
+    ["device"],
+)
+
 DRIFT_DETECTED = Gauge(
     "retinaxai_drift_detected",
     "Whether drift was detected (1) or not (0)",
@@ -49,6 +91,18 @@ DRIFT_PSI_SCORE = Gauge(
     "retinaxai_drift_psi_score",
     "Population Stability Index (PSI) for drift detection",
     ["pipeline", "feature"],
+)
+
+EVIDENTLY_DRIFT_DATASET_SHIFT = Gauge(
+    "retinaxai_evidently_dataset_shift",
+    "Evidently dataset drift score (0-1)",
+    ["pipeline"],
+)
+
+EVIDENTLY_DRIFT_FEATURES_DRIFTED = Gauge(
+    "retinaxai_evidently_features_drifted",
+    "Number of features showing drift per Evidently",
+    ["pipeline"],
 )
 
 AUTOMATION_SCHEDULER_RUNNING = Gauge(
@@ -65,6 +119,24 @@ TRAINING_REJECTIONS_TOTAL = Counter(
 TRAINING_SLOTS_USED = Gauge(
     "retinaxai_training_slots_used",
     "Number of training slots currently used",
+    ["pipeline"],
+)
+
+MODEL_REGISTRY_VERSIONS = Gauge(
+    "retinaxai_model_registry_versions",
+    "Number of model versions in registry",
+    ["pipeline", "stage"],
+)
+
+MODEL_PROMOTIONS_TOTAL = Counter(
+    "retinaxai_model_promotions_total",
+    "Total number of model promotions",
+    ["pipeline"],
+)
+
+MODEL_ROLLBACKS_TOTAL = Counter(
+    "retinaxai_model_rollbacks_total",
+    "Total number of model rollbacks",
     ["pipeline"],
 )
 

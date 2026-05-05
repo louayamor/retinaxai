@@ -18,7 +18,12 @@ from app.config.settings import Settings
 from app.services.inference.gradcam_service import GradCAMService
 from app.utils.common import load_json, read_yaml
 from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
-from app.services.monitoring.prometheus_metrics import INFERENCE_LATENCY
+from app.services.monitoring.prometheus_metrics import (
+    INFERENCE_LATENCY,
+    INFERENCE_OOM_KILLS,
+    GPU_MEMORY_USED_BYTES,
+    GPU_UTILIZATION_PERCENT,
+)
 from app.services.registry.model_registry import ModelRegistryService
 from app.services.registry.model_registry import (
     ModelNotFoundError as ModelRegistryNotFoundError,
@@ -28,6 +33,24 @@ from app.services.platform.feature_store import get_feature_store
 
 DR_CLASSES = {0: "No DR", 1: "Mild", 2: "Moderate", 3: "Severe", 4: "Proliferative DR"}
 DR_SEVERITY = {0: "none", 1: "low", 2: "moderate", 3: "high", 4: "critical"}
+
+
+def _emit_gpu_metrics() -> None:
+    """Emit GPU memory and utilization metrics if CUDA is available."""
+    if not torch.cuda.is_available():
+        return
+    try:
+        import pynvml  # type: ignore[import-untyped]
+
+        pynvml.nvmlInit()
+        for i in range(pynvml.nvmlDeviceGetCount()):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+            GPU_MEMORY_USED_BYTES.labels(device=str(i)).set(mem.used)
+            GPU_UTILIZATION_PERCENT.labels(device=str(i)).set(util.gpu)
+    except Exception:
+        pass  # nvidia-smi not available — skip
 
 
 class InferenceService:
@@ -228,6 +251,7 @@ class InferenceService:
         except RuntimeError as e:
             if self.device.type == "cuda" and "out of memory" in str(e).lower():
                 logger.warning("[IMAGING] CUDA OOM during inference; retrying on CPU")
+                INFERENCE_OOM_KILLS.labels(model="efficientnet_b3").inc()
                 self._move_to_cpu()
                 model = self._load_imaging_model()
                 tensor = tensor.to(self.device)
@@ -241,6 +265,7 @@ class InferenceService:
         confidence = float(probs[pred_class])
 
         INFERENCE_LATENCY.labels(model="efficientnet_b3").observe(time.time() - start)
+        _emit_gpu_metrics()
 
         if self.device.type == "cuda":
             torch.cuda.empty_cache()
@@ -341,6 +366,7 @@ class InferenceService:
         except RuntimeError as e:
             if self.device.type == "cuda" and "out of memory" in str(e).lower():
                 logger.warning("[IMAGING] CUDA OOM during inference; retrying on CPU")
+                INFERENCE_OOM_KILLS.labels(model="efficientnet_b3").inc()
                 self._move_to_cpu()
                 model = self._load_imaging_model()
                 tensor = tensor.to(self.device)
@@ -355,11 +381,14 @@ class InferenceService:
         embedding = self.get_embedding(tensor)
 
         gradcam_service = GradCAMService(model)
-        gradcam_base64, regions, top_hotspots = gradcam_service.generate_with_regions_numeric(
-            image_bytes, tensor, pred_class
+        gradcam_base64, regions, top_hotspots = (
+            gradcam_service.generate_with_regions_numeric(
+                image_bytes, tensor, pred_class
+            )
         )
 
         INFERENCE_LATENCY.labels(model="efficientnet_b3").observe(time.time() - start)
+        _emit_gpu_metrics()
 
         if self.device.type == "cuda":
             torch.cuda.empty_cache()
