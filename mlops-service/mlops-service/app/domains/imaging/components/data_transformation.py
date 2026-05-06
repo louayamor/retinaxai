@@ -1,4 +1,6 @@
 import io
+import cv2
+import numpy as np
 from pathlib import Path
 
 import pandas as pd
@@ -53,9 +55,32 @@ class ImagingDataTransformation:
         self.schema = read_yaml(SCHEMA_FILE_PATH)
 
     def _resize_and_save(self, img, path: Path) -> None:
-        img.convert("RGB").resize(
-            (self.config.image_size, self.config.image_size)
-        ).save(path)
+        img = img.convert("RGB")
+        img_np = np.array(img)
+        img_np = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+
+        # Circular crop to remove black borders
+        gray = cv2.cvtColor(img_np, cv2.COLOR_BGR2GRAY)
+        _, mask = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
+        coords = cv2.findNonZero(mask)
+        if coords is not None:
+            x, y, w, h = cv2.boundingRect(coords)
+            if w > 10 and h > 10:
+                img_np = img_np[y : y + h, x : x + w]
+
+        # CLAHE for contrast enhancement
+        lab = cv2.cvtColor(img_np, cv2.COLOR_BGR2LAB)
+        l_channel = lab[:, :, 0]
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l_enhanced = clahe.apply(l_channel)
+        lab[:, :, 0] = l_enhanced
+        img_np = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+        img_np = cv2.cvtColor(img_np, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(img_np)
+
+        img = img.resize((self.config.image_size, self.config.image_size))
+        img.save(path, optimize=True)
 
     def _transform_eyepacs(self) -> None:
         source_path = self.config.source_dir / "huggingface" / "train_clean"
@@ -65,16 +90,32 @@ class ImagingDataTransformation:
 
         split_cfg = self.schema.dl_dataset.train_test_split
         indices = list(range(len(ds)))
-        train_idx, test_idx = train_test_split(
+
+        # First split: separate test set (20%)
+        train_val_idx, test_idx = train_test_split(
             indices,
             test_size=split_cfg.test_size,
             random_state=split_cfg.seed,
-            stratify=list(ds["label_code"]),  # type: ignore[arg-type]
+            stratify=list(ds["label_code"]),
         )
-        logger.info(f"stratified split: {len(train_idx)} train, {len(test_idx)} test")
+
+        # Second split: separate validation from train (20% of remaining = 16% of total)
+        val_size = split_cfg.get("val_size", 0.2)
+        actual_val_size = val_size / (1 - split_cfg.test_size)
+        train_idx, val_idx = train_test_split(
+            train_val_idx,
+            test_size=actual_val_size,
+            random_state=split_cfg.seed,
+            stratify=[ds[i]["label_code"] for i in train_val_idx],
+        )
+
+        logger.info(
+            f"stratified split: {len(train_idx)} train, {len(val_idx)} val, {len(test_idx)} test"
+        )
 
         for split_name, split_indices, csv_path in [
             ("train", train_idx, self.config.train_csv),
+            ("val", val_idx, self.config.val_csv),
             ("test", test_idx, self.config.test_csv),
         ]:
             output_dir = self.config.root_dir / "images" / "eyepacs" / split_name
@@ -172,6 +213,7 @@ class ImagingDataTransformation:
 
         if not force_regen and (
             self.config.train_csv.exists()
+            and self.config.val_csv.exists()
             and self.config.test_csv.exists()
             and images_dir.exists()
             and any(images_dir.iterdir())
@@ -186,7 +228,7 @@ class ImagingDataTransformation:
 
         logger.info("imaging data transformation started")
         logger.info(
-            f"transformation config: source_dir={self.config.source_dir}, root_dir={self.config.root_dir}, image_size={self.config.image_size}, train_csv={self.config.train_csv}, test_csv={self.config.test_csv}, samaya_csv={self.config.samaya_csv}"
+            f"transformation config: source_dir={self.config.source_dir}, root_dir={self.config.root_dir}, image_size={self.config.image_size}, train_csv={self.config.train_csv}, val_csv={self.config.val_csv}, test_csv={self.config.test_csv}, samaya_csv={self.config.samaya_csv}"
         )
         self._transform_eyepacs()
         self._transform_samaya()

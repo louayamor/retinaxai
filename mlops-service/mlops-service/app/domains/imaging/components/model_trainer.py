@@ -146,7 +146,7 @@ class ImagingModelTrainer:
         aug = self.params.augmentation
         norm = aug.normalize
         dr = aug.get("domain_robustness", {}) or {}
-        image_size = int(self.params.get("dl_training", {}).get("image_size", 224))
+        image_size = int(self.config.image_size)
 
         train_tf_list: list = [
             transforms.Resize((image_size, image_size)),
@@ -328,7 +328,7 @@ class ImagingModelTrainer:
 
         train_csv_path = self.custom_train_csv or self.transformation_config.train_csv
         train_dataset = RetinalDataset(train_csv_path, train_tf)
-        val_dataset = RetinalDataset(self.transformation_config.test_csv, val_tf)
+        val_dataset = RetinalDataset(self.transformation_config.val_csv, val_tf)
 
         use_weighted_sampling = self.params.get("phase_based_training", {}).get(
             "weighted_sampling", False

@@ -53,10 +53,12 @@ class ConfigurationManager:
     def get_imaging_transformation_config(self) -> ImagingTransformationConfig:
         cfg = self.config.data_transformation.imaging
         samaya_cfg = self.config.data_ingestion.samaya
-        create_directories([
-            Path(cfg.root_dir),
-            Path(cfg.train_csv).parent,
-        ])
+        create_directories(
+            [
+                Path(cfg.root_dir),
+                Path(cfg.train_csv).parent,
+            ]
+        )
         return ImagingTransformationConfig(
             root_dir=Path(cfg.root_dir),
             source_dir=Path(self.config.data_ingestion.root_dir),
@@ -64,6 +66,7 @@ class ConfigurationManager:
             samaya_images_dir=Path(samaya_cfg.images_dir),
             image_size=cfg.image_size,
             train_csv=Path(cfg.train_csv),
+            val_csv=Path(cfg.val_csv),
             test_csv=Path(cfg.test_csv),
             samaya_csv=Path(cfg.samaya_csv),
         )
@@ -111,10 +114,12 @@ class ConfigurationManager:
 
     def get_clinical_transformation_config(self) -> ClinicalTransformationConfig:
         cfg = self.config.data_transformation.clinical
-        create_directories([
-            Path(cfg.root_dir),
-            Path(cfg.train_csv).parent,
-        ])
+        create_directories(
+            [
+                Path(cfg.root_dir),
+                Path(cfg.train_csv).parent,
+            ]
+        )
         return ClinicalTransformationConfig(
             root_dir=Path(cfg.root_dir),
             source_csv=Path(self.config.data_ingestion.samaya.reports_csv),
@@ -174,10 +179,12 @@ class ConfigurationManager:
     def get_ocr_pipeline_config(self) -> OCRPipelineConfig:
         cfg = self.config.ocr_pipeline
         regions = read_yaml(Path(cfg.regions_config))
-        create_directories([
-            Path(str(cfg.output_dir)),
-            Path(str(cfg.images_dir)),
-        ])
+        create_directories(
+            [
+                Path(str(cfg.output_dir)),
+                Path(str(cfg.images_dir)),
+            ]
+        )
         return OCRPipelineConfig(
             input_dir=Path(str(cfg.input_dir)),
             output_dir=Path(str(cfg.output_dir)),

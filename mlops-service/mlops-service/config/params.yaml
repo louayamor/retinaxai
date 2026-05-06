@@ -10,7 +10,7 @@ dl_training:
   dropout: 0.3
   seed: 42
   freeze_blocks: 3
-  image_size: 224
+  image_size: 300
   label_smoothing: 0.0
   lr_warmup_epochs: 0
 

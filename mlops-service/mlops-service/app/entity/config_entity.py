@@ -25,6 +25,7 @@ class ImagingTransformationConfig:
     samaya_images_dir: Path
     image_size: int
     train_csv: Path
+    val_csv: Path
     test_csv: Path
     samaya_csv: Path
 
