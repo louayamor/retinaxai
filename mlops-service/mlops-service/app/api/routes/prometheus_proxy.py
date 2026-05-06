@@ -10,8 +10,8 @@ router = APIRouter(prefix="/metrics", tags=["metrics"])
 
 
 class PrometheusMetricsResponse(BaseModel):
-    training_runs_total: float
-    active_training_jobs: float
+    training_runs_total: float | None = None
+    active_training_jobs: float | None = None
     best_val_accuracy_imaging: float | None
     best_val_accuracy_clinical: float | None
     drift_detected_imaging: float | None
