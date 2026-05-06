@@ -30,12 +30,22 @@ class ImagingDataIngestion:
         self.config = config
 
     def run(self) -> None:
+        import os
+
+        force_ingest = os.environ.get("FORCE_INGEST", "false").lower() == "true"
         save_path = self.config.root_dir / "huggingface" / "train"
         save_path.parent.mkdir(parents=True, exist_ok=True)
         logger.info(f"starting imaging ingestion: save_path={save_path}")
 
         existing_ds = None
         existing_size = 0
+
+        if force_ingest and save_path.exists():
+            logger.info(
+                "FORCE_INGEST=true: removing existing dataset for fresh download"
+            )
+            shutil.rmtree(save_path)
+
         if save_path.exists() and any(save_path.iterdir()):
             try:
                 existing_ds = load_from_disk(str(save_path))
