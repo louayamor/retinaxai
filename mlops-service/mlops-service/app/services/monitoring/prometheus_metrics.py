@@ -141,6 +141,25 @@ MODEL_ROLLBACKS_TOTAL = Counter(
 )
 
 
+def init_metrics() -> None:
+    """Initialize all Gauges to 0 so Prometheus has data to scrape at startup."""
+    pipelines = ["imaging", "clinical"]
+    for p in pipelines:
+        DRIFT_DETECTED.labels(pipeline=p).set(0)
+        EVIDENTLY_DRIFT_DATASET_SHIFT.labels(pipeline=p).set(0)
+        EVIDENTLY_DRIFT_FEATURES_DRIFTED.labels(pipeline=p).set(0)
+        BEST_VAL_ACCURACY.labels(pipeline=p).set(0)
+        TRAINING_SLOTS_USED.labels(pipeline=p).set(0)
+        MODEL_REGISTRY_VERSIONS.labels(pipeline=p, stage="staging").set(0)
+        MODEL_REGISTRY_VERSIONS.labels(pipeline=p, stage="production").set(0)
+    ACTIVE_TRAINING_JOBS.set(0)
+    AUTOMATION_SCHEDULER_RUNNING.set(0)
+    TRAINING_SLOTS_USED.labels(pipeline="all").set(0)
+    GPU_MEMORY_USED_BYTES.labels(device="0").set(0)
+    GPU_UTILIZATION_PERCENT.labels(device="0").set(0)
+    logger.info("prometheus metrics initialized")
+
+
 def start_metrics_server(port: int = 9101) -> None:
     try:
         start_http_server(port)

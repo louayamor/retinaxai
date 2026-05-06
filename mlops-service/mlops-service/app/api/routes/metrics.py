@@ -37,7 +37,4 @@ def get_metrics():
             num_samples=data.get("num_samples"),
         )
 
-    if not imaging_metrics and not clinical_metrics:
-        raise HTTPException(status_code=404, detail="no metrics found")
-
     return MetricsResponse(imaging=imaging_metrics, clinical=clinical_metrics)

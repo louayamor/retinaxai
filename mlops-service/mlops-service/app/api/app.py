@@ -20,7 +20,10 @@ from app.api.routes import (
 )
 from app.api.routes import models_download
 from app.api.dependencies import get_settings
-from app.services.monitoring.prometheus_metrics import start_metrics_server
+from app.services.monitoring.prometheus_metrics import (
+    start_metrics_server,
+    init_metrics,
+)
 
 logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING)
 logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
@@ -31,6 +34,7 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info(f"starting {settings.app_name} v{settings.app_version}")
     logger.info(f"environment: {settings.app_env}")
+    init_metrics()
     start_metrics_server(port=settings.prometheus_metrics_port)
     if settings.automation_enabled:
         from app.services.orchestration.automation_service import get_automation_service
