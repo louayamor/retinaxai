@@ -165,15 +165,25 @@ class ImagingDataTransformation:
         logger.info(f"samaya CSV saved: {self.config.samaya_csv} ({len(records)} rows)")
 
     def run(self) -> None:
+        import os
+
+        force_regen = os.environ.get("FORCE_REGEN", "false").lower() == "true"
         images_dir = self.config.root_dir / "images" / "eyepacs"
-        if (
+
+        if not force_regen and (
             self.config.train_csv.exists()
             and self.config.test_csv.exists()
             and images_dir.exists()
             and any(images_dir.iterdir())
         ):
-            logger.info("transformation outputs already exist, skipping")
+            logger.info(
+                "transformation outputs already exist, skipping (set FORCE_REGEN=true to force)"
+            )
             return
+
+        if force_regen:
+            logger.info("FORCE_REGEN=true: regenerating transformation outputs")
+
         logger.info("imaging data transformation started")
         logger.info(
             f"transformation config: source_dir={self.config.source_dir}, root_dir={self.config.root_dir}, image_size={self.config.image_size}, train_csv={self.config.train_csv}, test_csv={self.config.test_csv}, samaya_csv={self.config.samaya_csv}"

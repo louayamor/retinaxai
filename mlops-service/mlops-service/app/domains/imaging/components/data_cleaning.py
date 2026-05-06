@@ -11,17 +11,23 @@ class ImagingDataCleaning:
         self.config = config
 
     def run(self) -> Optional[Dataset]:  # type: ignore[type-var]
+        import os
+
+        force_regen = os.environ.get("FORCE_REGEN", "false").lower() == "true"
         clean_path = self.config.root_dir / "huggingface" / "train_clean"
         source_path = self.config.source_dir / "huggingface" / "train"
         logger.info(
             f"cleaning config: source_dir={self.config.source_dir}, root_dir={self.config.root_dir}, clean_path={clean_path}"
         )
 
-        if clean_path.exists() and any(clean_path.iterdir()):
+        if not force_regen and clean_path.exists() and any(clean_path.iterdir()):
             logger.info(
-                f"clean dataset already exists, skipping cleaning: {clean_path}"
+                f"clean dataset already exists, skipping cleaning: {clean_path} (set FORCE_REGEN=true to force)"
             )
             return load_from_disk(str(clean_path))  # type: ignore[return-value]
+
+        if force_regen:
+            logger.info("FORCE_REGEN=true: regenerating clean dataset")
 
         if not source_path.exists() or not any(source_path.iterdir()):
             logger.warning(f"source dataset not found at {source_path}, cannot clean")

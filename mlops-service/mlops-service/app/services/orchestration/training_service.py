@@ -356,15 +356,13 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                 )
                 raise
 
-            test_samples = 2000
             _emit_stage_event(
                 job_id,
                 pipeline,
                 "model_evaluation",
                 "started",
                 0,
-                f"Evaluating on {test_samples} test samples...",
-                metrics={"test_samples": test_samples},
+                "Evaluating model on test set...",
             )
             if is_job_cancelled(job_id):
                 raise Exception("Job cancelled by user")
@@ -376,8 +374,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                     "model_evaluation",
                     "completed",
                     100,
-                    f"Evaluated on {test_samples} test samples",
-                    metrics={"test_samples": test_samples},
+                    "Model evaluation complete",
                 )
             except Exception as e:
                 _emit_stage_event(

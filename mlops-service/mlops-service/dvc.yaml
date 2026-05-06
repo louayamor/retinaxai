@@ -3,7 +3,8 @@ stages:
     cmd: python main.py pipeline --stage ingest --pipeline imaging
     deps:
       - main.py
-      - app/components/imaging/data_ingestion.py
+      - app/domains/imaging/pipeline/stage_01_data_ingestion.py
+      - app/domains/imaging/components/data_ingestion.py
       - app/config/configuration.py
       - app/entity/config_entity.py
       - config/config.yaml
@@ -14,7 +15,8 @@ stages:
     cmd: python main.py pipeline --stage clean --pipeline imaging
     deps:
       - main.py
-      - app/components/imaging/data_cleaning.py
+      - app/domains/imaging/pipeline/stage_02_data_cleaning.py
+      - app/domains/imaging/components/data_cleaning.py
       - app/config/configuration.py
       - config/config.yaml
       - artifacts/data/raw/huggingface/train
@@ -25,7 +27,8 @@ stages:
     cmd: python main.py pipeline --stage transform --pipeline imaging
     deps:
       - main.py
-      - app/components/imaging/data_transformation.py
+      - app/domains/imaging/pipeline/stage_03_data_transformation.py
+      - app/domains/imaging/components/data_transformation.py
       - app/config/configuration.py
       - config/config.yaml
       - config/params.yaml
@@ -42,7 +45,8 @@ stages:
     cmd: python main.py pipeline --stage train --pipeline imaging
     deps:
       - main.py
-      - app/components/imaging/model_trainer.py
+      - app/domains/imaging/pipeline/stage_04_model_trainer.py
+      - app/domains/imaging/components/model_trainer.py
       - app/config/configuration.py
       - config/config.yaml
       - config/params.yaml
@@ -55,7 +59,8 @@ stages:
     cmd: python main.py pipeline --stage evaluate --pipeline imaging
     deps:
       - main.py
-      - app/components/imaging/model_evaluation.py
+      - app/domains/imaging/pipeline/stage_05_model_evaluation.py
+      - app/domains/imaging/evaluation/imaging_evaluation.py
       - app/config/configuration.py
       - config/config.yaml
       - config/params.yaml
@@ -70,7 +75,8 @@ stages:
     cmd: python main.py pipeline --stage ingest --pipeline clinical
     deps:
       - main.py
-      - app/components/clinical/data_ingestion.py
+      - app/domains/clinical/pipeline/stage_01_data_ingestion.py
+      - app/domains/clinical/components/data_ingestion.py
       - app/config/configuration.py
       - config/config.yaml
       - artifacts/ocr/output/reports.csv
@@ -81,7 +87,8 @@ stages:
     cmd: python main.py pipeline --stage clean --pipeline clinical
     deps:
       - main.py
-      - app/components/clinical/data_cleaning.py
+      - app/domains/clinical/pipeline/stage_02_data_cleaning.py
+      - app/domains/clinical/components/data_cleaning.py
       - app/config/configuration.py
       - config/config.yaml
       - config/schema.yaml
@@ -93,7 +100,8 @@ stages:
     cmd: python main.py pipeline --stage transform --pipeline clinical
     deps:
       - main.py
-      - app/components/clinical/data_transformation.py
+      - app/domains/clinical/pipeline/stage_03_data_transformation.py
+      - app/domains/clinical/components/data_transformation.py
       - app/config/configuration.py
       - config/config.yaml
       - config/params.yaml
@@ -108,7 +116,8 @@ stages:
     cmd: python main.py pipeline --stage train --pipeline clinical
     deps:
       - main.py
-      - app/components/clinical/model_trainer.py
+      - app/domains/clinical/pipeline/stage_04_model_trainer.py
+      - app/domains/clinical/components/model_trainer.py
       - app/config/configuration.py
       - config/config.yaml
       - config/params.yaml
@@ -122,7 +131,8 @@ stages:
     cmd: python main.py pipeline --stage evaluate --pipeline clinical
     deps:
       - main.py
-      - app/components/clinical/model_evaluation.py
+      - app/domains/clinical/pipeline/stage_05_model_evaluation.py
+      - app/domains/clinical/evaluation/clinical_evaluation.py
       - app/config/configuration.py
       - config/config.yaml
       - config/params.yaml
