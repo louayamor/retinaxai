@@ -25,14 +25,14 @@ phase_based_training:
   early_stopping_metric: macro_f1
   oversample_clinical: true
   clinical_oversample_ratio: 5
-  freeze_backbone: false
+  freeze_backbone: true
   unfreeze_last_blocks: true
   clinical_ratio: 0.7
   eyepacs_ratio: 0.3
   keep_no_dr_ratio: 0.25
   use_class_weights_in_loss: true
-  weighted_sampling: true
-  focal_loss_gamma: 2.0
+  weighted_sampling: false
+  focal_loss_gamma: 1.0
 
 dl_fine_tuning:
   epochs: 20
