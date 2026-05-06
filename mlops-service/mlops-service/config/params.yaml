@@ -10,6 +10,9 @@ dl_training:
   dropout: 0.3
   seed: 42
   freeze_blocks: 3
+  image_size: 224
+  label_smoothing: 0.0
+  lr_warmup_epochs: 0
 
 phase_based_training:
   enabled: true
@@ -28,6 +31,8 @@ phase_based_training:
   eyepacs_ratio: 0.3
   keep_no_dr_ratio: 0.25
   use_class_weights_in_loss: true
+  weighted_sampling: true
+  focal_loss_gamma: 2.0
 
 dl_fine_tuning:
   epochs: 20

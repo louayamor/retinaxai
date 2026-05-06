@@ -7,7 +7,7 @@ import torch.nn as nn
 from loguru import logger
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torchvision import transforms
 import pandas as pd
 from PIL import Image
@@ -19,7 +19,10 @@ from app.entity.config_entity import (
     ImagingTransformationConfig,
 )
 from app.utils.common import read_yaml, set_seed
-from app.domains.imaging.components.ordinal_loss import OrdinalCrossEntropyLoss
+from app.domains.imaging.components.ordinal_loss import (
+    OrdinalCrossEntropyLoss,
+    FocalOrdinalLoss,
+)
 from app.domains.imaging.components.fda_augment import FDAAugment
 from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
 from app.services.monitoring.prometheus_metrics import (
@@ -143,9 +146,10 @@ class ImagingModelTrainer:
         aug = self.params.augmentation
         norm = aug.normalize
         dr = aug.get("domain_robustness", {}) or {}
+        image_size = int(self.params.get("dl_training", {}).get("image_size", 224))
 
         train_tf_list: list = [
-            transforms.Resize((224, 224)),
+            transforms.Resize((image_size, image_size)),
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
             transforms.RandomRotation(aug.random_rotation),
@@ -187,7 +191,7 @@ class ImagingModelTrainer:
         train_tf = transforms.Compose(train_tf_list)
 
         val_tf_list: list = [
-            transforms.Resize((224, 224)),
+            transforms.Resize((image_size, image_size)),
             transforms.ToTensor(),
             transforms.Normalize(mean=norm.mean, std=norm.std),
         ]
@@ -327,10 +331,27 @@ class ImagingModelTrainer:
         train_dataset = RetinalDataset(train_csv_path, train_tf)
         val_dataset = RetinalDataset(self.transformation_config.test_csv, val_tf)
 
+        use_weighted_sampling = self.params.get("phase_based_training", {}).get(
+            "weighted_sampling", False
+        )
+        sampler: WeightedRandomSampler | None = None
+        if use_weighted_sampling:
+            labels = train_dataset.df["label"].values
+            class_counts = np.bincount(labels, minlength=5)
+            class_weights = 1.0 / (class_counts + 1e-6)
+            sample_weights = class_weights[labels]
+            sampler = WeightedRandomSampler(
+                sample_weights, len(sample_weights), replacement=True
+            )
+            logger.info(
+                f"weighted sampler enabled: class_weights={class_weights.round(3).tolist()}"
+            )
+
         train_loader = DataLoader(
             train_dataset,
             batch_size=p.batch_size,
-            shuffle=True,
+            shuffle=(sampler is None),
+            sampler=sampler,
             num_workers=p.num_workers,
             pin_memory=True,
         )
@@ -368,22 +389,65 @@ class ImagingModelTrainer:
                 lr=self.phase_lr,
                 weight_decay=p.weight_decay,
             )
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=self.phase_epochs
+
+        warmup_epochs = int(
+            self.params.get("dl_training", {}).get("lr_warmup_epochs", 0)
         )
+        if warmup_epochs > 0:
+            base_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=self.phase_epochs - warmup_epochs
+            )
+            scheduler = torch.optim.lr_scheduler.SequentialLR(
+                optimizer,
+                [
+                    torch.optim.lr_scheduler.LinearLR(
+                        optimizer,
+                        start_factor=0.1,
+                        end_factor=1.0,
+                        total_iters=warmup_epochs,
+                    ),
+                    base_scheduler,
+                ],
+                milestones=[warmup_epochs],
+            )
+            logger.info(f"LR warmup enabled: {warmup_epochs} epochs")
+        else:
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=self.phase_epochs
+            )
 
         criteria_weights = None
         if self._class_weights_tensor is not None:
             criteria_weights = self._class_weights_tensor.to(self.device)
 
-        criterion = OrdinalCrossEntropyLoss(
-            num_classes=p.num_classes,
-            distance_weight=0.1,
-            class_weights=criteria_weights,
+        use_focal = self.params.get("phase_based_training", {}).get(
+            "focal_loss_gamma", None
         )
-        logger.info(
-            "Using OrdinalCrossEntropyLoss for ordinal DR grading (preserves grade ordering)"
+        label_smoothing = float(
+            self.params.get("dl_training", {}).get("label_smoothing", 0.0)
         )
+
+        if use_focal is not None and use_focal > 0:
+            criterion = FocalOrdinalLoss(
+                num_classes=p.num_classes,
+                distance_weight=0.1,
+                gamma=float(use_focal),
+                class_weights=criteria_weights,
+                label_smoothing=label_smoothing,
+            )
+            logger.info(
+                f"Using FocalOrdinalLoss (gamma={use_focal}) for ordinal DR grading"
+            )
+        else:
+            criterion = OrdinalCrossEntropyLoss(
+                num_classes=p.num_classes,
+                distance_weight=0.1,
+                class_weights=criteria_weights,
+                label_smoothing=label_smoothing,
+            )
+            logger.info(
+                "Using OrdinalCrossEntropyLoss for ordinal DR grading (preserves grade ordering)"
+            )
 
         best_macro_f1 = 0.0
         best_val_acc = 0.0

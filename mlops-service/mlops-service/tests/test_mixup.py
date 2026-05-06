@@ -72,3 +72,45 @@ class TestMixUp:
         assert abs(loss_unw.item() - loss_ce_unw.item()) < 1e-4
         assert abs(loss_w.item() - loss_ce_w.item()) < 1e-4
         assert loss_w.item() != loss_unw.item()
+
+
+class TestFocalOrdinalLoss:
+    def test_focal_loss_exists(self) -> None:
+        from app.domains.imaging.components.ordinal_loss import FocalOrdinalLoss
+
+        criterion = FocalOrdinalLoss(num_classes=5, gamma=2.0)
+        outputs = torch.randn(4, 5)
+        labels = torch.randint(0, 5, (4,))
+        loss = criterion(outputs, labels)
+        assert loss.item() > 0
+
+    def test_focal_gamma_affects_loss(self) -> None:
+        from app.domains.imaging.components.ordinal_loss import (
+            FocalOrdinalLoss,
+            OrdinalCrossEntropyLoss,
+        )
+
+        outputs = torch.tensor([[0.1, 0.7, 0.1, 0.05, 0.05]])
+        labels = torch.tensor([1])
+
+        ce = OrdinalCrossEntropyLoss(num_classes=5, distance_weight=0.0)
+        focal = FocalOrdinalLoss(num_classes=5, gamma=2.0, distance_weight=0.0)
+
+        loss_ce = ce(outputs, labels)
+        loss_focal = focal(outputs, labels)
+
+        assert loss_focal.item() != loss_ce.item()
+
+    def test_label_smoothing_changes_loss(self) -> None:
+        from app.domains.imaging.components.ordinal_loss import OrdinalCrossEntropyLoss
+
+        outputs = torch.randn(4, 5)
+        labels = torch.randint(0, 5, (4,))
+
+        no_smooth = OrdinalCrossEntropyLoss(num_classes=5, label_smoothing=0.0)
+        smooth = OrdinalCrossEntropyLoss(num_classes=5, label_smoothing=0.1)
+
+        loss_no_smooth = no_smooth(outputs, labels)
+        loss_smooth = smooth(outputs, labels)
+
+        assert abs(loss_no_smooth.item() - loss_smooth.item()) > 1e-6
