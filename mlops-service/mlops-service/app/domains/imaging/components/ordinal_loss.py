@@ -18,15 +18,22 @@ class OrdinalCrossEntropyLoss(nn.Module):
     Reference: Cheng et al., "Ordinal Regression with Neural Networks for Medical Diagnosis"
     """
 
-    def __init__(self, num_classes: int = 5, distance_weight: float = 0.1):
+    def __init__(
+        self,
+        num_classes: int = 5,
+        distance_weight: float = 0.1,
+        class_weights: torch.Tensor | None = None,
+    ):
         """
         Args:
             num_classes: Number of ordinal classes (default 5 for DR grades 0-4)
             distance_weight: Weight for the distance penalty (default 0.1)
+            class_weights: Per-class weight tensor of shape (num_classes,)
         """
         super().__init__()
         self.num_classes = num_classes
         self.distance_weight = distance_weight
+        self.class_weights = class_weights
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         """
@@ -39,7 +46,7 @@ class OrdinalCrossEntropyLoss(nn.Module):
         Returns:
             Scalar loss tensor
         """
-        ce_loss = F.cross_entropy(logits, targets)
+        ce_loss = F.cross_entropy(logits, targets, weight=self.class_weights)
 
         probs = F.softmax(logits, dim=1)
         predicted_classes = probs.argmax(dim=1)

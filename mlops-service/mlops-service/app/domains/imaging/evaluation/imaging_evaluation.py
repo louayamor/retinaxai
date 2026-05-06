@@ -20,8 +20,12 @@ from sklearn.metrics import (
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import cv2
+from PIL import Image
 
 from app.domains.imaging.components.model_trainer import RetinalDataset
+from app.domains.imaging.components.tent_adapter import TENTAdapter
+from app.domains.imaging.components.fda_augment import FDAAugment
 from app.entity.config_entity import ImagingModelEvaluationConfig
 from app.utils.common import read_yaml, save_json
 from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
@@ -62,8 +66,39 @@ class ImagingModelEvaluation:
             ]
         )
 
-    def _run_inference(self, model: nn.Module, csv_path: Path) -> tuple:
-        tf = self._build_transform()
+    def _build_samaya_transform(self):
+        norm = self.params.augmentation.normalize
+        tf_list: list = [
+            transforms.Resize((224, 224)),
+            transforms.Lambda(lambda img: self._apply_clahe(img)),
+            transforms.ToTensor(),
+        ]
+
+        fda_cfg = self.params.get("fda", {}) or {}
+        if fda_cfg.get("enabled", False):
+            source_cache = Path(self.config.root_dir / "eyepacs_amplitude_source.pt")
+            if not source_cache.exists():
+                source_cache = (
+                    self.config.root_dir.parent / "eyepacs_amplitude_source.pt"
+                )
+            if (
+                self._fda_eval is not None
+                and self._fda_eval.source_amplitude is not None
+            ):
+                fda_inv = self._fda_eval.inverse
+                tf_list.append(transforms.Lambda(lambda t: fda_inv(t)))  # type: ignore[arg-type]
+
+        tf_list.append(transforms.Normalize(mean=norm.mean, std=norm.std))
+        return transforms.Compose(tf_list)
+
+    @staticmethod
+    def _apply_clahe(img_pil: Image.Image) -> Image.Image:
+        img_np = np.array(img_pil.convert("L"))
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        return Image.fromarray(clahe.apply(img_np)).convert("RGB")
+
+    def _run_inference(self, model: nn.Module, csv_path: Path, transform=None) -> tuple:
+        tf = transform if transform is not None else self._build_transform()
         loader = DataLoader(
             RetinalDataset(csv_path, tf),
             batch_size=self.params.evaluation.dl.batch_size,
@@ -175,6 +210,37 @@ class ImagingModelEvaluation:
 
         model = self._load_model()
 
+        self._fda_eval: FDAAugment | None = None
+        fda_cfg = self.params.get("fda", {}) or {}
+        if fda_cfg.get("enabled", False):
+            target_dir = Path(fda_cfg["target_images_dir"])
+            if not target_dir.is_absolute():
+                target_dir = Path.cwd() / target_dir
+            cache_path_raw = fda_cfg.get("cache_path", "")
+            cache_path = Path(cache_path_raw) if cache_path_raw else None
+            if cache_path and not cache_path.is_absolute():
+                cache_path = Path.cwd() / cache_path
+
+            src_cache = self.config.root_dir / "eyepacs_amplitude_source.pt"
+            self._fda_eval = FDAAugment(
+                target_images_dir=target_dir,
+                beta=float(fda_cfg.get("beta", 0.15)),
+                cache_path=cache_path,
+                source_amp_cache_path=src_cache,
+            )
+            if not src_cache.exists():
+                eye_images = self.config.root_dir / "images" / "eyepacs" / "test"
+                if eye_images.exists():
+                    self._fda_eval.set_source_amplitude(eye_images, src_cache)
+            self._fda_eval.beta = float(fda_cfg.get("inference_beta", 0.1))
+            logger.info("FDA inverse available for Samaya evaluation")
+
+        tent_cfg = self.params.get("tent", {}) or {}
+        tent_enabled = tent_cfg.get("enabled", False)
+        tent_lr = float(tent_cfg.get("learning_rate", 0.0001))
+        tent_steps = int(tent_cfg.get("steps", 1))
+        tent_momentum = float(tent_cfg.get("momentum", 0.9))
+
         logger.info("--- evaluating on EyePACS test set ---")
         test_preds, test_labels, test_probs = self._run_inference(
             model, self.config.test_csv
@@ -184,21 +250,65 @@ class ImagingModelEvaluation:
         )
 
         samaya_metrics = None
+        domain_shift_metrics: dict = {}
         if self.config.samaya_csv.exists():
             logger.info("--- evaluating on Samaya domain validation set ---")
+
+            samaya_tf = self._build_samaya_transform()
+            samaya_dataset = RetinalDataset(self.config.samaya_csv, samaya_tf)
+            samaya_loader = DataLoader(
+                samaya_dataset,
+                batch_size=self.params.evaluation.dl.batch_size,
+                shuffle=False,
+                num_workers=self.params.evaluation.dl.num_workers,
+                pin_memory=True,
+            )
+
+            if tent_enabled:
+                logger.info(f"TENT adaptation: lr={tent_lr} steps={tent_steps}")
+                tent = TENTAdapter(
+                    model, lr=tent_lr, steps=tent_steps, momentum=tent_momentum
+                )
+                tent.adapt(samaya_loader)
+                model.eval()
+
             samaya_preds, samaya_labels, samaya_probs = self._run_inference(
-                model, self.config.samaya_csv
+                model, self.config.samaya_csv, transform=samaya_tf
             )
             samaya_metrics = self._compute_metrics(
                 samaya_preds, samaya_labels, samaya_probs, "samaya_validation"
             )
+
+            if tent_enabled:
+                tent.restore()
+                model.eval()
+
+            ds_cfg = self.params.get("evaluation", {}).get("domain_shift", {}) or {}
+            if ds_cfg.get("compute_confidence_ece", False):
+                domain_shift_metrics["confidence_ece"] = self._compute_ece(
+                    samaya_preds, samaya_probs
+                )
+
+            if ds_cfg.get("compute_embedding_mmd", False):
+                try:
+                    mmd_val = self._compute_embedding_mmd(
+                        model,
+                        self.config.test_csv,
+                        self.config.samaya_csv,
+                        samaya_tf,
+                    )
+                    domain_shift_metrics["embedding_mmd"] = mmd_val
+                except Exception as e:
+                    logger.warning(f"embedding MMD computation failed: {e}")
         else:
             logger.warning(f"samaya CSV not found, skipping: {self.config.samaya_csv}")
 
-        full_metrics = {
+        full_metrics: dict = {
             "eyepacs_test": test_metrics,
             "samaya_validation": samaya_metrics,
         }
+        if domain_shift_metrics:
+            full_metrics["domain_shift"] = domain_shift_metrics
 
         QUADRATIC_WEIGHTED_KAPPA.labels(pipeline="imaging", split="eyepacs_test").set(
             test_metrics["quadratic_weighted_kappa"]
@@ -258,6 +368,10 @@ class ImagingModelEvaluation:
                     }
                 )
 
+                for k, v in domain_shift_metrics.items():
+                    if isinstance(v, (int, float)):
+                        mlflow.log_metric(f"domain_shift_{k}", float(v))
+
                 samaya_cm_path = (
                     self.config.metric_file.parent
                     / f"confusion_matrix_{samaya_metrics['split']}.png"
@@ -299,3 +413,73 @@ class ImagingModelEvaluation:
             torch.cuda.empty_cache()
 
         return full_metrics
+
+    @staticmethod
+    def _compute_ece(preds: list, probs: np.ndarray, n_bins: int = 10) -> float:
+        confidences = np.max(probs, axis=1)
+        preds_arr = np.array(preds)
+        targets = preds_arr
+
+        bin_boundaries = np.linspace(0.0, 1.0, n_bins + 1)
+        ece = 0.0
+        for i in range(n_bins):
+            in_bin = (confidences > bin_boundaries[i]) & (
+                confidences <= bin_boundaries[i + 1]
+            )
+            if in_bin.sum() == 0:
+                continue
+            bin_acc = (targets[in_bin] == preds_arr[in_bin]).mean()
+            bin_conf = confidences[in_bin].mean()
+            ece += (in_bin.sum() / len(probs)) * abs(bin_acc - bin_conf)
+        return float(ece)
+
+    def _compute_embedding_mmd(
+        self,
+        model: nn.Module,
+        eyepacs_csv: Path,
+        samaya_csv: Path,
+        samaya_transform,
+    ) -> float:
+        import torch.nn.functional as F
+
+        def _extract_embeddings(csv_path: Path, transform):
+            ds = RetinalDataset(csv_path, transform)
+            loader = DataLoader(
+                ds,
+                batch_size=self.params.evaluation.dl.batch_size,
+                shuffle=False,
+                num_workers=self.params.evaluation.dl.num_workers,
+            )
+            embs = []
+            with torch.no_grad():
+                for batch in loader:
+                    if isinstance(batch, (list, tuple)):
+                        images = batch[0]
+                    else:
+                        images = batch
+                    images = images.to(self.device)
+                    if hasattr(model, "forward_features"):
+                        features = model.forward_features(images)
+                        emb = model.global_pool(features)
+                    else:
+                        emb = model(images)
+                    embs.append(emb.cpu())
+            return torch.cat(embs, dim=0)
+
+        eye_embs = _extract_embeddings(eyepacs_csv, self._build_transform())
+        samaya_embs = _extract_embeddings(samaya_csv, samaya_transform)
+
+        n = min(len(eye_embs), 100)
+        m = min(len(samaya_embs), 66)
+        eye_sub = eye_embs[:n]
+        sam_sub = samaya_embs[:m]
+
+        eye_norm = F.normalize(eye_sub, p=2, dim=1)
+        sam_norm = F.normalize(sam_sub, p=2, dim=1)
+
+        xx = torch.mm(eye_norm, eye_norm.t())
+        yy = torch.mm(sam_norm, sam_norm.t())
+        xy = torch.mm(eye_norm, sam_norm.t())
+
+        mmd = xx.sum() / (n * n) + yy.sum() / (m * m) - 2 * xy.sum() / (n * m)
+        return float(mmd.item())

@@ -27,6 +27,7 @@ phase_based_training:
   clinical_ratio: 0.7
   eyepacs_ratio: 0.3
   keep_no_dr_ratio: 0.25
+  use_class_weights_in_loss: true
 
 dl_fine_tuning:
   epochs: 20
@@ -41,6 +42,20 @@ dl_fine_tuning:
   seed: 42
   freeze_backbone: true
 
+fda:
+  enabled: true
+  beta: 0.15
+  probability: 0.5
+  inference_beta: 0.1
+  target_images_dir: artifacts/data/processed/imaging/images/samaya
+  cache_path: artifacts/data/processed/imaging/samaya_amplitude_target.pt
+
+tent:
+  enabled: true
+  learning_rate: 0.0001
+  steps: 1
+  momentum: 0.9
+
 augmentation:
   random_horizontal_flip: true
   random_vertical_flip: true
@@ -53,6 +68,14 @@ augmentation:
   normalize:
     mean: [0.485, 0.456, 0.406]
     std: [0.229, 0.224, 0.225]
+  mixup:
+    enabled: true
+    alpha: 0.2
+  domain_robustness:
+    random_grayscale_prob: 0.05
+    random_sharpness: 0.5
+    random_affine_translate: [0.05, 0.05]
+    random_affine_scale: [0.95, 1.05]
 
 ml_training:
   model: xgboost
@@ -87,6 +110,10 @@ ml_training:
       - meta_image_quality
   target: clinical_npdr_grade
 
+inference:
+  confidence_threshold: 0.35
+  apply_fda_inverse: true
+
 evaluation:
   dl:
     batch_size: 16
@@ -103,6 +130,9 @@ evaluation:
       - roc_auc
       - f1_weighted
       - classification_report
+  domain_shift:
+    compute_embedding_mmd: true
+    compute_confidence_ece: true
 
 mlflow:
   imaging_run_name: efficientnet_b3

@@ -272,6 +272,23 @@ class InferenceService:
 
         del tensor, outputs
 
+        threshold = 0.0
+        try:
+            threshold = float(
+                self.params.get("inference", {}).get("confidence_threshold", 0.0)
+            )
+        except (AttributeError, TypeError):
+            pass
+        if confidence < threshold:
+            return {
+                "predicted_grade": -1,
+                "predicted_label": "Uncertain",
+                "severity": "unknown",
+                "confidence": round(confidence, 4),
+                "uncertain": True,
+                "probabilities": {DR_CLASSES[i]: float(p) for i, p in enumerate(probs)},
+            }
+
         return {
             "predicted_grade": pred_class,
             "predicted_label": DR_CLASSES[pred_class],

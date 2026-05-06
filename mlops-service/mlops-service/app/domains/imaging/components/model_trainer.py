@@ -20,6 +20,7 @@ from app.entity.config_entity import (
 )
 from app.utils.common import read_yaml, set_seed
 from app.domains.imaging.components.ordinal_loss import OrdinalCrossEntropyLoss
+from app.domains.imaging.components.fda_augment import FDAAugment
 from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
 from app.services.monitoring.prometheus_metrics import (
     BEST_VAL_ACCURACY,
@@ -93,32 +94,104 @@ class ImagingModelTrainer:
             f"phase={phase} epochs={self.phase_epochs} lr={self.phase_lr} freeze_backbone={self.freeze_backbone}"
         )
 
+        self._class_weights_tensor: torch.Tensor | None = None
+        use_weights = phase_cfg.get("use_class_weights_in_loss", False)
+        if use_weights:
+            raw_weights = phase_cfg.get("custom_class_weights", [])
+            if raw_weights:
+                self._class_weights_tensor = torch.tensor(
+                    raw_weights, dtype=torch.float32
+                )
+                logger.info(
+                    f"class weights enabled: {self._class_weights_tensor.tolist()}"
+                )
+
+        self._fda_augment: FDAAugment | None = None
+        fda_cfg = self.params.get("fda", {}) or {}
+        if fda_cfg.get("enabled", False):
+            target_dir = Path(fda_cfg["target_images_dir"])
+            if not target_dir.is_absolute():
+                target_dir = Path.cwd() / target_dir
+            cache_path_raw = fda_cfg.get("cache_path", "")
+            cache_path = Path(cache_path_raw) if cache_path_raw else None
+            if cache_path and not cache_path.is_absolute():
+                cache_path = Path.cwd() / cache_path
+
+            self._fda_augment = FDAAugment(
+                target_images_dir=target_dir,
+                beta=float(fda_cfg.get("beta", 0.15)),
+                probability=float(fda_cfg.get("probability", 0.5)),
+                cache_path=cache_path,
+            )
+            _ = self._fda_augment.target_amplitude
+            logger.info("FDA augmentation loaded")
+
+        self._use_mixup = (
+            self.params.get("augmentation", {}).get("mixup", {}).get("enabled", False)
+        )
+        self._mixup_alpha = (
+            float(
+                self.params.get("augmentation", {}).get("mixup", {}).get("alpha", 0.2)
+            )
+            if self._use_mixup
+            else 0.0
+        )
+        if self._use_mixup:
+            logger.info(f"MixUp enabled: alpha={self._mixup_alpha}")
+
     def _build_transforms(self):
         aug = self.params.augmentation
         norm = aug.normalize
-        train_tf = transforms.Compose(
-            [
-                transforms.Resize((224, 224)),
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomVerticalFlip(),
-                transforms.RandomRotation(aug.random_rotation),
-                transforms.ColorJitter(
-                    brightness=aug.color_jitter.brightness,
-                    contrast=aug.color_jitter.contrast,
-                    saturation=aug.color_jitter.saturation,
-                    hue=aug.color_jitter.hue,
-                ),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=norm.mean, std=norm.std),
-            ]
+        dr = aug.get("domain_robustness", {}) or {}
+
+        train_tf_list: list = [
+            transforms.Resize((224, 224)),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+            transforms.RandomRotation(aug.random_rotation),
+            transforms.ColorJitter(
+                brightness=aug.color_jitter.brightness,
+                contrast=aug.color_jitter.contrast,
+                saturation=aug.color_jitter.saturation,
+                hue=aug.color_jitter.hue,
+            ),
+        ]
+
+        affine_translate = tuple(dr.get("random_affine_translate", [0.05, 0.05]))
+        affine_scale = tuple(dr.get("random_affine_scale", [0.95, 1.05]))
+        train_tf_list.append(
+            transforms.RandomAffine(
+                degrees=0,
+                translate=affine_translate,
+                scale=affine_scale,
+            )
         )
-        val_tf = transforms.Compose(
-            [
-                transforms.Resize((224, 224)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=norm.mean, std=norm.std),
-            ]
-        )
+
+        grayscale_prob = float(dr.get("random_grayscale_prob", 0.0))
+        if grayscale_prob > 0:
+            train_tf_list.append(transforms.RandomGrayscale(p=grayscale_prob))
+
+        sharpness = float(dr.get("random_sharpness", 0.0))
+        if sharpness > 0:
+            train_tf_list.append(
+                transforms.RandomAdjustSharpness(sharpness_factor=sharpness, p=0.3)
+            )
+
+        train_tf_list.append(transforms.ToTensor())
+
+        if self._fda_augment is not None:
+            train_tf_list.append(transforms.Lambda(lambda t: self._fda_augment(t)))  # type: ignore[arg-type]
+
+        train_tf_list.append(transforms.Normalize(mean=norm.mean, std=norm.std))
+
+        train_tf = transforms.Compose(train_tf_list)
+
+        val_tf_list: list = [
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=norm.mean, std=norm.std),
+        ]
+        val_tf = transforms.Compose(val_tf_list)
         return train_tf, val_tf
 
     def _build_model(self) -> nn.Module:
@@ -299,8 +372,14 @@ class ImagingModelTrainer:
             optimizer, T_max=self.phase_epochs
         )
 
+        criteria_weights = None
+        if self._class_weights_tensor is not None:
+            criteria_weights = self._class_weights_tensor.to(self.device)
+
         criterion = OrdinalCrossEntropyLoss(
-            num_classes=p.num_classes, distance_weight=0.1
+            num_classes=p.num_classes,
+            distance_weight=0.1,
+            class_weights=criteria_weights,
         )
         logger.info(
             "Using OrdinalCrossEntropyLoss for ordinal DR grading (preserves grade ordering)"
@@ -331,13 +410,20 @@ class ImagingModelTrainer:
                     "num_classes": p.num_classes,
                     "dropout": p.dropout,
                     "seed": p.seed,
-                    "loss": "focal_loss"
-                    if not self.use_class_weights
-                    else "cross_entropy_weighted",
-                    "focal_gamma": 2.0,
+                    "loss": "ordinal_cross_entropy_weighted"
+                    if self._class_weights_tensor is not None
+                    else "ordinal_cross_entropy",
+                    "class_weights": (
+                        self._class_weights_tensor.tolist()
+                        if self._class_weights_tensor is not None
+                        else None
+                    ),
                     "freeze_blocks": 3,
                     "device": str(self.device),
                     "phase": self.phase,
+                    "mixup_enabled": self._use_mixup,
+                    "mixup_alpha": self._mixup_alpha if self._use_mixup else 0.0,
+                    "fda_enabled": self._fda_augment is not None,
                 }
             )
 
@@ -347,16 +433,36 @@ class ImagingModelTrainer:
 
                 for images, labels in train_loader:
                     images, labels = images.to(self.device), labels.to(self.device)
-                    optimizer.zero_grad()
-                    outputs = model(images)
-                    loss = criterion(outputs, labels)
-                    loss.backward()
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                    optimizer.step()
 
-                    train_loss += loss.item() * images.size(0)
-                    train_correct += (outputs.argmax(1) == labels).sum().item()
-                    train_total += images.size(0)
+                    if self._use_mixup:
+                        lam = np.random.beta(self._mixup_alpha, self._mixup_alpha)
+                        lam = max(lam, 1.0 - lam)
+                        index = torch.randperm(images.size(0), device=self.device)
+                        mixed_images = lam * images + (1.0 - lam) * images[index]
+                        labels_a, labels_b = labels, labels[index]
+
+                        optimizer.zero_grad()
+                        outputs = model(mixed_images)
+                        loss = lam * criterion(outputs, labels_a) + (
+                            1.0 - lam
+                        ) * criterion(outputs, labels_b)
+                        loss.backward()
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                        optimizer.step()
+
+                        train_loss += loss.item() * images.size(0)
+                        train_total += images.size(0)
+                    else:
+                        optimizer.zero_grad()
+                        outputs = model(images)
+                        loss = criterion(outputs, labels)
+                        loss.backward()
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                        optimizer.step()
+
+                        train_loss += loss.item() * images.size(0)
+                        train_correct += (outputs.argmax(1) == labels).sum().item()
+                        train_total += images.size(0)
 
                 scheduler.step()
 
@@ -382,7 +488,11 @@ class ImagingModelTrainer:
                     )
                 )
 
-                train_acc = train_correct / train_total
+                train_acc_approx = (
+                    float(train_correct) / train_total
+                    if train_total > 0 and not self._use_mixup
+                    else 0.0
+                )
                 val_acc = val_correct / val_total
                 avg_loss = train_loss / train_total
                 EPOCH_TRAIN_LOSS.labels(pipeline="imaging").observe(avg_loss)
@@ -391,7 +501,7 @@ class ImagingModelTrainer:
                 mlflow.log_metrics(
                     {
                         "train_loss": float(avg_loss),
-                        "train_acc": float(train_acc),
+                        "train_acc": float(train_acc_approx),
                         "val_acc": float(val_acc),
                         "val_macro_f1": float(macro_f1),
                         "lr": float(lr),
@@ -402,7 +512,7 @@ class ImagingModelTrainer:
                 logger.info(
                     f"epoch={epoch + 1}/{self.phase_epochs} "
                     f"loss={avg_loss:.4f} "
-                    f"train_acc={train_acc:.4f} "
+                    f"train_acc≈{train_acc_approx:.4f} "
                     f"val_acc={val_acc:.4f} "
                     f"val_f1={macro_f1:.4f} "
                     f"lr={lr:.6f}"
