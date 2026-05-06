@@ -300,7 +300,9 @@ class ImagingModelTrainer:
             import os
 
             os.environ["MLFLOW_RECORD_ENV_VARS_IN_MODEL_LOGGING"] = "false"
-            input_np = torch.randn(1, 3, 224, 224).numpy()
+            input_np = torch.randn(
+                1, 3, self.config.image_size, self.config.image_size
+            ).numpy()
             mlflow.pytorch.log_model(
                 model,
                 name="imaging_model",
