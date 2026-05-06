@@ -126,22 +126,28 @@ def _emit_training_completed_event(
 
     async def send_event():
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                llmops_trigger_url,
-                json={
-                    "event": "training.completed",
-                    "data": payload.get("data", {}),
-                    "room": "llmops",
-                },
-            )
-            logger.info(
-                f"training.completed event sent, status: {response.status_code}"
-            )
+            try:
+                response = await client.post(
+                    llmops_trigger_url,
+                    json={
+                        "event": "training.completed",
+                        "data": payload.get("data", {}),
+                        "room": "llmops",
+                    },
+                )
+                logger.info(
+                    f"training.completed event sent, status: {response.status_code}"
+                )
+            except httpx.ConnectError:
+                logger.info(
+                    f"Backend unreachable at {llmops_trigger_url}, skipping training.completed event"
+                )
+            except httpx.TimeoutException:
+                logger.info(
+                    f"Backend timeout at {llmops_trigger_url}, skipping training.completed event"
+                )
 
-    try:
-        _run_async_in_loop(send_event())
-    except Exception as e:
-        logger.warning(f"Failed to emit training.completed event: {e}")
+    _run_async_in_loop(send_event())
 
 
 _JOB_FILE = Path(os.environ.get("TRAINING_JOBS_FILE", "artifacts/training_jobs.json"))

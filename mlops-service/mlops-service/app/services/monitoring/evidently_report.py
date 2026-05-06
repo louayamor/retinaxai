@@ -20,10 +20,12 @@ class EvidentlyReportGenerator:
         self, df: pd.DataFrame, keep: list | None = None
     ) -> pd.DataFrame:
         keep = keep or []
+        exclude = {"label", "image_path", "source"}
         cols = [
             c
             for c in df.columns
-            if c in keep or df[c].dtype in ["float64", "int64", "float32", "int32"]
+            if c not in exclude
+            and (c in keep or df[c].dtype in ["float64", "int64", "float32", "int32"])
         ]
         return df[cols]
 

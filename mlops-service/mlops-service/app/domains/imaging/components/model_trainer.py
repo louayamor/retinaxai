@@ -297,16 +297,15 @@ class ImagingModelTrainer:
         start_time = time.perf_counter()
 
         def _upload_model() -> None:
-            # Disable recording env vars in model logging to avoid deployment warnings
             import os
 
             os.environ["MLFLOW_RECORD_ENV_VARS_IN_MODEL_LOGGING"] = "false"
-            # Log model with input example (MLflow will use default pickle serialization)
             input_np = torch.randn(1, 3, 224, 224).numpy()
             mlflow.pytorch.log_model(
                 model,
                 name="imaging_model",
                 input_example=input_np,
+                serialization_format="pt2",
             )
             logger.info("mlflow model logged successfully")
 
