@@ -16,12 +16,12 @@ dl_training:
 
 phase_based_training:
   enabled: true
-  phase1_epochs: 10
+  phase1_epochs: 15
   phase2_epochs: 10
-  phase1_lr: 0.0001
+  phase1_lr: 0.00005
   phase2_lr: 0.00001
   class_weights: custom
-  custom_class_weights: [1.0, 2.0, 3.0, 4.0, 5.0]
+  custom_class_weights: [1.0, 1.8, 2.5, 3.0, 3.5]
   early_stopping_metric: macro_f1
   oversample_clinical: true
   clinical_oversample_ratio: 5
@@ -64,10 +64,10 @@ tent:
 augmentation:
   random_horizontal_flip: true
   random_vertical_flip: true
-  random_rotation: 30
+  random_rotation: 15
   color_jitter:
-    brightness: 0.3
-    contrast: 0.3
+    brightness: 0.2
+    contrast: 0.2
     saturation: 0.1
     hue: 0.05
   normalize:
