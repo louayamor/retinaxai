@@ -12,7 +12,12 @@ from torchvision import transforms
 import pandas as pd
 from PIL import Image
 import numpy as np
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, confusion_matrix
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 from app.entity.config_entity import (
     ImagingModelTrainerConfig,
@@ -38,6 +43,7 @@ from app.services.monitoring.prometheus_metrics import (
     TRAINING_BEST_F1,
     TRAINING_PATIENCE_COUNTER,
     TRAINING_VAL_LOSS,
+    TRAINING_PER_CLASS_F1,
     ACTIVE_TRAINING_JOBS,
     GPU_MEMORY_USED_BYTES,
     GPU_UTILIZATION_PERCENT,
@@ -379,17 +385,28 @@ class ImagingModelTrainer:
         model = self._build_model()
         # Differential learning rate for Phase 2 (backbone 0.1x head LR)
         # Note: EfficientNet doesn't have backbone attribute, so this falls back to regular optimizer
-        if (
-            self.phase == "phase2"
-            and hasattr(model, "backbone")
-            and hasattr(model, "classifier")
-        ):
-            backbone_params = list(model.backbone.parameters())  # type: ignore[attr-defined]
-            classifier_params = list(model.classifier.parameters())  # type: ignore[attr-defined]
+        if self.phase == "phase2":
+            blocks = list(model.blocks.children()) if hasattr(model, "blocks") else []
+            unfreeze_from = max(0, len(blocks) - 2)
+            backbone_param_ids = set()
+            for i, block in enumerate(blocks):
+                if i < unfreeze_from:
+                    for p in block.parameters():
+                        backbone_param_ids.add(id(p))
+            backbone_params = [
+                p
+                for p in model.parameters()
+                if id(p) in backbone_param_ids and p.requires_grad
+            ]
+            head_params = [
+                p
+                for p in model.parameters()
+                if id(p) not in backbone_param_ids and p.requires_grad
+            ]
             optimizer = torch.optim.AdamW(
                 [
                     {"params": backbone_params, "lr": self.phase_lr * 0.1},
-                    {"params": classifier_params, "lr": self.phase_lr},
+                    {"params": head_params, "lr": self.phase_lr},
                 ],
                 weight_decay=p.weight_decay,
             )
@@ -402,6 +419,10 @@ class ImagingModelTrainer:
                 lr=self.phase_lr,
                 weight_decay=p.weight_decay,
             )
+
+        scaler = torch.amp.GradScaler("cuda") if self.device.type == "cuda" else None
+        if scaler:
+            logger.info("AMP (mixed precision) enabled")
 
         warmup_epochs = int(
             self.params.get("dl_training", {}).get("lr_warmup_epochs", 0)
@@ -524,23 +545,53 @@ class ImagingModelTrainer:
                         labels_a, labels_b = labels, labels[index]
 
                         optimizer.zero_grad()
-                        outputs = model(mixed_images)
-                        loss = lam * criterion(outputs, labels_a) + (
-                            1.0 - lam
-                        ) * criterion(outputs, labels_b)
-                        loss.backward()
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                        optimizer.step()
+                        if scaler:
+                            with torch.amp.autocast("cuda"):
+                                outputs = model(mixed_images)
+                                loss = lam * criterion(outputs, labels_a) + (
+                                    1.0 - lam
+                                ) * criterion(outputs, labels_b)
+                            scaler.scale(loss).backward()
+                            scaler.unscale_(optimizer)
+                            torch.nn.utils.clip_grad_norm_(
+                                model.parameters(), max_norm=1.0
+                            )
+                            scaler.step(optimizer)
+                            scaler.update()
+                        else:
+                            outputs = model(mixed_images)
+                            loss = lam * criterion(outputs, labels_a) + (
+                                1.0 - lam
+                            ) * criterion(outputs, labels_b)
+                            loss.backward()
+                            torch.nn.utils.clip_grad_norm_(
+                                model.parameters(), max_norm=1.0
+                            )
+                            optimizer.step()
 
                         train_loss += loss.item() * images.size(0)
                         train_total += images.size(0)
                     else:
                         optimizer.zero_grad()
-                        outputs = model(images)
-                        loss = criterion(outputs, labels)
-                        loss.backward()
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                        optimizer.step()
+                        if scaler:
+                            with torch.amp.autocast("cuda"):
+                                outputs = model(images)
+                                loss = criterion(outputs, labels)
+                            scaler.scale(loss).backward()
+                            scaler.unscale_(optimizer)
+                            torch.nn.utils.clip_grad_norm_(
+                                model.parameters(), max_norm=1.0
+                            )
+                            scaler.step(optimizer)
+                            scaler.update()
+                        else:
+                            outputs = model(images)
+                            loss = criterion(outputs, labels)
+                            loss.backward()
+                            torch.nn.utils.clip_grad_norm_(
+                                model.parameters(), max_norm=1.0
+                            )
+                            optimizer.step()
 
                         train_loss += loss.item() * images.size(0)
                         train_correct += (outputs.argmax(1) == labels).sum().item()
@@ -573,6 +624,10 @@ class ImagingModelTrainer:
                         all_labels, all_preds, average="macro", zero_division="warn"
                     )
                 )
+                per_class_f1 = f1_score(
+                    all_labels, all_preds, average=None, zero_division=0
+                )
+                cm = confusion_matrix(all_labels, all_preds)
                 train_f1 = (
                     float(
                         f1_score(
@@ -625,6 +680,12 @@ class ImagingModelTrainer:
                 TRAINING_VAL_LOSS.labels(pipeline="imaging").set(avg_loss)
                 EPOCH_TRAIN_LOSS.labels(pipeline="imaging").observe(avg_loss)
 
+                # Update per-class F1 gauges
+                for cls_idx, cls_f1 in enumerate(per_class_f1):
+                    TRAINING_PER_CLASS_F1.labels(
+                        pipeline="imaging", dr_grade=str(cls_idx)
+                    ).set(float(cls_f1))
+
                 # Update GPU metrics
                 if torch.cuda.is_available():
                     GPU_MEMORY_USED_BYTES.labels(device="0").set(
@@ -650,6 +711,33 @@ class ImagingModelTrainer:
                     },
                     step=epoch,
                 )
+
+                # Log per-class F1
+                for cls_idx, cls_f1 in enumerate(per_class_f1):
+                    mlflow.log_metric(
+                        f"val_f1_class_{cls_idx}", float(cls_f1), step=epoch
+                    )
+
+                # Log confusion matrix as MLflow artifact
+                dr_labels = ["No DR", "Mild", "Moderate", "Severe", "Proliferative"]
+                fig, ax = plt.subplots(figsize=(6, 5))
+                sns.heatmap(
+                    cm,
+                    annot=True,
+                    fmt="d",
+                    ax=ax,
+                    xticklabels=dr_labels,
+                    yticklabels=dr_labels,
+                    cmap="Blues",
+                )
+                ax.set_xlabel("Predicted")
+                ax.set_ylabel("True")
+                ax.set_title(f"Confusion Matrix — Epoch {epoch + 1}")
+                plt.tight_layout()
+                cm_path = Path(f"/tmp/cm_epoch_{epoch + 1}.png")
+                fig.savefig(cm_path)
+                mlflow.log_artifact(str(cm_path), "confusion_matrices")
+                plt.close(fig)
 
                 drift_status = (
                     "DRIFT"

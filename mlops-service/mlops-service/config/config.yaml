@@ -28,7 +28,7 @@ data_transformation:
 
 imaging_model:
   root_dir: artifacts/model/imaging
-  model_name: efficientnet_b3
+  model_name: efficientnet_b4
   pretrained: true
   checkpoint_path: artifacts/model/imaging/model.pth
 
@@ -66,7 +66,7 @@ monitoring:
 
 mlflow:
   experiment_name: retinaxai-dr-classification
-  imaging_run_name: efficientnet_b3_eyepacs
+  imaging_run_name: efficientnet_b4_eyepacs
   clinical_run_name: xgboost_clinical
 
 inter_service:

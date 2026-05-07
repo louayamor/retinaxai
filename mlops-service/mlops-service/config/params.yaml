@@ -12,16 +12,16 @@ dl_training:
   freeze_blocks: 3
   image_size: 300
   label_smoothing: 0.1
-  lr_warmup_epochs: 0
+  lr_warmup_epochs: 2
 
 phase_based_training:
   enabled: true
-  phase1_epochs: 15
-  phase2_epochs: 5
-  phase1_lr: 0.00005
+  phase1_epochs: 10
+  phase2_epochs: 10
+  phase1_lr: 0.0001
   phase2_lr: 0.00001
   class_weights: custom
-  custom_class_weights: [1.0, 1.8, 2.5, 3.0, 3.5]
+  custom_class_weights: [1.0, 2.0, 3.0, 4.0, 5.0]
   early_stopping_metric: macro_f1
   oversample_clinical: true
   clinical_oversample_ratio: 5
@@ -64,10 +64,10 @@ tent:
 augmentation:
   random_horizontal_flip: true
   random_vertical_flip: true
-  random_rotation: 15
+  random_rotation: 30
   color_jitter:
-    brightness: 0.2
-    contrast: 0.2
+    brightness: 0.3
+    contrast: 0.3
     saturation: 0.1
     hue: 0.05
   normalize:
@@ -77,7 +77,7 @@ augmentation:
     enabled: true
     alpha: 0.2
   domain_robustness:
-    random_grayscale_prob: 0.05
+    random_grayscale_prob: 0.1
     random_sharpness: 0.5
     random_affine_translate: [0.05, 0.05]
     random_affine_scale: [0.95, 1.05]
@@ -140,5 +140,5 @@ evaluation:
     compute_confidence_ece: true
 
 mlflow:
-  imaging_run_name: efficientnet_b3
+  imaging_run_name: efficientnet_b4
   model_log_timeout_seconds: 600

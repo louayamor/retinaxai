@@ -203,6 +203,12 @@ TRAINING_VAL_LOSS = Gauge(
     ["pipeline"],
 )
 
+TRAINING_PER_CLASS_F1 = Gauge(
+    "retinaxai_training_per_class_f1",
+    "Per-class F1 score during training",
+    ["pipeline", "dr_grade"],
+)
+
 
 def compute_psi(expected: np.ndarray, actual: np.ndarray, buckets: int = 10) -> float:
     """Compute Population Stability Index between two distributions.
@@ -256,6 +262,8 @@ def init_metrics() -> None:
         TRAINING_BEST_F1.labels(pipeline=p).set(0)
         TRAINING_PATIENCE_COUNTER.labels(pipeline=p).set(0)
         TRAINING_VAL_LOSS.labels(pipeline=p).set(0)
+        for grade in range(5):
+            TRAINING_PER_CLASS_F1.labels(pipeline=p, dr_grade=str(grade)).set(0)
     ACTIVE_TRAINING_JOBS.set(0)
     AUTOMATION_SCHEDULER_RUNNING.set(0)
     TRAINING_SLOTS_USED.labels(pipeline="all").set(0)
