@@ -39,7 +39,7 @@ ml_dataset:
   source: samaya
   label_column: clinical_npdr_grade
   label_mapping:
-    no_dr: 0
+    No DR: 0
     mild: 1
     moderate: 2
     severe: 3
