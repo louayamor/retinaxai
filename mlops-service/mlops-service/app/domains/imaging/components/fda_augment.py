@@ -32,6 +32,7 @@ class FDAAugment:
         probability: float = 0.5,
         cache_path: Path | None = None,
         source_amp_cache_path: Path | None = None,
+        expected_size: int | None = None,
     ):
         if beta < 0.0 or beta > 1.0:
             raise ValueError(f"beta must be in [0, 1], got {beta}")
@@ -41,6 +42,7 @@ class FDAAugment:
         self.beta = beta
         self.probability = probability
         self.target_images_dir = Path(target_images_dir)
+        self.expected_size = expected_size
         self.cache_path = (
             Path(cache_path)
             if cache_path
@@ -85,19 +87,44 @@ class FDAAugment:
     ) -> torch.Tensor:
         if cache_path.exists():
             tensor = torch.load(cache_path)
-            logger.info(f"loaded {label} FDA amplitude from cache: {cache_path}")
-            return tensor
+            # Validate cache size matches expected_size
+            if self.expected_size is not None:
+                # Amplitude tensor shape is (C, H, W), check spatial dimensions
+                tensor_size = tensor.shape[-1]
+                if tensor_size != self.expected_size:
+                    logger.warning(
+                        f"FDA amplitude cache size mismatch: cached={tensor_size}x{tensor_size}, "
+                        f"expected={self.expected_size}x{self.expected_size}. Recomputing..."
+                    )
+                    cache_path.unlink()  # Delete stale cache
+                else:
+                    logger.info(
+                        f"loaded {label} FDA amplitude from cache: {cache_path}"
+                    )
+                    return tensor
 
+        # Cache doesn't exist or was deleted, compute fresh
         logger.info(f"computing {label} FDA amplitude from: {images_dir}")
         image_paths = sorted(images_dir.rglob("*.png"))
         if not image_paths:
             raise FileNotFoundError(f"no PNG images found in {images_dir}")
 
+        # Use expected_size if provided, otherwise read from first image
+        if self.expected_size is not None:
+            target_size = (self.expected_size, self.expected_size)
+            logger.info(
+                f"resizing all images to {self.expected_size}x{self.expected_size}"
+            )
+        else:
+            sample_img = Image.open(image_paths[0]).convert("RGB")
+            target_size = sample_img.size
+            logger.info(f"using source image size: {target_size[0]}x{target_size[1]}")
+
         amplitudes: list[torch.Tensor] = []
         for img_path in image_paths:
             try:
                 img = Image.open(img_path).convert("RGB")
-                img = img.resize((224, 224))
+                img = img.resize(target_size)
                 tensor = (
                     torch.from_numpy(np.array(img)).float().permute(2, 0, 1) / 255.0
                 )

@@ -28,6 +28,20 @@ from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
 from app.services.monitoring.prometheus_metrics import (
     BEST_VAL_ACCURACY,
     EPOCH_TRAIN_LOSS,
+    TRAINING_CURRENT_EPOCH,
+    TRAINING_TOTAL_EPOCHS,
+    TRAINING_EPOCH_ACCURACY,
+    TRAINING_EPOCH_F1,
+    TRAINING_LEARNING_RATE,
+    TRAINING_EPOCH_DURATION,
+    TRAINING_EPOCH_PSI,
+    TRAINING_BEST_F1,
+    TRAINING_PATIENCE_COUNTER,
+    TRAINING_VAL_LOSS,
+    ACTIVE_TRAINING_JOBS,
+    GPU_MEMORY_USED_BYTES,
+    GPU_UTILIZATION_PERCENT,
+    compute_psi,
 )
 
 
@@ -125,6 +139,7 @@ class ImagingModelTrainer:
                 beta=float(fda_cfg.get("beta", 0.15)),
                 probability=float(fda_cfg.get("probability", 0.5)),
                 cache_path=cache_path,
+                expected_size=self.config.image_size,
             )
             _ = self._fda_augment.target_amplitude
             logger.info("FDA augmentation loaded")
@@ -226,14 +241,11 @@ class ImagingModelTrainer:
                         if "layer3" in name or "layer4" in name:
                             param.requires_grad = True
 
-                # Set BatchNorm to eval mode for domain adaptation (prevents stats pollution)
-                for module in model.modules():
-                    if isinstance(module, nn.BatchNorm2d):
-                        module.eval()
-                        module.track_running_stats = False
+                # BatchNorm remains in training mode to adapt to EyePACS domain statistics
+                # Only frozen blocks have requires_grad=False, but BatchNorm can still update stats
 
                 logger.info(
-                    f"Phase {self.phase}: backbone frozen (with gradual unfreeze={self.unfreeze_last_blocks}), BatchNorm eval mode"
+                    f"Phase {self.phase}: backbone frozen (with gradual unfreeze={self.unfreeze_last_blocks}), BatchNorm in training mode"
                 )
             else:
                 # Unfrozen backbone - full feature learning (Phase 1 default)
@@ -307,7 +319,7 @@ class ImagingModelTrainer:
                 model,
                 name="imaging_model",
                 input_example=input_np,
-                serialization_format="pt2",
+                serialization_format="pickle",
             )
             logger.info("mlflow model logged successfully")
 
@@ -354,14 +366,14 @@ class ImagingModelTrainer:
             shuffle=(sampler is None),
             sampler=sampler,
             num_workers=p.num_workers,
-            pin_memory=True,
+            pin_memory=False,
         )
         val_loader = DataLoader(
             val_dataset,
             batch_size=p.batch_size,
             shuffle=False,
             num_workers=p.num_workers,
-            pin_memory=True,
+            pin_memory=False,
         )
 
         model = self._build_model()
@@ -492,9 +504,14 @@ class ImagingModelTrainer:
                 }
             )
 
+            TRAINING_TOTAL_EPOCHS.labels(pipeline="imaging").set(self.phase_epochs)
+            ACTIVE_TRAINING_JOBS.inc()
+
             for epoch in range(self.phase_epochs):
+                epoch_start = time.perf_counter()
                 model.train()
                 train_loss, train_correct, train_total = 0.0, 0, 0
+                train_preds, train_labels_list = [], []
 
                 for images, labels in train_loader:
                     images, labels = images.to(self.device), labels.to(self.device)
@@ -528,6 +545,8 @@ class ImagingModelTrainer:
                         train_loss += loss.item() * images.size(0)
                         train_correct += (outputs.argmax(1) == labels).sum().item()
                         train_total += images.size(0)
+                        train_preds.extend(outputs.argmax(1).cpu().numpy())
+                        train_labels_list.extend(labels.cpu().numpy())
 
                 scheduler.step()
 
@@ -546,11 +565,25 @@ class ImagingModelTrainer:
 
                 model.train()
 
+                epoch_duration = time.perf_counter() - epoch_start
+
                 # Calculate macro-F1 for proper early stopping
                 macro_f1 = float(
                     f1_score(
                         all_labels, all_preds, average="macro", zero_division="warn"
                     )
+                )
+                train_f1 = (
+                    float(
+                        f1_score(
+                            train_labels_list,
+                            train_preds,
+                            average="macro",
+                            zero_division="warn",
+                        )
+                    )
+                    if train_labels_list
+                    else 0.0
                 )
 
                 train_acc_approx = (
@@ -560,8 +593,48 @@ class ImagingModelTrainer:
                 )
                 val_acc = val_correct / val_total
                 avg_loss = train_loss / train_total
-                EPOCH_TRAIN_LOSS.labels(pipeline="imaging").observe(avg_loss)
                 lr = float(scheduler.get_last_lr()[0])
+
+                # Compute PSI between train and val prediction distributions
+                train_probs = np.array(train_preds) / max(
+                    self.params.dl_training.num_classes - 1, 1
+                )
+                val_probs = np.array(all_preds) / max(
+                    self.params.dl_training.num_classes - 1, 1
+                )
+                psi_score = compute_psi(val_probs, train_probs)
+
+                # Update Prometheus metrics
+                TRAINING_CURRENT_EPOCH.labels(pipeline="imaging").set(epoch + 1)
+                TRAINING_EPOCH_ACCURACY.labels(pipeline="imaging", split="train").set(
+                    train_acc_approx
+                )
+                TRAINING_EPOCH_ACCURACY.labels(pipeline="imaging", split="val").set(
+                    val_acc
+                )
+                TRAINING_EPOCH_F1.labels(pipeline="imaging", split="train").set(
+                    train_f1
+                )
+                TRAINING_EPOCH_F1.labels(pipeline="imaging", split="val").set(macro_f1)
+                TRAINING_LEARNING_RATE.labels(pipeline="imaging").set(lr)
+                TRAINING_EPOCH_DURATION.labels(pipeline="imaging").set(epoch_duration)
+                TRAINING_EPOCH_PSI.labels(pipeline="imaging").set(psi_score)
+                TRAINING_PATIENCE_COUNTER.labels(pipeline="imaging").set(
+                    patience_counter
+                )
+                TRAINING_VAL_LOSS.labels(pipeline="imaging").set(avg_loss)
+                EPOCH_TRAIN_LOSS.labels(pipeline="imaging").observe(avg_loss)
+
+                # Update GPU metrics
+                if torch.cuda.is_available():
+                    GPU_MEMORY_USED_BYTES.labels(device="0").set(
+                        torch.cuda.memory_allocated(0)
+                    )
+                    GPU_UTILIZATION_PERCENT.labels(device="0").set(
+                        torch.cuda.utilization(0)
+                        if hasattr(torch.cuda, "utilization")
+                        else 0
+                    )
 
                 mlflow.log_metrics(
                     {
@@ -569,22 +642,31 @@ class ImagingModelTrainer:
                         "train_acc": float(train_acc_approx),
                         "val_acc": float(val_acc),
                         "val_macro_f1": float(macro_f1),
+                        "train_f1": float(train_f1),
                         "lr": float(lr),
+                        "psi_score": float(psi_score),
+                        "epoch_duration_s": float(epoch_duration),
                     },
                     step=epoch,
                 )
 
+                drift_status = (
+                    "DRIFT"
+                    if psi_score > 0.25
+                    else "MODERATE"
+                    if psi_score > 0.1
+                    else "STABLE"
+                )
                 logger.info(
                     f"epoch={epoch + 1}/{self.phase_epochs} "
                     f"loss={avg_loss:.4f} "
-                    f"train_acc≈{train_acc_approx:.4f} "
+                    f"train_acc={train_acc_approx:.4f} "
                     f"val_acc={val_acc:.4f} "
+                    f"train_f1={train_f1:.4f} "
                     f"val_f1={macro_f1:.4f} "
-                    f"lr={lr:.6f}"
-                )
-
-                logger.info(
-                    f"DEBUG: val_f1={macro_f1:.4f}, best_f1={best_macro_f1:.4f}, saving={macro_f1 > best_macro_f1}"
+                    f"lr={lr:.6f} "
+                    f"psi={psi_score:.4f} [{drift_status}] "
+                    f"duration={epoch_duration:.1f}s"
                 )
 
                 # Use macro-F1 for checkpointing (not accuracy)
@@ -599,13 +681,18 @@ class ImagingModelTrainer:
                             f"Failed to save model checkpoint: {e}"
                         ) from e
                     BEST_VAL_ACCURACY.labels(pipeline="imaging").set(best_val_acc)
+                    TRAINING_BEST_F1.labels(pipeline="imaging").set(best_macro_f1)
                     logger.info(f"checkpoint saved: macro_f1={macro_f1:.4f}")
                 else:
                     patience_counter += 1
+                    TRAINING_PATIENCE_COUNTER.labels(pipeline="imaging").set(
+                        patience_counter
+                    )
                     if patience_counter >= p.early_stopping_patience:
                         logger.info(f"early stopping at epoch {epoch + 1}")
                         break
 
+            ACTIVE_TRAINING_JOBS.dec()
             mlflow.log_metric("best_val_acc", float(best_val_acc))
             mlflow.log_metric("best_macro_f1", float(best_macro_f1))
             self._log_best_model_to_mlflow(checkpoint_path, p.num_classes)

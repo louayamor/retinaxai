@@ -298,8 +298,8 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                 "data_transformation",
                 "started",
                 0,
-                "Transforming images to 224x224, normalizing...",
-                metrics={"images": 0, "size": 224},
+                "Transforming images to 300x300, normalizing...",
+                metrics={"images": 0, "size": 300},
             )
             if is_job_cancelled(job_id):
                 raise Exception("Job cancelled by user")
@@ -311,8 +311,8 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                     "data_transformation",
                     "completed",
                     100,
-                    "Transformed images to 224x224 with ImageNet normalization",
-                    metrics={"images": 0, "size": 224},
+                    "Transformed images to 300x300 with ImageNet normalization",
+                    metrics={"images": 0, "size": 300},
                 )
             except Exception as e:
                 _emit_stage_event(

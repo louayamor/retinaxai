@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import numpy as np
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 from loguru import logger
 
@@ -35,7 +38,7 @@ EPOCH_TRAIN_LOSS = Histogram(
     "retinaxai_epoch_train_loss",
     "Training loss per epoch",
     ["pipeline"],
-    buckets=[0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0],
+    buckets=[0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
 )
 
 INFERENCE_LATENCY = Histogram(
@@ -140,6 +143,95 @@ MODEL_ROLLBACKS_TOTAL = Counter(
     ["pipeline"],
 )
 
+TRAINING_CURRENT_EPOCH = Gauge(
+    "retinaxai_training_current_epoch",
+    "Current training epoch number",
+    ["pipeline"],
+)
+
+TRAINING_TOTAL_EPOCHS = Gauge(
+    "retinaxai_training_total_epochs",
+    "Total number of epochs for this training run",
+    ["pipeline"],
+)
+
+TRAINING_EPOCH_ACCURACY = Gauge(
+    "retinaxai_training_epoch_accuracy",
+    "Accuracy per epoch for train and validation splits",
+    ["pipeline", "split"],
+)
+
+TRAINING_EPOCH_F1 = Gauge(
+    "retinaxai_training_epoch_f1",
+    "Macro F1 score per epoch for train and validation splits",
+    ["pipeline", "split"],
+)
+
+TRAINING_LEARNING_RATE = Gauge(
+    "retinaxai_training_learning_rate",
+    "Current learning rate during training",
+    ["pipeline"],
+)
+
+TRAINING_EPOCH_DURATION = Gauge(
+    "retinaxai_training_epoch_duration_seconds",
+    "Duration of each training epoch in seconds",
+    ["pipeline"],
+)
+
+TRAINING_EPOCH_PSI = Gauge(
+    "retinaxai_training_epoch_psi",
+    "Population Stability Index between train and val predictions per epoch",
+    ["pipeline"],
+)
+
+TRAINING_BEST_F1 = Gauge(
+    "retinaxai_training_best_f1",
+    "Best macro F1 score achieved during training",
+    ["pipeline"],
+)
+
+TRAINING_PATIENCE_COUNTER = Gauge(
+    "retinaxai_training_patience_counter",
+    "Current early stopping patience counter",
+    ["pipeline"],
+)
+
+TRAINING_VAL_LOSS = Gauge(
+    "retinaxai_training_val_loss",
+    "Validation loss per epoch",
+    ["pipeline"],
+)
+
+
+def compute_psi(expected: np.ndarray, actual: np.ndarray, buckets: int = 10) -> float:
+    """Compute Population Stability Index between two distributions.
+
+    PSI = Σ((actual% - expected%) × ln(actual% / expected%))
+
+    Thresholds:
+        < 0.1: No significant change
+        0.1 - 0.25: Moderate change
+        > 0.25: Significant change requiring investigation
+    """
+    if len(expected) == 0 or len(actual) == 0:
+        return 0.0
+
+    eps = 1e-6
+    min_val = min(expected.min(), actual.min())
+    max_val = max(expected.max(), actual.max())
+
+    if min_val == max_val:
+        return 0.0
+
+    bin_edges = np.linspace(min_val, max_val, buckets + 1)
+
+    expected_pct = np.histogram(expected, bins=bin_edges)[0] / len(expected) + eps
+    actual_pct = np.histogram(actual, bins=bin_edges)[0] / len(actual) + eps
+
+    psi = np.sum((actual_pct - expected_pct) * np.log(actual_pct / expected_pct))
+    return float(psi)
+
 
 def init_metrics() -> None:
     """Initialize all Gauges to 0 so Prometheus has data to scrape at startup."""
@@ -152,6 +244,18 @@ def init_metrics() -> None:
         TRAINING_SLOTS_USED.labels(pipeline=p).set(0)
         MODEL_REGISTRY_VERSIONS.labels(pipeline=p, stage="staging").set(0)
         MODEL_REGISTRY_VERSIONS.labels(pipeline=p, stage="production").set(0)
+        TRAINING_CURRENT_EPOCH.labels(pipeline=p).set(0)
+        TRAINING_TOTAL_EPOCHS.labels(pipeline=p).set(0)
+        TRAINING_EPOCH_ACCURACY.labels(pipeline=p, split="train").set(0)
+        TRAINING_EPOCH_ACCURACY.labels(pipeline=p, split="val").set(0)
+        TRAINING_EPOCH_F1.labels(pipeline=p, split="train").set(0)
+        TRAINING_EPOCH_F1.labels(pipeline=p, split="val").set(0)
+        TRAINING_LEARNING_RATE.labels(pipeline=p).set(0)
+        TRAINING_EPOCH_DURATION.labels(pipeline=p).set(0)
+        TRAINING_EPOCH_PSI.labels(pipeline=p).set(0)
+        TRAINING_BEST_F1.labels(pipeline=p).set(0)
+        TRAINING_PATIENCE_COUNTER.labels(pipeline=p).set(0)
+        TRAINING_VAL_LOSS.labels(pipeline=p).set(0)
     ACTIVE_TRAINING_JOBS.set(0)
     AUTOMATION_SCHEDULER_RUNNING.set(0)
     TRAINING_SLOTS_USED.labels(pipeline="all").set(0)

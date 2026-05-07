@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### MLOps Service (Port 8004)
 - **Imaging Model**: EfficientNet-B3 (timm) for diabetic retinopathy grading
-  - Input: 224x224 RGB fundus images
+  - Input: 300x300 RGB fundus images
   - Output: 5-class probability (No DR, Mild, Moderate, Severe, Proliferative DR)
 - **Clinical Model**: XGBoost for risk prediction from clinical features
 - **OCR Pipeline**: Full OCT report extraction system

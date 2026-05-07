@@ -282,11 +282,76 @@ class ImagingDataTransformation:
         pd.DataFrame(records).to_csv(self.config.samaya_csv, index=False)
         logger.info(f"samaya CSV saved: {self.config.samaya_csv} ({len(records)} rows)")
 
+    def _validate_outputs(self) -> bool:
+        """Validate that existing output images match the configured image_size."""
+        expected_size = self.config.image_size
+
+        # Check EyePACS train images
+        eyepacs_train_dir = self.config.root_dir / "images" / "eyepacs" / "train"
+        if eyepacs_train_dir.exists():
+            sample_images = list(eyepacs_train_dir.glob("*.png"))[:1]
+            if sample_images:
+                try:
+                    with Image.open(sample_images[0]) as img:
+                        actual_size = img.size[0]
+                        if actual_size != expected_size:
+                            logger.warning(
+                                f"image size mismatch: EyePACS images are {actual_size}x{actual_size}, "
+                                f"expected {expected_size}x{expected_size}"
+                            )
+                            return False
+                        logger.info(
+                            f"output validation passed: EyePACS images are {expected_size}x{expected_size}"
+                        )
+                except Exception as e:
+                    logger.warning(f"failed to validate EyePACS images: {e}")
+                    return False
+        else:
+            logger.info("output validation: EyePACS train directory not found")
+            return False
+
+        # Check Samaya images
+        samaya_dir = self.config.root_dir / "images" / "samaya"
+        if samaya_dir.exists():
+            sample_images = list(samaya_dir.glob("*.png"))[:1]
+            if sample_images:
+                try:
+                    with Image.open(sample_images[0]) as img:
+                        actual_size = img.size[0]
+                        if actual_size != expected_size:
+                            logger.warning(
+                                f"image size mismatch: Samaya images are {actual_size}x{actual_size}, "
+                                f"expected {expected_size}x{expected_size}"
+                            )
+                            return False
+                        logger.info(
+                            f"output validation passed: Samaya images are {expected_size}x{expected_size}"
+                        )
+                except Exception as e:
+                    logger.warning(f"failed to validate Samaya images: {e}")
+                    return False
+            else:
+                logger.info("output validation: Samaya directory is empty")
+                return False
+        else:
+            logger.info("output validation: Samaya directory not found")
+            return False
+
+        return True
+
     def run(self) -> None:
         import os
 
         force_regen = os.environ.get("FORCE_REGEN", "false").lower() == "true"
         images_dir = self.config.root_dir / "images" / "eyepacs"
+
+        # Validate output image sizes match config
+        outputs_valid = self._validate_outputs()
+        if not outputs_valid:
+            logger.warning(
+                f"output validation failed: regenerating images for image_size={self.config.image_size}"
+            )
+            force_regen = True
 
         if not force_regen and (
             self.config.train_csv.exists()
