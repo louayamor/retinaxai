@@ -36,6 +36,7 @@ class ImagingModelTrainerConfig:
     model_name: str
     pretrained: bool
     checkpoint_path: Path
+    image_size: int
 
 
 @dataclass(frozen=True)

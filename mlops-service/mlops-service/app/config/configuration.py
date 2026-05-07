@@ -73,12 +73,14 @@ class ConfigurationManager:
 
     def get_imaging_model_trainer_config(self) -> ImagingModelTrainerConfig:
         cfg = self.config.imaging_model
+        params = read_yaml("config/params.yaml")
         create_directories([Path(cfg.root_dir)])
         return ImagingModelTrainerConfig(
             root_dir=Path(cfg.root_dir),
             model_name=cfg.model_name,
             pretrained=cfg.pretrained,
             checkpoint_path=Path(cfg.checkpoint_path),
+            image_size=params.dl_training.image_size,
         )
 
     def get_imaging_model_evaluation_config(self) -> ImagingModelEvaluationConfig:
