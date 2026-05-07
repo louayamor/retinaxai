@@ -630,11 +630,12 @@ class ImagingModelTrainer:
                     GPU_MEMORY_USED_BYTES.labels(device="0").set(
                         torch.cuda.memory_allocated(0)
                     )
-                    GPU_UTILIZATION_PERCENT.labels(device="0").set(
-                        torch.cuda.utilization(0)
-                        if hasattr(torch.cuda, "utilization")
-                        else 0
-                    )
+                    try:
+                        GPU_UTILIZATION_PERCENT.labels(device="0").set(
+                            torch.cuda.utilization(0)
+                        )
+                    except Exception:
+                        pass
 
                 mlflow.log_metrics(
                     {
