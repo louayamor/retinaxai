@@ -531,8 +531,7 @@ class ImagingModelTrainer:
             for epoch in range(self.phase_epochs):
                 epoch_start = time.perf_counter()
                 model.train()
-                train_loss, train_correct, train_total = 0.0, 0, 0
-                train_preds, train_labels_list = [], []
+                train_loss, train_total = 0.0, 0
 
                 for images, labels in train_loader:
                     images, labels = images.to(self.device), labels.to(self.device)
@@ -594,10 +593,7 @@ class ImagingModelTrainer:
                             optimizer.step()
 
                         train_loss += loss.item() * images.size(0)
-                        train_correct += (outputs.argmax(1) == labels).sum().item()
                         train_total += images.size(0)
-                        train_preds.extend(outputs.argmax(1).cpu().numpy())
-                        train_labels_list.extend(labels.cpu().numpy())
 
                 scheduler.step()
 
@@ -614,11 +610,18 @@ class ImagingModelTrainer:
                         all_preds.extend(preds.cpu().numpy())
                         all_labels.extend(labels.cpu().numpy())
 
+                clean_train_preds, clean_train_labels = [], []
+                with torch.no_grad():
+                    for images, labels in train_loader:
+                        images = images.to(self.device)
+                        outputs = model(images)
+                        clean_train_preds.extend(outputs.argmax(1).cpu().numpy())
+                        clean_train_labels.extend(labels.cpu().numpy())
+
                 model.train()
 
                 epoch_duration = time.perf_counter() - epoch_start
 
-                # Calculate macro-F1 for proper early stopping
                 macro_f1 = float(
                     f1_score(
                         all_labels, all_preds, average="macro", zero_division="warn"
@@ -628,30 +631,28 @@ class ImagingModelTrainer:
                     all_labels, all_preds, average=None, zero_division=0
                 )
                 cm = confusion_matrix(all_labels, all_preds)
-                train_f1 = (
-                    float(
-                        f1_score(
-                            train_labels_list,
-                            train_preds,
-                            average="macro",
-                            zero_division="warn",
-                        )
-                    )
-                    if train_labels_list
-                    else 0.0
-                )
 
-                train_acc_approx = (
-                    float(train_correct) / train_total
-                    if train_total > 0 and not self._use_mixup
-                    else 0.0
+                train_acc = float(
+                    sum(
+                        1
+                        for p, lbl in zip(clean_train_preds, clean_train_labels)
+                        if p == lbl
+                    )
+                    / max(len(clean_train_labels), 1)
+                )
+                train_f1 = float(
+                    f1_score(
+                        clean_train_labels,
+                        clean_train_preds,
+                        average="macro",
+                        zero_division="warn",
+                    )
                 )
                 val_acc = val_correct / val_total
                 avg_loss = train_loss / train_total
                 lr = float(scheduler.get_last_lr()[0])
 
-                # Compute PSI between train and val prediction distributions
-                train_probs = np.array(train_preds) / max(
+                train_probs = np.array(clean_train_preds) / max(
                     self.params.dl_training.num_classes - 1, 1
                 )
                 val_probs = np.array(all_preds) / max(
@@ -662,7 +663,7 @@ class ImagingModelTrainer:
                 # Update Prometheus metrics
                 TRAINING_CURRENT_EPOCH.labels(pipeline="imaging").set(epoch + 1)
                 TRAINING_EPOCH_ACCURACY.labels(pipeline="imaging", split="train").set(
-                    train_acc_approx
+                    train_acc
                 )
                 TRAINING_EPOCH_ACCURACY.labels(pipeline="imaging", split="val").set(
                     val_acc
@@ -701,7 +702,7 @@ class ImagingModelTrainer:
                 mlflow.log_metrics(
                     {
                         "train_loss": float(avg_loss),
-                        "train_acc": float(train_acc_approx),
+                        "train_acc": float(train_acc),
                         "val_acc": float(val_acc),
                         "val_macro_f1": float(macro_f1),
                         "train_f1": float(train_f1),
@@ -749,7 +750,7 @@ class ImagingModelTrainer:
                 logger.info(
                     f"epoch={epoch + 1}/{self.phase_epochs} "
                     f"loss={avg_loss:.4f} "
-                    f"train_acc={train_acc_approx:.4f} "
+                    f"train_acc={train_acc:.4f} "
                     f"val_acc={val_acc:.4f} "
                     f"train_f1={train_f1:.4f} "
                     f"val_f1={macro_f1:.4f} "
