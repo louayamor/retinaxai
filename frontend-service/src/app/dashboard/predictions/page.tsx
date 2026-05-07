@@ -396,7 +396,7 @@ export default function PredictionsPage() {
       const predictionData: PredictionRequest = {
         patient_id: selectedPatientId,
         mri_scan_id: scan.id,
-        model_name: 'efficientnet_b3',
+        model_name: 'efficientnet_b4',
         model_version: '1.0.0',
         input_payload: {
           left_eye_path: scan.left_scan_path,

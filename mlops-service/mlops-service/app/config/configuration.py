@@ -89,6 +89,7 @@ class ConfigurationManager:
         create_directories([Path(cfg.root_dir)])
         return ImagingModelEvaluationConfig(
             root_dir=Path(cfg.root_dir),
+            model_name=self.config.imaging_model.model_name,
             test_csv=Path(cfg.test_csv),
             samaya_csv=Path(self.config.data_transformation.imaging.samaya_csv),
             model_path=Path(cfg.model_path),

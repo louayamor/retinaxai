@@ -133,11 +133,13 @@ def test_predict_route_emits_failure_event(monkeypatch):
     monkeypatch.setattr(predict_route, "get_inference_service", lambda: DummyService())
     monkeypatch.setattr(predict_route, "send_prediction_log", fake_log)
     monkeypatch.setattr(predict_route, "send_prediction_event", fake_event)
-    monkeypatch.setattr(predict_route, "_decode_base64_image", lambda value: b"fake-bytes")
+    monkeypatch.setattr(
+        predict_route, "_decode_base64_image", lambda value: b"fake-bytes"
+    )
     monkeypatch.setattr(predict_route, "_validate_image_bytes", lambda value: None)
 
     request = MLPredictHttpRequest(
-        model_name="efficientnet_b3",
+        model_name="efficientnet_b4",
         model_version="1.0.0",
         patient_id="patient-1",
         patient_age=70,
@@ -182,11 +184,13 @@ def test_predict_route_includes_embedding(monkeypatch):
 
     monkeypatch.setattr(predict_route, "send_prediction_log", fake_log)
     monkeypatch.setattr(predict_route, "send_prediction_event", fake_event)
-    monkeypatch.setattr(predict_route, "_decode_base64_image", lambda value: b"fake-bytes")
+    monkeypatch.setattr(
+        predict_route, "_decode_base64_image", lambda value: b"fake-bytes"
+    )
     monkeypatch.setattr(predict_route, "_validate_image_bytes", lambda value: None)
 
     request = MLPredictHttpRequest(
-        model_name="efficientnet_b3",
+        model_name="efficientnet_b4",
         model_version="1.0.0",
         patient_id="patient-1",
         patient_age=70,

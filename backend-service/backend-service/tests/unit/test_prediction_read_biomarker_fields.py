@@ -11,7 +11,7 @@ def test_prediction_read_includes_biomarker_fields() -> None:
         "patient_id": "d3fc6d95-b2fa-4cb0-a41f-f78dbce57d88",
         "mri_scan_id": "d3fc6d95-b2fa-4cb0-a41f-f78dbce57d87",
         "requested_by": "d3fc6d95-b2fa-4cb0-a41f-f78dbce57d86",
-        "model_name": "efficientnet_b3",
+        "model_name": "efficientnet_b4",
         "model_version": "v1.0.0",
         "input_payload": {},
         "output_payload": {},

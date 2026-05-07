@@ -42,6 +42,7 @@ class ImagingModelTrainerConfig:
 @dataclass(frozen=True)
 class ImagingModelEvaluationConfig:
     root_dir: Path
+    model_name: str
     test_csv: Path
     samaya_csv: Path
     model_path: Path

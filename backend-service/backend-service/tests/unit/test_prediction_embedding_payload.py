@@ -26,7 +26,9 @@ class DummyRepo:
 
 class DummyPatientRepo:
     async def get_by_id(self, _id):
-        return SimpleNamespace(first_name="A", age=70, gender=SimpleNamespace(value="M"))
+        return SimpleNamespace(
+            first_name="A", age=70, gender=SimpleNamespace(value="M")
+        )
 
 
 class DummyScanRepo:
@@ -59,7 +61,7 @@ async def test_prediction_service_persists_embedding_into_output_payload(monkeyp
             return_value=SimpleNamespace(
                 prediction={"combined_grade": 2},
                 confidence_score=0.93,
-                model_name="efficientnet_b3",
+                model_name="efficientnet_b4",
                 model_version="v1",
                 embedding=[0.1, 0.2, 0.3],
                 gradcam_left=None,
@@ -72,16 +74,29 @@ async def test_prediction_service_persists_embedding_into_output_payload(monkeyp
             )
         ),
     )
-    monkeypatch.setattr("app.predictions.service.get_socket_manager", lambda: SimpleNamespace(emit_prediction_event=AsyncMock()))
-    monkeypatch.setitem(__import__("sys").modules, "app.explanations.service", SimpleNamespace(
-        ExplanationService=lambda _db: SimpleNamespace(
-            trigger_xai_for_prediction=AsyncMock()
-        )
-    ))
+    monkeypatch.setattr(
+        "app.predictions.service.get_socket_manager",
+        lambda: SimpleNamespace(emit_prediction_event=AsyncMock()),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "app.explanations.service",
+        SimpleNamespace(
+            ExplanationService=lambda _db: SimpleNamespace(
+                trigger_xai_for_prediction=AsyncMock()
+            )
+        ),
+    )
 
     result = await PredictionService.run(
         service,
-        SimpleNamespace(patient_id="patient-1", mri_scan_id="scan-1", model_name="efficientnet_b3", model_version="v1", input_payload={"risk_factors": []}),  # type: ignore
+        SimpleNamespace(
+            patient_id="patient-1",
+            mri_scan_id="scan-1",
+            model_name="efficientnet_b4",
+            model_version="v1",
+            input_payload={"risk_factors": []},
+        ),  # type: ignore
         requested_by="user-1",  # type: ignore
     )
 

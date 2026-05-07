@@ -133,11 +133,16 @@ class InferenceService:
             )
 
         p = self.params.dl_training
+        model_name = (
+            self.params.get("mlflow", {})
+            .get("imaging_run_name", "efficientnet_b4")
+            .rsplit("_", 1)[0]
+        )
         logger.info(
-            f"[IMAGING MODEL] creating efficientnet_b3 num_classes={p.num_classes} drop={p.dropout}"
+            f"[IMAGING MODEL] creating {model_name} num_classes={p.num_classes} drop={p.dropout}"
         )
         model = timm.create_model(
-            "efficientnet_b3",
+            model_name,
             pretrained=False,
             num_classes=p.num_classes,
             drop_rate=p.dropout,
@@ -251,7 +256,7 @@ class InferenceService:
         except RuntimeError as e:
             if self.device.type == "cuda" and "out of memory" in str(e).lower():
                 logger.warning("[IMAGING] CUDA OOM during inference; retrying on CPU")
-                INFERENCE_OOM_KILLS.labels(model="efficientnet_b3").inc()
+                INFERENCE_OOM_KILLS.labels(model="imaging").inc()
                 self._move_to_cpu()
                 model = self._load_imaging_model()
                 tensor = tensor.to(self.device)
@@ -264,7 +269,7 @@ class InferenceService:
         pred_class = int(np.argmax(probs))
         confidence = float(probs[pred_class])
 
-        INFERENCE_LATENCY.labels(model="efficientnet_b3").observe(time.time() - start)
+        INFERENCE_LATENCY.labels(model="imaging").observe(time.time() - start)
         _emit_gpu_metrics()
 
         if self.device.type == "cuda":
@@ -383,7 +388,7 @@ class InferenceService:
         except RuntimeError as e:
             if self.device.type == "cuda" and "out of memory" in str(e).lower():
                 logger.warning("[IMAGING] CUDA OOM during inference; retrying on CPU")
-                INFERENCE_OOM_KILLS.labels(model="efficientnet_b3").inc()
+                INFERENCE_OOM_KILLS.labels(model="imaging").inc()
                 self._move_to_cpu()
                 model = self._load_imaging_model()
                 tensor = tensor.to(self.device)
@@ -404,7 +409,7 @@ class InferenceService:
             )
         )
 
-        INFERENCE_LATENCY.labels(model="efficientnet_b3").observe(time.time() - start)
+        INFERENCE_LATENCY.labels(model="imaging").observe(time.time() - start)
         _emit_gpu_metrics()
 
         if self.device.type == "cuda":

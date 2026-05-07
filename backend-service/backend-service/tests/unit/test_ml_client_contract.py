@@ -5,7 +5,7 @@ def test_ml_predict_response_accepts_numeric_gradcam_regions() -> None:
     payload = {
         "prediction": {"combined_grade": 3},
         "confidence_score": 0.91,
-        "model_name": "efficientnet_b3",
+        "model_name": "efficientnet_b4",
         "model_version": "v1.0.0",
         "embedding": [0.1, 0.2, 0.3],
         "regions_left": [

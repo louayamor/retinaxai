@@ -42,8 +42,9 @@ class ImagingModelEvaluation:
 
     def _load_model(self) -> nn.Module:
         p = self.params.dl_training
+        model_name = getattr(self.config, "model_name", "efficientnet_b4")
         model = timm.create_model(
-            "efficientnet_b3",
+            model_name,
             pretrained=False,
             num_classes=p.num_classes,
             drop_rate=p.dropout,
@@ -58,9 +59,10 @@ class ImagingModelEvaluation:
 
     def _build_transform(self):
         norm = self.params.augmentation.normalize
+        image_size = int(self.params.dl_training.image_size)
         return transforms.Compose(
             [
-                transforms.Resize((224, 224)),
+                transforms.Resize((image_size, image_size)),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=norm.mean, std=norm.std),
             ]
@@ -68,8 +70,9 @@ class ImagingModelEvaluation:
 
     def _build_samaya_transform(self):
         norm = self.params.augmentation.normalize
+        image_size = int(self.params.dl_training.image_size)
         tf_list: list = [
-            transforms.Resize((224, 224)),
+            transforms.Resize((image_size, image_size)),
             transforms.Lambda(lambda img: self._apply_clahe(img)),
             transforms.ToTensor(),
         ]
