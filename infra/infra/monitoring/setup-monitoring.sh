@@ -121,7 +121,21 @@ else
 fi
 
 echo ""
-echo -e "${YELLOW}Step 6: Verifying services...${NC}"
+echo -e "${YELLOW}Step 6: Installing GPU exporter service...${NC}"
+
+# Install GPU exporter systemd service
+if [ -f "${MONITORING_DIR}/gpu-exporter.service" ]; then
+    sudo cp "${MONITORING_DIR}/gpu-exporter.service" /etc/systemd/system/retinaxai-gpu-exporter.service
+    sudo systemctl daemon-reload
+    sudo systemctl enable retinaxai-gpu-exporter
+    sudo systemctl start retinaxai-gpu-exporter
+    echo -e "${GREEN}✓ GPU exporter service installed and started${NC}"
+else
+    echo -e "${YELLOW}⚠ GPU exporter service file not found${NC}"
+fi
+
+echo ""
+echo -e "${YELLOW}Step 7: Verifying services...${NC}"
 
 # Wait for services to start
 sleep 3
@@ -163,6 +177,7 @@ echo "  1. Login to Grafana (admin/prtgrm1998)"
 echo "  2. Navigate to Dashboards to view RetinaXAI metrics"
 echo "  3. Check Prometheus Targets at http://localhost:9090/targets"
 echo "  4. Start MLOps service to see ML metrics"
+echo "  5. Check GPU exporter at http://localhost:9103/metrics"
 echo ""
 echo -e "${YELLOW}Troubleshooting:${NC}"
 echo "  - View logs: sudo journalctl -u prometheus -f"

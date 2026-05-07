@@ -1,0 +1,17 @@
+[Unit]
+Description=RetinaXAI GPU Exporter for Prometheus
+After=network.target
+
+[Service]
+Type=simple
+User=louay
+WorkingDirectory=/home/louay/RetinaXAI/mlops-service/mlops-service
+Environment=GPU_EXPORTER_PORT=9103
+ExecStart=/home/louay/RetinaXAI/mlops-service/.venv/bin/python3 app/services/monitoring/gpu_exporter.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

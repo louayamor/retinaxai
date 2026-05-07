@@ -51,12 +51,13 @@ scrape_configs:
     scheme: http
 
   # ── GPU Metrics (nvidia-smi) ────────────────────────────────────────────────
-  - job_name: 'gpu-exporter'
-    static_configs:
-      - targets: ['localhost:9103']
-    scrape_interval: 15s
-    metrics_path: /metrics
-    scheme: http
+  # TODO: Uncomment when GPU exporter systemd service is installed
+  # - job_name: 'gpu-exporter'
+  #   static_configs:
+  #     - targets: ['localhost:9103']
+  #   scrape_interval: 15s
+  #   metrics_path: /metrics
+  #   scheme: http
 
   # ── Prometheus Self-Monitoring ──────────────────────────────────────────────
   - job_name: 'prometheus'

@@ -68,7 +68,6 @@ services:
       BACKEND_WS_URL: ws://backend-service:8000/ws
     ports:
       - "8004:8004"
-      - "9090:9090"
     volumes:
       - mlops_data:/app/data
       - mlops_artifacts:/app/artifacts
@@ -118,63 +117,7 @@ services:
     networks:
       - retinaxai-network
 
-  node-exporter:
-    image: prom/node-exporter:latest
-    container_name: retinaxai-node-exporter
-    ports:
-      - "9100:9100"
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/rootfs:ro
-    command:
-      - '--path.procfs=/host/proc'
-      - '--path.sysfs=/host/sys'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
-    networks:
-      - retinaxai-network
-
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: retinaxai-prometheus
-    ports:
-      - "9091:9090"
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./monitoring/alert-rules.yml:/etc/prometheus/rules.yml:ro
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=30d'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-    networks:
-      - retinaxai-network
-    depends_on:
-      - mlops-service
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: retinaxai-grafana
-    ports:
-      - "3003:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin123
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_ANALYTICS_REPORTING_ENABLED=false
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
-      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
-    networks:
-      - retinaxai-network
-    depends_on:
-      - prometheus
-
 volumes:
-  prometheus_data:
-  grafana_data:
   postgres_data:
   redis_data:
   backend_data:
