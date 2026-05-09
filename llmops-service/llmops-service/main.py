@@ -1,20 +1,19 @@
 #!/usr/bin/env python
 """LLMOps CLI entry point."""
 
+from __future__ import annotations
+
 import argparse
-import os
-import sys
-from pathlib import Path
 
 import uvicorn
+from loguru import logger
+
+from app.pipeline.indexing_pipeline import IndexingPipeline
 
 
-root = Path(__file__).parent
-os.chdir(root / "llmops-service")
-sys.path.insert(0, str(root / "llmops-service"))
-
-
-def serve():
+def serve() -> None:
+    """Start the LLMOps API server."""
+    logger.info("Starting LLMOps API server...")
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
@@ -23,17 +22,16 @@ def serve():
     )
 
 
-def reindex():
-    from app.pipeline.indexing_pipeline import IndexingPipeline
-    from loguru import logger
-
+def reindex() -> None:
+    """Run the RAG reindexing pipeline."""
     logger.info("Starting RAG reindexing...")
     pipeline = IndexingPipeline()
     result = pipeline.run()
     logger.info(f"Reindexing complete: {result}")
 
 
-def main():
+def main() -> None:
+    """Parse CLI arguments and dispatch to the appropriate command."""
     parser = argparse.ArgumentParser(description="RetinaXAI LLMOps Service")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("serve")

@@ -18,6 +18,9 @@ from typing import Any, Callable, Coroutine
 from loguru import logger
 
 from app.core.config import settings
+from app.services.operation_state import get_operation_state_manager
+
+MAX_JOBS = 1000
 
 
 class JobStatus(StrEnum):
@@ -151,13 +154,40 @@ class JobManager:
         # Wait for workers to finish
         await asyncio.gather(*self._workers, return_exceptions=True)
 
-        # Release semaphore resources
-        # asyncio.Semaphore doesn't have close() method
-
         # Persist jobs
         await self._persist_jobs()
 
         logger.info("Job manager stopped")
+
+    def _evict_if_needed(self) -> None:
+        """Evict oldest completed/failed jobs if MAX_JOBS exceeded."""
+        if len(self.jobs) <= MAX_JOBS:
+            return
+
+        evictable = [
+            (job_id, job)
+            for job_id, job in self.jobs.items()
+            if job.status
+            in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)
+        ]
+        evictable.sort(key=lambda item: item[1].completed_at or item[1].created_at)
+
+        excess = len(self.jobs) - MAX_JOBS
+        to_evict = evictable[:excess]
+
+        for job_id, _ in to_evict:
+            del self.jobs[job_id]
+            try:
+                job_file = self._persist_dir / f"{job_id}.json"
+                if job_file.exists():
+                    job_file.unlink()
+            except Exception as e:
+                logger.warning(f"Failed to remove persisted job file {job_id}: {e}")
+
+        if to_evict:
+            logger.info(
+                f"Evicted {len(to_evict)} old jobs to stay within MAX_JOBS={MAX_JOBS}"
+            )
 
     async def submit(
         self, job_type: str, payload: dict[str, Any], max_retries: int = 3
@@ -183,6 +213,7 @@ class JobManager:
 
         self.jobs[job_id] = job
         await self._queue.put(job_id)
+        self._evict_if_needed()
 
         logger.info(f"Job {job_id} submitted (type: {job_type})")
         return job_id
@@ -247,9 +278,8 @@ class JobManager:
                 await self._persist_job(job)
                 return
 
-            from app.services.operation_state import set_operation
-
-            set_operation("generating", f"Processing {job.job_type}...")
+            op_manager = get_operation_state_manager()
+            op_manager.set_operation("generating", f"Processing {job.job_type}...")
 
             job.status = JobStatus.RUNNING
             job.started_at = datetime.now(timezone.utc)
@@ -283,15 +313,15 @@ class JobManager:
                     )
 
             finally:
-                from app.services.operation_state import set_operation
-
+                op_manager = get_operation_state_manager()
                 if job.status == JobStatus.FAILED:
                     error_msg = job.error or "Unknown error"
-                    set_operation("error", error_msg[:200])
+                    op_manager.set_operation("error", error_msg[:200])
                 elif job.status == JobStatus.COMPLETED:
-                    set_operation("idle", "Ready")
+                    op_manager.set_operation("idle", "Ready")
                 # Don't clear state for PENDING/RETRYING/RUNNING - keep showing job progress
                 await self._persist_job(job)
+                self._evict_if_needed()
 
     async def _persist_job(self, job: Job) -> None:
         """Persist a single job to disk."""
@@ -316,28 +346,29 @@ class JobManager:
                     data = json.loads(job_file.read_text(encoding="utf-8"))
                     job = Job.from_dict(data)
 
-                    # Only restore incomplete jobs
+                    # Load all jobs, but only re-queue incomplete ones
+                    self.jobs[job.id] = job
                     if job.status in (
                         JobStatus.PENDING,
                         JobStatus.RUNNING,
                         JobStatus.RETRYING,
                     ):
                         job.status = JobStatus.PENDING  # Reset to pending
-                        self.jobs[job.id] = job
                         await self._queue.put(job.id)
                         logger.info(f"Restored job {job.id} from persistence")
+                    else:
+                        logger.info(f"Loaded completed job {job.id} from persistence")
                 except Exception as e:
                     logger.warning(f"Failed to load job from {job_file}: {e}")
         except Exception as e:
             logger.warning(f"Failed to load jobs: {e}")
 
 
-# Global job manager instance
 _job_manager: JobManager | None = None
 
 
 def get_job_manager() -> JobManager:
-    """Get or create the global job manager instance."""
+    """FastAPI dependency factory. Creates instance if not overridden."""
     global _job_manager
     if _job_manager is None:
         _job_manager = JobManager()

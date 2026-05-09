@@ -1,163 +1,154 @@
 from __future__ import annotations
 
-import json
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
+from app.services.websocket_client import WebSocketClient, send_xai_event
 
-@pytest.mark.asyncio
-async def test_send_xai_event_emits_correct_event_name(respx_mock):
+
+def test_send_xai_event_emits_correct_event_name():
     """send_xai_event emits a fully-qualified event name (e.g. xai.prediction.started)."""
-    route = respx_mock.post("http://localhost:8000/emit").mock(
-        return_value=httpx.Response(200)
-    )
+    called = {}
 
-    from app.services.websocket_client import send_xai_event
+    async def fake_send(url, payload, headers=None, max_retries=2):
+        called["url"] = url
+        called["body"] = payload
+        return True
 
-    await send_xai_event(
-        event="xai.prediction",
-        stage="prediction",
-        status="started",
-        progress=0,
-        message="Generating prediction explanation...",
-        prediction_id="pred-001",
-    )
-
-    assert route.called
-    body = json.loads(route.calls[0].request.content)
-    assert body["event"] == "xai.prediction.started"
-    assert body["room"] == "xai:prediction"
-    assert body["data"]["prediction_id"] == "pred-001"
-    assert body["data"]["stage"] == "prediction"
-    assert body["data"]["status"] == "started"
-
-
-@pytest.mark.asyncio
-async def test_send_xai_event_emits_correct_room_for_each_stage(respx_mock):
-    """send_xai_event emits events to the correct xai:<stage> room."""
-    from app.services.websocket_client import send_xai_event
-
-    stages = ["prediction", "gradcam", "severity"]
-
-    route = respx_mock.post("http://localhost:8000/emit").mock(
-        return_value=httpx.Response(200)
-    )
-
-    for i, stage in enumerate(stages):
-        await send_xai_event(
-            event=f"xai.{stage}",
-            stage=stage,
-            status="completed",
-            progress=100,
-            message=f"{stage} done",
-            prediction_id="pred-002",
+    with patch("app.services.websocket_client._send_with_retry", fake_send):
+        asyncio.run(
+            send_xai_event(
+                event="xai.prediction",
+                stage="prediction",
+                status="started",
+                progress=0,
+                message="Generating prediction explanation...",
+                prediction_id="pred-001",
+            )
         )
 
-        body = json.loads(route.calls[i].request.content)
-        assert body["room"] == f"xai:{stage}"
-        assert body["event"] == f"xai.{stage}.completed"
+    assert called["body"]["event"] == "xai.prediction.started"
+    assert called["body"]["room"] == "xai:prediction"
+    assert called["body"]["data"]["prediction_id"] == "pred-001"
+    assert called["body"]["data"]["stage"] == "prediction"
+    assert called["body"]["data"]["status"] == "started"
 
 
-@pytest.mark.asyncio
-async def test_send_xai_event_includes_details_and_error(respx_mock):
+def test_send_xai_event_emits_correct_room_for_each_stage():
+    """send_xai_event emits events to the correct xai:<stage> room."""
+    calls = []
+
+    async def fake_send(url, payload, headers=None, max_retries=2):
+        calls.append(payload)
+        return True
+
+    with patch("app.services.websocket_client._send_with_retry", fake_send):
+        for stage in ["prediction", "gradcam", "severity"]:
+            asyncio.run(
+                send_xai_event(
+                    event=f"xai.{stage}",
+                    stage=stage,
+                    status="completed",
+                    progress=100,
+                    message=f"{stage} done",
+                    prediction_id="pred-002",
+                )
+            )
+
+    for i, stage in enumerate(["prediction", "gradcam", "severity"]):
+        assert calls[i]["room"] == f"xai:{stage}"
+        assert calls[i]["event"] == f"xai.{stage}.completed"
+
+
+def test_send_xai_event_includes_details_and_error():
     """send_xai_event includes optional details and error fields in the payload."""
-    from app.services.websocket_client import send_xai_event
+    called = {}
 
-    route = respx_mock.post("http://localhost:8000/emit").mock(
-        return_value=httpx.Response(200)
-    )
+    async def fake_send(url, payload, headers=None, max_retries=2):
+        called["body"] = payload
+        return True
 
-    await send_xai_event(
-        event="xai.gradcam",
-        stage="gradcam",
-        status="failed",
-        progress=0,
-        message="GradCAM error",
-        prediction_id="pred-003",
-        details={"left_regions": 3},
-        error="model timeout",
-    )
+    with patch("app.services.websocket_client._send_with_retry", fake_send):
+        asyncio.run(
+            send_xai_event(
+                event="xai.gradcam",
+                stage="gradcam",
+                status="failed",
+                progress=0,
+                message="GradCAM error",
+                prediction_id="pred-003",
+                details={"left_regions": 3},
+                error="model timeout",
+            )
+        )
 
-    assert route.called
-    body = json.loads(route.calls[0].request.content)
-    assert body["event"] == "xai.gradcam.failed"
-    assert body["data"]["error"] == "model timeout"
-    assert body["data"]["details"] == {"left_regions": 3}
+    assert called["body"]["event"] == "xai.gradcam.failed"
+    assert called["body"]["data"]["error"] == "model timeout"
+    assert called["body"]["data"]["details"] == {"left_regions": 3}
 
 
-@pytest.mark.asyncio
-async def test_send_xai_event_does_not_raise_on_http_error(respx_mock):
+def test_send_xai_event_does_not_raise_on_http_error():
     """send_xai_event swallows HTTP errors and does not raise."""
-    from app.services.websocket_client import send_xai_event
 
-    respx_mock.post("http://localhost:8000/emit").mock(
-        return_value=httpx.Response(500)
-    )
+    async def fake_send(url, payload, headers=None, max_retries=2):
+        return False
 
-    # Should not raise even when the backend returns 500
-    await send_xai_event(
-        event="xai.severity",
-        stage="severity",
-        status="started",
-        progress=0,
-        message="Starting severity report",
-        prediction_id="pred-004",
-    )
+    with patch("app.services.websocket_client._send_with_retry", fake_send):
+        # Should not raise even when sending fails
+        asyncio.run(
+            send_xai_event(
+                event="xai.severity",
+                stage="severity",
+                status="started",
+                progress=0,
+                message="Starting severity report",
+                prediction_id="pred-004",
+            )
+        )
 
 
-@pytest.mark.asyncio
-async def test_send_xai_event_does_not_raise_on_connection_error(respx_mock):
+def test_send_xai_event_does_not_raise_on_connection_error():
     """send_xai_event swallows connection errors and does not raise."""
-    from app.services.websocket_client import send_xai_event
 
-    respx_mock.post("http://localhost:8000/emit").mock(
-        side_effect=httpx.ConnectError("connection refused")
-    )
+    async def fake_send(url, payload, headers=None, max_retries=2):
+        return False
 
-    await send_xai_event(
-        event="xai.prediction",
-        stage="prediction",
-        status="started",
-        progress=0,
-        message="Starting prediction",
-        prediction_id="pred-005",
-    )
-
-
-def test_websocket_client_singleton():
-    """WebSocketClient.get_instance returns the same instance each time."""
-    from app.services.websocket_client import WebSocketClient
-
-    # Reset singleton for isolation
-    WebSocketClient._instance = None
-
-    a = WebSocketClient.get_instance()
-    b = WebSocketClient.get_instance()
-    assert a is b
-
-    WebSocketClient._instance = None
+    with patch("app.services.websocket_client._send_with_retry", fake_send):
+        asyncio.run(
+            send_xai_event(
+                event="xai.prediction",
+                stage="prediction",
+                status="started",
+                progress=0,
+                message="Starting prediction",
+                prediction_id="pred-005",
+            )
+        )
 
 
-@pytest.mark.asyncio
-async def test_websocket_client_connect_sets_connected():
+def test_websocket_client_is_not_singleton():
+    """WebSocketClient instances are independent."""
+    a = WebSocketClient()
+    b = WebSocketClient()
+    assert a is not b
+
+
+def test_websocket_client_connect_sets_connected():
     """WebSocketClient.connect sets _connected to True."""
-    from app.services.websocket_client import WebSocketClient
-
     client = WebSocketClient()
-    result = await client.connect()
+    result = asyncio.run(client.connect())
     assert result is True
     assert client.is_connected is True
-    await client.disconnect()
+    asyncio.run(client.disconnect())
 
 
-@pytest.mark.asyncio
-async def test_websocket_client_disconnect_closes_client():
+def test_websocket_client_disconnect_closes_client():
     """WebSocketClient.disconnect closes the underlying httpx client."""
-    from app.services.websocket_client import WebSocketClient
-
     client = WebSocketClient()
-    await client.connect()
+    asyncio.run(client.connect())
     assert client.is_connected is True
-    await client.disconnect()
+    asyncio.run(client.disconnect())
     assert client.is_connected is False

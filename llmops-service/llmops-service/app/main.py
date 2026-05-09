@@ -7,28 +7,26 @@ middleware, exception handling, and service dependencies.
 
 from __future__ import annotations
 
-import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
-
-try:
-    logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
-except Exception:
-    pass
 
 from app.api.routes import router
 from app.core.config import settings
 from app.core.middleware import APIKeyMiddleware, RateLimitMiddleware
 from app.pipeline.report_generator import generate_report_handler
+from app.pipeline.inference_pipeline import get_inference_pipeline
+from app.pipeline.xai_pipeline import get_xai_pipeline
 from app.services.job_manager import get_job_manager
-from app.services.operation_state import set_operation
+from app.services.operation_state import get_operation_state_manager
+from app.services.shap_service import get_shap_service
+from app.services.websocket_client import get_websocket_client
 from app.services.prometheus_metrics import start_metrics_server
 from app.vectorstore.chroma_store import ChromaStore
 
@@ -156,7 +154,7 @@ async def lifespan(app: FastAPI):
     chroma_ready = check_chromadb_ready()
     logger.info(f"ChromaDB status: {'ready' if chroma_ready else 'not ready'}")
 
-    # Initialize job manager
+    # Initialize job manager (singleton via get_job_manager())
     job_manager = get_job_manager()
     job_manager.register_handler("report_generation", generate_report_handler)
     await job_manager.start()
@@ -164,12 +162,17 @@ async def lifespan(app: FastAPI):
         f"Job manager started with handlers: {list(job_manager._handlers.keys())}"
     )
 
+    # Connect WebSocket client (singleton via get_websocket_client())
+    ws_client = get_websocket_client()
+    await ws_client.connect()
+
     logger.info(f"Service ready on {settings.app_host}:{settings.app_port}")
 
     yield
 
     # Stop job manager on shutdown
     await job_manager.stop()
+    await ws_client.disconnect()
 
     # Shutdown logic
     shutdown_duration = time.time() - _STARTUP_TIME if _STARTUP_TIME else 0
@@ -183,10 +186,6 @@ def create_app() -> FastAPI:
     Returns:
         FastAPI: The configured application instance.
     """
-    import logging
-    logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING)
-    logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
-
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
@@ -264,7 +263,15 @@ def create_app() -> FastAPI:
         """Handle uncaught exceptions."""
         request_id = getattr(request.state, "request_id", "unknown")
         logger.error(f"Unhandled exception [{request_id}]: {exc}", exc_info=True)
-        set_operation("error", str(exc)[:200])
+        # Use the dependency override if available, otherwise no-op
+        try:
+            op_manager = request.app.dependency_overrides.get(
+                get_operation_state_manager
+            )
+            if op_manager:
+                op_manager().set_operation("error", str(exc)[:200])
+        except Exception:
+            pass
         return JSONResponse(
             status_code=500,
             content={
@@ -334,56 +341,5 @@ def create_app() -> FastAPI:
     return app
 
 
-def run_serve() -> None:
-    import os
-    from pathlib import Path
-
-    os.chdir(Path(__file__).parent)
-    import uvicorn
-
-    logger.info("Starting LLMOps API server...")
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8002, reload=True)
-
-
-def run_reindex() -> None:
-    import os
-    from pathlib import Path
-
-    os.chdir(Path(__file__).parent)
-    from app.pipeline.indexing_pipeline import IndexingPipeline
-
-    logger.info("Starting RAG reindexing...")
-    pipeline = IndexingPipeline()
-    result = pipeline.run()
-    logger.info(f"Reindexing complete: {result}")
-
-
-def main():
-    import argparse
-    import os
-    import sys
-    from pathlib import Path
-
-    base = Path(__file__).parent
-    os.chdir(base)
-    sys.path.insert(0, str(base))
-
-    parser = argparse.ArgumentParser(description="RetinaXAI LLMOps Service")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("serve")
-    subparsers.add_parser("pipeline").add_argument(
-        "--task", choices=["reindex"], default="reindex"
-    )
-    args = parser.parse_args()
-
-    if args.command == "serve":
-        run_serve()
-    elif args.command == "pipeline" and args.task == "reindex":
-        run_reindex()
-
-
 # Create application instance
 app = create_app()
-
-if __name__ == "__main__":
-    main()

@@ -1,11 +1,16 @@
+from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import Any
 
+import anyio
 import numpy as np
 from loguru import logger
 
 from app.core.config import settings
+
+_IO_LIMITER = anyio.CapacityLimiter(4)
 
 
 class ShapExplainabilityError(Exception):
@@ -255,7 +260,9 @@ class ShapService:
         self._shap_values_cache: dict[str, list[dict]] = {}
         self._global_importance: dict[str, dict[str, float]] = {}
 
-    def _get_region_contribution(self, region: str, grade: int, confidence: float) -> float:
+    def _get_region_contribution(
+        self, region: str, grade: int, confidence: float
+    ) -> float:
         """Calculate contribution score for an anatomical region based on DR grade."""
         base_score = confidence * 0.5
 
@@ -268,18 +275,29 @@ class ShapService:
         }.get(grade, 0.5)
 
         central_regions = [
-            "fovea_centralis", "macula_center", "perifovea",
-            "superior_macula", "inferior_macula", "posterior_pole"
+            "fovea_centralis",
+            "macula_center",
+            "perifovea",
+            "superior_macula",
+            "inferior_macula",
+            "posterior_pole",
         ]
         peripheral_regions = [
-            "nasal_periphery", "temporal_periphery",
-            "superior_periphery", "inferior_periphery",
-            "superior_temporal_periphery", "inferior_temporal_periphery",
-            "superior_nasal_periphery", "inferior_nasal_periphery"
+            "nasal_periphery",
+            "temporal_periphery",
+            "superior_periphery",
+            "inferior_periphery",
+            "superior_temporal_periphery",
+            "inferior_temporal_periphery",
+            "superior_nasal_periphery",
+            "inferior_nasal_periphery",
         ]
         vascular_regions = [
-            "temporal_arcade", "superior_temporal_arcade", "inferior_temporal_arcade",
-            "superior_arcade", "inferior_arcade"
+            "temporal_arcade",
+            "superior_temporal_arcade",
+            "inferior_temporal_arcade",
+            "superior_arcade",
+            "inferior_arcade",
         ]
         disk_regions = ["optic_disk_nasal"]
 
@@ -300,9 +318,14 @@ class ShapService:
         """Get anatomical significance and clinical relevance for a region."""
         if region in self.REGION_CLINICAL_RELEVANCE:
             info = self.REGION_CLINICAL_RELEVANCE[region]
-            return info["significance"], info.get("high_contribution", info.get("moderate_contribution", ""))
+            return info["significance"], info.get(
+                "high_contribution", info.get("moderate_contribution", "")
+            )
 
-        return "Anatomical region of the fundus", "Region highlighted by model activation"
+        return (
+            "Anatomical region of the fundus",
+            "Region highlighted by model activation",
+        )
 
     def explain_imaging_prediction(
         self,
@@ -331,15 +354,19 @@ class ShapService:
         region_contributions = []
 
         for region in all_regions:
-            contribution = self._get_region_contribution(region, prediction_grade, confidence)
+            contribution = self._get_region_contribution(
+                region, prediction_grade, confidence
+            )
             significance, clinical_relevance = self._get_region_anatomical_info(region)
 
-            region_contributions.append(ImagingFeatureContribution(
-                region_name=region,
-                contribution=contribution,
-                anatomical_significance=significance,
-                clinical_relevance=clinical_relevance,
-            ))
+            region_contributions.append(
+                ImagingFeatureContribution(
+                    region_name=region,
+                    contribution=contribution,
+                    anatomical_significance=significance,
+                    clinical_relevance=clinical_relevance,
+                )
+            )
 
         region_contributions.sort(key=lambda x: x.contribution, reverse=True)
 
@@ -364,9 +391,11 @@ class ShapService:
 
         import pickle
 
-        with open(model_path, "rb") as f:
-            model = pickle.load(f)
-        return model
+        def _load(path: Path) -> Any:
+            with open(path, "rb") as f:
+                return pickle.load(f)
+
+        return await anyio.to_thread.run_sync(_load, model_path, limiter=_IO_LIMITER)
 
     def _get_feature_names(self) -> list[str]:
         return [
@@ -405,7 +434,7 @@ class ShapService:
             if isinstance(v, str):
                 try:
                     return float(v)
-                except:
+                except ValueError:
                     return 0.0
             return 0.0
 
@@ -436,7 +465,7 @@ class ShapService:
                     elif fname == "meta_image_quality":
                         try:
                             encoded.append(float(val))
-                        except:
+                        except ValueError:
                             encoded.append(0.0)
                     else:
                         encoded.append(0.0)
@@ -465,13 +494,11 @@ class ShapService:
 
         expected_num_features = getattr(model, "n_features_in_", None)
         if expected_num_features is None:
-            expected_num_features = 17
+            raise ShapExplainabilityError(
+                "Cannot determine expected feature count from model.n_features_in_"
+            )
 
         if len(feature_values) != expected_num_features:
-            logger.warning(
-                f"Feature count mismatch: expected {expected_num_features}, got {len(feature_values)}. "
-                "Skipping SHAP calculation."
-            )
             raise ShapExplainabilityError(
                 f"Feature count mismatch: expected {expected_num_features}, got {len(feature_values)}"
             )
@@ -493,7 +520,9 @@ class ShapService:
                 if expected_value is None:
                     expected_value = 0.5
                 elif isinstance(expected_value, (np.ndarray, list, tuple)):
-                    expected_value = float(expected_value[0]) if len(expected_value) > 0 else 0.5
+                    expected_value = (
+                        float(expected_value[0]) if len(expected_value) > 0 else 0.5
+                    )
                 else:
                     expected_value = float(expected_value)
 
@@ -593,7 +622,7 @@ class ShapService:
     def get_global_importance(self, pipeline: str = "clinical") -> dict[str, float]:
         return self._global_importance.get(pipeline, {})
 
-    def check_bias(
+    async def check_bias(
         self,
         test_csv: Path,
         demographic_col: str = "patient_gender",
@@ -616,7 +645,7 @@ class ShapService:
         for group in groups:
             group_df = df[df[demographic_col] == group]
             if len(group_df) > 10:
-                importance = self.compute_global_importance(test_csv, pipeline)
+                importance = await self.compute_global_importance(test_csv, pipeline)
                 bias_results[str(group)] = importance
 
         if len(bias_results) < 2:
@@ -635,5 +664,12 @@ class ShapService:
         return comparison
 
 
+_shap_service: ShapService | None = None
+
+
 def get_shap_service() -> ShapService:
-    return ShapService()
+    """FastAPI dependency factory. Creates instance if not overridden."""
+    global _shap_service
+    if _shap_service is None:
+        _shap_service = ShapService()
+    return _shap_service

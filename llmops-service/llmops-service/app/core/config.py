@@ -4,7 +4,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 load_dotenv()
 
@@ -74,10 +74,9 @@ class Settings(BaseSettings):
 
     prometheus_metrics_port: int = 9092
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     @property
     def data_dir(self) -> Path:
@@ -119,7 +118,7 @@ class Settings(BaseSettings):
     @property
     def artifacts_root(self) -> Path:
         """Path to local cache for MLOps artifacts.
-        
+
         When models are fetched from MLOps, they're cached locally here.
         """
         return _get_service_root() / "data" / "models"

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 
 from app.llm.client import MockLLMClient, get_llm_client
 
 
 def test_mock_client_returns_string():
     client = MockLLMClient()
-    result = client.generate("Hello world")
+    result = asyncio.run(client.generate("Hello world"))
     assert isinstance(result, str)
     assert len(result) > 0
 
@@ -14,13 +15,13 @@ def test_mock_client_returns_string():
 def test_mock_client_includes_prompt_prefix():
     client = MockLLMClient()
     prompt = "Describe the retinal image findings"
-    result = client.generate(prompt)
+    result = asyncio.run(client.generate(prompt))
     assert prompt[:50] in result
 
 
 def test_mock_client_with_system_prompt():
     client = MockLLMClient()
-    result = client.generate("user prompt", system_prompt="system context")
+    result = asyncio.run(client.generate("user prompt", system_prompt="system context"))
     assert isinstance(result, str)
 
 

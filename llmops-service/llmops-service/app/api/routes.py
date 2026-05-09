@@ -12,17 +12,22 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from loguru import logger
 
 from app.core.config import settings
 from app.pipeline.indexing_pipeline import IndexingPipeline
-from app.pipeline.inference_pipeline import InferencePipeline
-from app.services.operation_state import get_operation
-from app.services.job_manager import JobStatus, get_job_manager
-from app.services.shap_service import get_shap_service
+from app.pipeline.inference_pipeline import InferencePipeline, get_inference_pipeline
+from app.pipeline.xai_pipeline import XAIPipeline, get_xai_pipeline
+from app.services.job_manager import JobManager, JobStatus, get_job_manager
+from app.services.operation_state import (
+    OperationStateManager,
+    get_operation_state_manager,
+)
+from app.services.shap_service import ShapService, get_shap_service
+from app.services.websocket_client import WebSocketClient, get_websocket_client
 from app.vectorstore.chroma_store import ChromaStore
 
 router = APIRouter(prefix="/api", tags=["llmops"])
@@ -69,7 +74,10 @@ def health() -> HealthResponse:
 
 
 @router.post("/generate")
-async def generate(payload: GenerateRequest) -> dict[str, str]:
+async def generate(
+    payload: GenerateRequest,
+    pipeline: InferencePipeline = Depends(get_inference_pipeline),
+) -> dict[str, str]:
     """
     Synchronous report generation.
 
@@ -77,7 +85,6 @@ async def generate(payload: GenerateRequest) -> dict[str, str]:
     For long-running reports, use /generate/async instead.
     """
     try:
-        pipeline = InferencePipeline()
         result = await pipeline.generate_report(payload.model_dump())
         return {"response": json.dumps(result)}
     except Exception as exc:
@@ -85,14 +92,16 @@ async def generate(payload: GenerateRequest) -> dict[str, str]:
 
 
 @router.post("/generate/async")
-async def generate_async(payload: GenerateRequest) -> dict[str, str]:
+async def generate_async(
+    payload: GenerateRequest,
+    job_manager: JobManager = Depends(get_job_manager),
+) -> dict[str, str]:
     """
     Asynchronous report generation.
 
     Submits a job and returns immediately with a job ID.
     Poll /jobs/{job_id} to check status.
     """
-    job_manager = get_job_manager()
     job_id = await job_manager.submit(
         job_type="report_generation",
         payload=payload.model_dump(),
@@ -114,11 +123,13 @@ class JobStatusResponse(BaseModel):
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)
-def get_job_status(job_id: str) -> JobStatusResponse:
+def get_job_status(
+    job_id: str,
+    job_manager: JobManager = Depends(get_job_manager),
+) -> JobStatusResponse:
     """
     Get the status of an async report generation job.
     """
-    job_manager = get_job_manager()
     job = job_manager.get_job(job_id)
 
     if not job:
@@ -143,12 +154,11 @@ def list_jobs(
         None, description="Filter by status: pending, running, completed, failed"
     ),
     limit: int = Query(100, ge=1, le=1000),
+    job_manager: JobManager = Depends(get_job_manager),
 ) -> dict:
     """
     List recent report generation jobs.
     """
-    job_manager = get_job_manager()
-
     status_filter = None
     if status:
         try:
@@ -174,11 +184,13 @@ def list_jobs(
 
 
 @router.post("/jobs/{job_id}/cancel")
-async def cancel_job(job_id: str) -> dict:
+async def cancel_job(
+    job_id: str,
+    job_manager: JobManager = Depends(get_job_manager),
+) -> dict:
     """
     Cancel a pending or running job.
     """
-    job_manager = get_job_manager()
     result = await job_manager.cancel_job(job_id)
 
     if not result:
@@ -216,8 +228,10 @@ def rag_status() -> RagStatusResponse:
 
 
 @router.get("/operation/status")
-def operation_status() -> dict:
-    op = get_operation()
+def operation_status(
+    op_manager: OperationStateManager = Depends(get_operation_state_manager),
+) -> dict:
+    op = op_manager.get_operation()
     return {
         "operation": op.state,
         "status": op.state,
@@ -228,9 +242,11 @@ def operation_status() -> dict:
 
 
 @router.get("/operation")
-def operation() -> dict:
+def operation(
+    op_manager: OperationStateManager = Depends(get_operation_state_manager),
+) -> dict:
     """Alias for /operation/status for frontend compatibility."""
-    op = get_operation()
+    op = op_manager.get_operation()
     return {
         "operation": op.state,
         "status": op.state,
@@ -253,6 +269,8 @@ class XAIGradCAMRequest(BaseModel):
     prediction_id: str
     left_eye_regions: list[str] | None = None
     right_eye_regions: list[str] | None = None
+    dr_grade: str | int | None = None
+    confidence: float | None = None
 
 
 class XAISeverityRequest(BaseModel):
@@ -263,14 +281,14 @@ class XAISeverityRequest(BaseModel):
 
 
 @router.post("/xai/explain")
-async def explain_prediction(payload: XAIPredictionRequest) -> dict:
+async def explain_prediction(
+    payload: XAIPredictionRequest,
+    pipeline: XAIPipeline = Depends(get_xai_pipeline),
+) -> dict:
     """
     Generate natural language explanation of DR prediction.
     Uses GradCAM regions for imaging-based predictions or SHAP for clinical features.
     """
-    from app.pipeline.xai_pipeline import get_xai_pipeline
-
-    pipeline = get_xai_pipeline()
     return await pipeline.explain_prediction(
         prediction_id=payload.prediction_id,
         dr_grade=payload.dr_grade,
@@ -282,28 +300,31 @@ async def explain_prediction(payload: XAIPredictionRequest) -> dict:
 
 
 @router.post("/xai/gradcam")
-async def explain_gradcam(payload: XAIGradCAMRequest) -> dict:
+async def explain_gradcam(
+    payload: XAIGradCAMRequest,
+    pipeline: XAIPipeline = Depends(get_xai_pipeline),
+) -> dict:
     """
-    Interpret highlighted regions in GradCAM heatmaps.
+    Interpret highlighted regions in GradCAM heatmaps with clinical specificity.
+    Includes per-eye analysis with DR grade and confidence context.
     """
-    from app.pipeline.xai_pipeline import get_xai_pipeline
-
-    pipeline = get_xai_pipeline()
     return await pipeline.explain_gradcam(
         prediction_id=payload.prediction_id,
         left_eye_regions=payload.left_eye_regions or [],
         right_eye_regions=payload.right_eye_regions or [],
+        dr_grade=payload.dr_grade,
+        confidence=payload.confidence,
     )
 
 
 @router.post("/xai/severity")
-async def generate_severity(payload: XAISeverityRequest) -> dict:
+async def generate_severity(
+    payload: XAISeverityRequest,
+    pipeline: XAIPipeline = Depends(get_xai_pipeline),
+) -> dict:
     """
     Generate clinical severity report with risk level and recommendations.
     """
-    from app.pipeline.xai_pipeline import get_xai_pipeline
-
-    pipeline = get_xai_pipeline()
     return await pipeline.generate_severity_report(
         prediction_id=payload.prediction_id,
         patient_data=payload.patient_data,
@@ -320,15 +341,14 @@ class TrainingCompleteRequest(BaseModel):
 
 
 @router.post("/workflows/training-complete")
-async def workflow_training_complete(payload: TrainingCompleteRequest) -> dict:
+async def workflow_training_complete(
+    payload: TrainingCompleteRequest,
+    ws_client: WebSocketClient = Depends(get_websocket_client),
+) -> dict:
     """
     Handle training completion event from MLOps.
     Triggers RAG reindexing and batch GradCAM analysis.
     """
-    from app.services.websocket_client import get_websocket_client
-
-    ws_client = get_websocket_client()
-
     logger.info(
         f"Training workflow triggered: job_id={payload.job_id}, "
         f"pipeline={payload.pipeline}, imaging={payload.imaging_version}, "
@@ -410,17 +430,17 @@ class BiasCheckResponse(BaseModel):
 
 
 @router.post("/xai/shap/explain", response_model=ShapExplainResponse)
-async def shap_explain_prediction(payload: ShapExplainRequest) -> ShapExplainResponse:
+async def shap_explain_prediction(
+    payload: ShapExplainRequest,
+    service: ShapService = Depends(get_shap_service),
+) -> ShapExplainResponse:
     """
     Generate SHAP explanation for clinical model prediction.
     DEPRECATED: Use /xai/explain for unified XAI explanation.
     """
-    from app.services.shap_service import get_shap_service
-
     logger.info(f"SHAP explanation requested for pipeline: {payload.pipeline}")
 
     try:
-        service = get_shap_service()
         explanation = await service.explain_prediction(
             features=payload.features,
             pipeline=payload.pipeline,
@@ -439,11 +459,13 @@ async def shap_explain_prediction(payload: ShapExplainRequest) -> ShapExplainRes
 
 
 @router.get("/xai/shap/importance/{pipeline}", response_model=GlobalImportanceResponse)
-async def shap_get_global_importance(pipeline: str) -> GlobalImportanceResponse:
+async def shap_get_global_importance(
+    pipeline: str,
+    service: ShapService = Depends(get_shap_service),
+) -> GlobalImportanceResponse:
     """
     Get cached global SHAP feature importance.
     """
-    service = get_shap_service()
     importance = service.get_global_importance(pipeline)
 
     return GlobalImportanceResponse(
@@ -459,12 +481,11 @@ async def shap_compute_global_importance(
     pipeline: str,
     test_path: str | None = None,
     sample_size: int = 100,
+    service: ShapService = Depends(get_shap_service),
 ) -> GlobalImportanceResponse:
     """
     Compute global SHAP feature importance on test dataset.
     """
-    from app.core.config import settings
-
     if test_path:
         test_csv = Path(test_path)
         if not test_csv.is_absolute():
@@ -477,8 +498,7 @@ async def shap_compute_global_importance(
     if not test_csv.exists():
         raise HTTPException(status_code=404, detail=f"Test data not found: {test_csv}")
 
-    service = get_shap_service()
-    importance = service.compute_global_importance(
+    importance = await service.compute_global_importance(
         test_csv=test_csv,
         pipeline=pipeline,
         sample_size=sample_size,
@@ -495,12 +515,11 @@ async def shap_check_bias(
     pipeline: str,
     demographic_column: str = "patient_gender",
     test_path: str | None = None,
+    service: ShapService = Depends(get_shap_service),
 ) -> BiasCheckResponse:
     """
     Check for potential bias in model predictions across demographic groups.
     """
-    from app.core.config import settings
-
     if test_path:
         test_csv = Path(test_path)
         if not test_csv.is_absolute():
@@ -513,8 +532,7 @@ async def shap_check_bias(
     if not test_csv.exists():
         raise HTTPException(status_code=404, detail=f"Test data not found: {test_csv}")
 
-    service = get_shap_service()
-    results = service.check_bias(
+    results = await service.check_bias(
         test_csv=test_csv,
         demographic_col=demographic_column,
         pipeline=pipeline,

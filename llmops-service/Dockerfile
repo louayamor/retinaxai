@@ -20,7 +20,7 @@ FROM base AS builder
 
 COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
-COPY llmops-service/ .
+COPY llmops-service/llmops-service/ .
 
 RUN addgroup --system appgroup && \
     adduser --system --ingroup appgroup appuser && \

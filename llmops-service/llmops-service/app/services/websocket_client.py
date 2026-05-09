@@ -132,9 +132,10 @@ _websocket_client: WebSocketClient | None = None
 
 
 def get_websocket_client() -> WebSocketClient:
+    """FastAPI dependency factory. Creates instance if not overridden."""
     global _websocket_client
     if _websocket_client is None:
-        _websocket_client = WebSocketClient.get_instance()
+        _websocket_client = WebSocketClient()
     return _websocket_client
 
 
@@ -179,7 +180,9 @@ async def send_xai_event(
     if success:
         logger.debug(f"Sent XAI event: {stage} - {status}")
     else:
-        logger.warning(f"Failed to send XAI event after {MAX_RETRIES} retries: {event} - continuing anyway")
+        logger.warning(
+            f"Failed to send XAI event after {MAX_RETRIES} retries: {event} - continuing anyway"
+        )
 
 
 async def _send_with_retry(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -22,8 +23,9 @@ class ChromaStore:
         if persist_directory:
             self.persist_directory = Path(persist_directory)
         else:
-            service_root = Path(__file__).parent.parent.parent
-            self.persist_directory = service_root / "data" / "rag" / "chroma"
+            from app.core.config import settings
+
+            self.persist_directory = settings.rag_chroma_persist_directory
 
         self.collection_name = collection_name or "retinaxai_rag"
         self.embedding_model = (
@@ -33,10 +35,33 @@ class ChromaStore:
             model_name=self.embedding_model
         )
         self._client: Chroma | None = None
+        self._client_lock = threading.Lock()
+
+    def _get_client(self) -> Chroma:
+        """Lazy-initialize and cache the Chroma client in a thread-safe manner."""
+        if self._client is not None:
+            return self._client
+
+        with self._client_lock:
+            # Double-checked locking
+            if self._client is not None:
+                return self._client
+
+            self._client = Chroma(
+                collection_name=self.collection_name,
+                embedding_function=self.embedding_function,
+                persist_directory=str(self.persist_directory),
+            )
+            return self._client
+
+    def _clear_client(self) -> None:
+        """Clear cached client (used during rebuild when directory changes)."""
+        with self._client_lock:
+            self._client = None
 
     def close(self) -> None:
         """Explicit cleanup for Chroma client."""
-        if self._client is not None:
+        with self._client_lock:
             self._client = None
         if self.embedding_function is not None:
             self.embedding_function = None
@@ -136,9 +161,11 @@ class ChromaStore:
         for i in range(0, len(documents), batch_size):
             batch = documents[i : i + batch_size]
             vectorstore.add_documents(batch)
+        # After writing directly, clear cache so next read sees updates
+        self._clear_client()
 
     def query(self, text: str, top_k: int = 4) -> list[tuple[Any, float]]:
-        vectorstore = self._make_vectorstore(self.persist_directory)
+        vectorstore = self._get_client()
         return vectorstore.similarity_search_with_score(text, k=top_k)
 
     def rebuild_collection_atomically(
@@ -166,6 +193,8 @@ class ChromaStore:
             staging_store.write_state(state)
 
             self._swap_directories(staging_directory)
+            # Directory changed; clear cached client
+            self._clear_client()
 
     def write_state(self, state: dict[str, Any]) -> None:
         self.persist_directory.mkdir(parents=True, exist_ok=True)

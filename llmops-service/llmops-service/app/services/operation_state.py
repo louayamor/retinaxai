@@ -90,3 +90,26 @@ def get_operation() -> OperationState:
         if _current_operation is None:
             return OperationState(state="idle", message="Ready")
         return OperationState(**_current_operation)
+
+
+class OperationStateManager:
+    """Wrapper exposing module-level state operations as methods."""
+
+    def set_operation(
+        self, state: str, message: str, progress: float | None = None
+    ) -> None:
+        set_operation(state, message, progress)
+
+    def get_operation(self) -> OperationState:
+        return get_operation()
+
+
+_operation_manager: OperationStateManager | None = None
+
+
+def get_operation_state_manager() -> OperationStateManager:
+    """FastAPI dependency factory. Creates instance if not overridden."""
+    global _operation_manager
+    if _operation_manager is None:
+        _operation_manager = OperationStateManager()
+    return _operation_manager

@@ -1,8 +1,14 @@
-from abc import ABC, abstractmethod
-import time
-from typing import Optional
+from __future__ import annotations
 
+import asyncio
+import time
+from abc import ABC, abstractmethod
+from typing import Any, Optional
+
+import anyio
 from loguru import logger
+
+_LLM_IO_LIMITER = anyio.CapacityLimiter(8)
 
 
 class LLMClient(ABC):
@@ -55,7 +61,6 @@ class GitHubLLMClient(LLMClient):
         system_prompt: Optional[str] = None,
         model: Optional[str] = None,
     ) -> str:
-        import asyncio
         from azure.ai.inference.models import SystemMessage, UserMessage
         from azure.core.exceptions import AzureError
 
@@ -63,7 +68,7 @@ class GitHubLLMClient(LLMClient):
         remaining = self._retry_until - time.monotonic()
         if remaining > 0:
             logger.warning(f"Rate limited, waiting {remaining:.1f}s")
-            await asyncio.sleep(remaining)
+            await anyio.sleep(remaining)
             self._retry_until = 0.0
 
         messages = []
@@ -73,30 +78,36 @@ class GitHubLLMClient(LLMClient):
 
         logger.info(f"Calling LLM {self.model} with prompt length: {len(prompt)} chars")
 
+        def _call_complete() -> Any:
+            return self._get_client().complete(
+                messages=messages,
+                temperature=0.3,
+                top_p=0.9,
+                model=model or self.model,
+                max_tokens=self.max_tokens,
+            )
+
         try:
             response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self._get_client().complete,
-                    messages=messages,
-                    temperature=0.3,
-                    top_p=0.9,
-                    model=model or self.model,
-                    max_tokens=self.max_tokens,
-                ),
+                anyio.to_thread.run_sync(_call_complete, limiter=_LLM_IO_LIMITER),
                 timeout=self.timeout_seconds,
             )
             content = response.choices[0].message.content
             logger.info(f"LLM response received: {len(content)} chars")
             return content
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             logger.error(f"LLM call timed out after {self.timeout_seconds}s")
-            raise Exception(f"LLM generation timed out after {self.timeout_seconds}s") from e
+            raise Exception(
+                f"LLM generation timed out after {self.timeout_seconds}s"
+            ) from e
         except AzureError as e:
             # Bug 4 fix: Check status code safely
             status_code = getattr(getattr(e, "response", None), "status_code", None)
             if status_code == 429:
                 retry_after = getattr(e, "retry_after", 60)
-                logger.warning(f"Rate limited by GitHub API, retry after {retry_after}s")
+                logger.warning(
+                    f"Rate limited by GitHub API, retry after {retry_after}s"
+                )
                 self._retry_until = time.monotonic() + retry_after
                 raise Exception(f"Rate limited, retry after {retry_after}s")
             logger.error(f"GitHub API error: {e}")
@@ -138,14 +149,17 @@ class OllamaLLMClient(LLMClient):
         system_prompt: Optional[str] = None,
         model: Optional[str] = None,
     ) -> str:
-        try:
-            messages = []
-            if system_prompt:
-                messages.append(("system", system_prompt))
-            messages.append(("user", prompt))
+        messages = []
+        if system_prompt:
+            messages.append(("system", system_prompt))
+        messages.append(("user", prompt))
 
+        def _invoke() -> str:
             response = self._get_client().invoke(messages)
             return response.content  # type: ignore[return-value]
+
+        try:
+            return await anyio.to_thread.run_sync(_invoke, limiter=_LLM_IO_LIMITER)
         except Exception as e:
             logger.error(f"Ollama LLM error: {e}")
             raise Exception(f"Ollama generation failed: {e}") from e

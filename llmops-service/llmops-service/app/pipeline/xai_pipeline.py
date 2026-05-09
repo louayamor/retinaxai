@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
-import threading
 
 from loguru import logger
 
 from app.core.config import settings
 from app.llm.client import get_llm_client
-from app.prompts.templates import REPORT_SYSTEM_PROMPT
+from app.prompts.templates import (
+    GRADCAM_SYSTEM_PROMPT,
+    GRADCAM_USER_PROMPT,
+    REPORT_SYSTEM_PROMPT,
+)
+from app.services.shap_service import ShapService
 from app.services.websocket_client import send_xai_event
 
 
@@ -48,6 +52,39 @@ DATA REQUIREMENTS:
 Output complete valid JSON only."""
 
 
+class InvalidGradeError(ValueError):
+    """Raised when dr_grade is not a valid integer 0-4."""
+
+    pass
+
+
+def _validate_dr_grade(dr_grade: str | int) -> int:
+    """Validate and convert dr_grade to an integer 0-4.
+
+    Args:
+        dr_grade: DR grade as string or int.
+
+    Returns:
+        int: Validated grade integer (0-4).
+
+    Raises:
+        InvalidGradeError: If grade is not a valid integer in range 0-4.
+    """
+    if isinstance(dr_grade, int):
+        grade_int = dr_grade
+    elif isinstance(dr_grade, str) and dr_grade.isdigit():
+        grade_int = int(dr_grade)
+    else:
+        raise InvalidGradeError(
+            f"dr_grade must be an integer or numeric string 0-4, got {type(dr_grade).__name__}: {dr_grade!r}"
+        )
+
+    if not 0 <= grade_int <= 4:
+        raise InvalidGradeError(f"dr_grade must be between 0 and 4, got {grade_int}")
+
+    return grade_int
+
+
 # Bug 7 fix: Add grade-to-risk mappings
 _GRADE_INT_TO_RISK = {0: "low", 1: "low", 2: "moderate", 3: "high", 4: "severe"}
 _GRADE_LABEL_TO_RISK = {
@@ -60,21 +97,9 @@ _GRADE_LABEL_TO_RISK = {
 
 
 class XAIPipeline:
-    _instance: "XAIPipeline | None" = None
-    _lock = threading.Lock()  # Bug 9 fix: Add lock for thread safety
-
-    def __new__(cls) -> "XAIPipeline":
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
-        return cls._instance
+    """Pipeline for XAI explanations using LLM."""
 
     def __init__(self) -> None:
-        if self._initialized:
-            return
-
         provider = (
             settings.llm_provider.value
             if hasattr(settings.llm_provider, "value")
@@ -105,7 +130,6 @@ class XAIPipeline:
             client_kwargs["base_url"] = base_url if base_url is not None else ""
 
         self.client = get_llm_client(provider, **client_kwargs)
-        self._initialized = True
         logger.info("XAI Pipeline initialized")
 
     async def explain_prediction(
@@ -131,7 +155,9 @@ class XAIPipeline:
         shap_explanation = None
         imaging_explanation = None
 
-        if gradcam_regions and (gradcam_regions.get("left_eye") or gradcam_regions.get("right_eye")):
+        if gradcam_regions and (
+            gradcam_regions.get("left_eye") or gradcam_regions.get("right_eye")
+        ):
             try:
                 from app.services.shap_service import get_shap_service
 
@@ -145,14 +171,16 @@ class XAIPipeline:
                 )
 
                 shap_service = get_shap_service()
-                grade_int = int(dr_grade) if dr_grade.isdigit() else 2
+                grade_int = _validate_dr_grade(dr_grade)
                 imaging_explanation = shap_service.explain_imaging_prediction(
                     regions=gradcam_regions,
                     prediction_grade=grade_int,
                     confidence=confidence,
                 )
                 shap_values = imaging_explanation.to_dict()
-                logger.info(f"Imaging explanation computed for prediction {prediction_id} using GradCAM regions")
+                logger.info(
+                    f"Imaging explanation computed for prediction {prediction_id} using GradCAM regions"
+                )
 
             except Exception as imaging_error:
                 logger.warning(
@@ -201,11 +229,19 @@ class XAIPipeline:
         try:
             if imaging_explanation:
                 prompt = self._build_imaging_prompt_with_regions(
-                    dr_grade, confidence, gradcam_regions, shap_values, vascular_biomarkers
+                    dr_grade,
+                    confidence,
+                    gradcam_regions,
+                    shap_values,
+                    vascular_biomarkers,
                 )
             else:
                 prompt = self._build_prediction_prompt_with_shap(
-                    dr_grade, confidence, clinical_features, shap_values, vascular_biomarkers
+                    dr_grade,
+                    confidence,
+                    clinical_features,
+                    shap_values,
+                    vascular_biomarkers,
                 )
             logger.info(f"Starting LLM generation for prediction {prediction_id}")
             response = await self.client.generate(prompt)
@@ -251,7 +287,9 @@ class XAIPipeline:
                 "model_used": settings.llm_model,
                 "status": "completed",
                 "shap_values": shap_values,
-                "explanation_type": "gradcam_regions" if imaging_explanation else "clinical_shap",
+                "explanation_type": "gradcam_regions"
+                if imaging_explanation
+                else "clinical_shap",
             }
         except Exception as e:
             await send_xai_event(
@@ -273,79 +311,213 @@ class XAIPipeline:
         shap_values: dict | None,
         vascular_biomarkers: dict | None,
     ) -> str:
-        """Build prompt for imaging-based explanation using GradCAM regions."""
-        grade_int = int(dr_grade) if dr_grade.isdigit() else 2
-        grade_label = (
-            ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"][grade_int]
-            if 0 <= grade_int <= 4
-            else "Moderate"
-        )
+        """Build prompt for imaging-based explanation using GradCAM regions.
 
-        regions_context = ""
+        Includes per-eye clinical analysis with specific DR pathology terminology.
+        """
+        grade_int = _validate_dr_grade(dr_grade)
+        grade_label = ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"][
+            grade_int
+        ]
+        risk_level = _GRADE_INT_TO_RISK.get(grade_int, "moderate")
+
+        # Build per-eye region analysis with clinical context
+        left_eye_analysis = ""
+        right_eye_analysis = ""
+
         if gradcam_regions:
             left_regions = gradcam_regions.get("left_eye", [])
             right_regions = gradcam_regions.get("right_eye", [])
-            regions_context = f"""
-GradCAM Highlighted Anatomical Regions:
-- Left Eye: {", ".join(left_regions) if left_regions else "No highlighted regions"}
-- Right Eye: {", ".join(right_regions) if right_regions else "No highlighted regions"}
-"""
+
+            if left_regions:
+                left_clinical = []
+                for region in left_regions:
+                    clinical_info = ShapService.REGION_CLINICAL_RELEVANCE.get(
+                        region,
+                        {
+                            "significance": "Retinal region",
+                            "high_contribution": "DR-related changes",
+                        },
+                    )
+                    pathology = self._get_pathology_for_grade(grade_int, region)
+                    left_clinical.append(
+                        f"**{region}**: {clinical_info['significance']}. "
+                        f"At grade {grade_int} ({grade_label}), expected findings: {pathology}. "
+                        f"Clinical note: {clinical_info.get('high_contribution', 'Monitor for progression')}."
+                    )
+                left_eye_analysis = "\n".join(left_clinical)
+
+            if right_regions:
+                right_clinical = []
+                for region in right_regions:
+                    clinical_info = ShapService.REGION_CLINICAL_RELEVANCE.get(
+                        region,
+                        {
+                            "significance": "Retinal region",
+                            "high_contribution": "DR-related changes",
+                        },
+                    )
+                    pathology = self._get_pathology_for_grade(grade_int, region)
+                    right_clinical.append(
+                        f"**{region}**: {clinical_info['significance']}. "
+                        f"At grade {grade_int} ({grade_label}), expected findings: {pathology}. "
+                        f"Clinical note: {clinical_info.get('high_contribution', 'Monitor for progression')}."
+                    )
+                right_eye_analysis = "\n".join(right_clinical)
 
         shap_context = ""
         if shap_values:
             top_regions = shap_values.get("top_regions", [])
             if top_regions:
                 regions_str = ", ".join(
-                    [f"{r['name']} (contribution: {r['contribution']:.3f})" for r in top_regions[:3]]
+                    [
+                        f"{r['name']} (contribution: {r['contribution']:.3f})"
+                        for r in top_regions[:3]
+                    ]
                 )
                 shap_context = f"""
-Region Importance Analysis:
+Region Importance Analysis (GradCAM activation strength):
 {regions_str}
 """
 
         biomarker_context = ""
         if vascular_biomarkers:
             biomarker_context = f"""
-Vascular Biomarkers:
+Vascular Biomarkers (quantitative analysis):
 {json.dumps(vascular_biomarkers, indent=2)}
 """
 
-        biomarker_instruction = (
-            "\nIntegrate the vascular biomarkers into the explanation and clinical reasoning."
-            if biomarker_context
-            else ""
-        )
+        prompt = f"""You are a retinal specialist explaining diabetic retinopathy (DR) imaging findings.
 
-        prompt = f"""You are a medical AI assistant explaining diabetic retinopathy (DR) prediction results from fundus imaging.
+PATIENT STATUS:
+- DR Grade: {grade_int} ({grade_label})
+- Model Confidence: {confidence:.1%}
+- Risk Level: {risk_level}
 
-Explain this prediction in patient-friendly terms addressing these key areas:
+GRADCAM HIGHLIGHTED REGIONS - PER-EYE ANALYSIS:
 
-1. DIAGNOSIS: The DR grade is {grade_int} ({grade_label}) with {confidence:.1%} confidence.
+LEFT EYE (OS):
+{left_eye_analysis if left_eye_analysis else "No regions highlighted."}
 
-2. IMAGING ANALYSIS:{regions_context}
+RIGHT EYE (OD):
+{right_eye_analysis if right_eye_analysis else "No regions highlighted."}
+
 {shap_context}
 {biomarker_context}
 
-3. CLINICAL INTERPRETATION:
-Explain what these highlighted anatomical regions mean for the patient's eye health.
-Describe how the identified regions correlate with the DR grade.
-{biomarker_instruction}
+CLINICAL INTERPRETATION REQUIREMENTS:
+1. Explain what the highlighted regions indicate about DR pathology in each eye
+2. Correlate specific findings (microaneurysms, hemorrhages, exudates, neovascularization) with the DR grade
+3. Describe the anatomical significance: why these regions matter for vision
+4. Integrate vascular biomarkers if provided
+5. Provide specific follow-up recommendations based on the grade and regions involved
 
-4. RECOMMENDATIONS:
-Provide appropriate follow-up actions based on the diagnosis.
+Use precise clinical terminology. Avoid generic phrases like "the model focuses on."
+Instead use: "findings consistent with," "pathology characteristic of," "changes suggestive of."
 
-Keep the explanation professional but accessible to a non-medical patient.
-Focus on the GradCAM highlighted regions as key indicators for the diagnosis."""
+Write as a retinal specialist documenting in a clinical report."""
 
         return f"{REPORT_SYSTEM_PROMPT}\n\n{prompt}"
+
+    def _get_pathology_for_grade(self, grade_int: int, region: str) -> str:
+        """Return expected DR pathology for a given grade and region.
+
+        Args:
+            grade_int: DR grade (0-4).
+            region: Anatomical region name.
+
+        Returns:
+            String describing expected pathology.
+        """
+        # Central regions (macula, fovea) - vision-threatening findings
+        central_regions = [
+            "fovea_centralis",
+            "macula_center",
+            "perifovea",
+            "superior_macula",
+            "inferior_macula",
+            "posterior_pole",
+        ]
+
+        # Vascular regions - vascular findings
+        vascular_regions = [
+            "temporal_arcade",
+            "superior_temporal_arcade",
+            "inferior_temporal_arcade",
+            "superior_arcade",
+            "inferior_arcade",
+        ]
+
+        # Peripheral regions - neovascularization in PDR
+        peripheral_regions = [
+            "nasal_periphery",
+            "temporal_periphery",
+            "superior_periphery",
+            "inferior_periphery",
+            "superior_temporal_periphery",
+            "inferior_temporal_periphery",
+            "superior_nasal_periphery",
+            "inferior_nasal_periphery",
+            "mid_periphery",
+        ]
+
+        if grade_int == 0:
+            return "No DR findings expected"
+        elif grade_int == 1:  # Mild NPDR
+            if region in central_regions:
+                return "occasional microaneurysms"
+            elif region in vascular_regions:
+                return "mild venous dilation"
+            else:
+                return "minimal retinal changes"
+        elif grade_int == 2:  # Moderate NPDR
+            if region in central_regions:
+                return "microaneurysms, dot-blot hemorrhages, possible hard exudates"
+            elif region in vascular_regions:
+                return "venous beading, intraretinal microvascular abnormalities (IRMA)"
+            else:
+                return "scattered hemorrhages and microaneurysms"
+        elif grade_int == 3:  # Severe NPDR
+            if region in central_regions:
+                return "extensive hemorrhages, cotton wool spots, hard exudates threatening fovea"
+            elif region in vascular_regions:
+                return "severe venous beading, prominent IRMA, pre-retinal hemorrhages"
+            elif region in peripheral_regions:
+                return "extensive dot-blot hemorrhages in all 4 quadrants"
+            else:
+                return "severe non-proliferative changes"
+        else:  # grade_int == 4, Proliferative DR
+            if region in peripheral_regions:
+                return "neovascularization elsewhere (NVE), fibrovascular proliferation"
+            elif region in vascular_regions:
+                return "neovascularization of disk (NVD) or elsewhere, vitreous hemorrhage risk"
+            elif region in central_regions:
+                return "tractional retinal detachment risk, neovascularization threatening macula"
+            else:
+                return "proliferative changes with neovascularization"
+
+        return "DR-related retinal changes"
 
     async def explain_gradcam(
         self,
         prediction_id: str,
         left_eye_regions: list[str],
         right_eye_regions: list[str],
+        dr_grade: str | int | None = None,
+        confidence: float | None = None,
     ) -> dict:
-        """Interpret highlighted regions in GradCAM heatmaps."""
+        """Interpret highlighted regions in GradCAM heatmaps with clinical specificity.
+
+        Args:
+            prediction_id: Unique identifier for the prediction.
+            left_eye_regions: List of anatomical region names for left eye.
+            right_eye_regions: List of anatomical region names for right eye.
+            dr_grade: Optional DR grade (0-4) for clinical context.
+            confidence: Optional model confidence (0-1) for clinical context.
+
+        Returns:
+            dict with left_eye_explanation and right_eye_explanation (distinct per eye).
+        """
         await send_xai_event(
             event="xai.gradcam",
             stage="gradcam",
@@ -356,8 +528,38 @@ Focus on the GradCAM highlighted regions as key indicators for the diagnosis."""
         )
 
         try:
-            prompt = self._build_gradcam_prompt(left_eye_regions, right_eye_regions)
-            response = await self.client.generate(prompt)
+            # Default grade and confidence if not provided
+            grade_int = _validate_dr_grade(dr_grade) if dr_grade is not None else 2
+            grade_label = ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"][
+                grade_int
+            ]
+            conf = confidence if confidence is not None else 0.75
+            risk_level = _GRADE_INT_TO_RISK.get(grade_int, "moderate")
+
+            # Generate per-eye explanations with clinical context
+            left_prompt = self._build_gradcam_prompt_per_eye(
+                regions=left_eye_regions,
+                eye_name="Left Eye (OS)",
+                grade_int=grade_int,
+                grade_label=grade_label,
+                confidence=conf,
+                risk_level=risk_level,
+            )
+            right_prompt = self._build_gradcam_prompt_per_eye(
+                regions=right_eye_regions,
+                eye_name="Right Eye (OD)",
+                grade_int=grade_int,
+                grade_label=grade_label,
+                confidence=conf,
+                risk_level=risk_level,
+            )
+
+            left_response = await self.client.generate(
+                left_prompt, system_prompt=GRADCAM_SYSTEM_PROMPT
+            )
+            right_response = await self.client.generate(
+                right_prompt, system_prompt=GRADCAM_SYSTEM_PROMPT
+            )
 
             highlighted_regions = {
                 "left_eye": left_eye_regions,
@@ -374,6 +576,8 @@ Focus on the GradCAM highlighted regions as key indicators for the diagnosis."""
                 details={
                     "left_regions": len(left_eye_regions),
                     "right_regions": len(right_eye_regions),
+                    "dr_grade": grade_label,
+                    "confidence": conf,
                 },
             )
 
@@ -385,16 +589,20 @@ Focus on the GradCAM highlighted regions as key indicators for the diagnosis."""
                 message="GradCAM analysis ready",
                 prediction_id=prediction_id,
                 details={
-                    "left_eye": response,
-                    "right_eye": response,
+                    "left_eye": left_response,
+                    "right_eye": right_response,
                     "highlighted_regions": highlighted_regions,
+                    "dr_grade": grade_label,
+                    "confidence": conf,
                 },
             )
 
             return {
-                "left_eye_explanation": response,
-                "right_eye_explanation": response,
+                "left_eye_explanation": left_response,
+                "right_eye_explanation": right_response,
                 "highlighted_regions": highlighted_regions,
+                "dr_grade": grade_label,
+                "confidence": conf,
                 "model_used": settings.llm_model,
             }
         except Exception as e:
@@ -408,6 +616,64 @@ Focus on the GradCAM highlighted regions as key indicators for the diagnosis."""
                 error=str(e),
             )
             raise
+
+    def _build_gradcam_prompt_per_eye(
+        self,
+        regions: list[str],
+        eye_name: str,
+        grade_int: int,
+        grade_label: str,
+        confidence: float,
+        risk_level: str,
+    ) -> str:
+        """Build clinical prompt for a single eye's GradCAM regions.
+
+        Args:
+            regions: List of anatomical region names.
+            eye_name: "Left Eye (OS)" or "Right Eye (OD)".
+            grade_int: DR grade integer (0-4).
+            grade_label: DR grade label (e.g., "Moderate").
+            confidence: Model confidence (0-1).
+            risk_level: Risk level string (low/moderate/high/severe).
+
+        Returns:
+            Formatted prompt string with clinical context.
+        """
+        # Build region list with clinical relevance
+        regions_with_context = []
+        for region in regions:
+            clinical_info = ShapService.REGION_CLINICAL_RELEVANCE.get(
+                region,
+                {
+                    "significance": "Retinal region",
+                    "high_contribution": "Model activation in this region",
+                    "moderate_contribution": "Regional changes detected",
+                },
+            )
+            regions_with_context.append(
+                f"- {region}: {clinical_info['significance']}. "
+                f"At grade {grade_int} ({grade_label}), findings may include: "
+                f"{clinical_info.get('high_contribution', 'DR-related changes')}."
+            )
+
+        regions_text = (
+            "\n".join(regions_with_context)
+            if regions_with_context
+            else "No regions highlighted."
+        )
+
+        return GRADCAM_USER_PROMPT.format(
+            grade_int=str(grade_int),
+            grade_label=grade_label,
+            confidence=confidence,
+            risk_level=risk_level,
+            left_regions_with_clinical_context=regions_text
+            if "Left" in eye_name
+            else "See right eye analysis.",
+            right_regions_with_clinical_context=regions_text
+            if "Right" in eye_name
+            else "See left eye analysis.",
+        )
 
     async def generate_severity_report(
         self,
@@ -483,12 +749,10 @@ Focus on the GradCAM highlighted regions as key indicators for the diagnosis."""
         confidence: float,
         clinical_features: dict | None,
     ) -> str:
-        grade_int = int(dr_grade) if dr_grade.isdigit() else 2
-        grade_label = (
-            ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"][grade_int]
-            if 0 <= grade_int <= 4
-            else "Moderate"
-        )
+        grade_int = _validate_dr_grade(dr_grade)
+        grade_label = ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"][
+            grade_int
+        ]
 
         clinical_context = ""
         if clinical_features:
@@ -545,7 +809,9 @@ SHAP Feature Analysis:
 
         biomarker_context = ""
         if vascular_biomarkers:
-            biomarker_context = f"\nVascular Biomarkers: {json.dumps(vascular_biomarkers)}"
+            biomarker_context = (
+                f"\nVascular Biomarkers: {json.dumps(vascular_biomarkers)}"
+            )
 
         prompt = f"""You are a medical AI assistant explaining diabetic retinopathy (DR) prediction results.
 
@@ -609,12 +875,10 @@ Explain what these regions indicate for DR diagnosis, focusing on:
         dr_grade: str,
         risk_factors: list[str],
     ) -> str:
-        grade_int = int(dr_grade) if dr_grade.isdigit() else 2
-        grade_label = (
-            ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"][grade_int]
-            if 0 <= grade_int <= 4
-            else "Moderate"
-        )
+        grade_int = _validate_dr_grade(dr_grade)
+        grade_label = ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"][
+            grade_int
+        ]
 
         patient_info = f"Name: {patient_data.get('name', 'Unknown')}, Age: {patient_data.get('age', 'N/A')}, Gender: {patient_data.get('gender', 'N/A')}"
         risk_factors_str = ", ".join(risk_factors) if risk_factors else "None provided"
@@ -630,9 +894,11 @@ DIAGNOSIS:
 
 Generate structured severity report as JSON."""
 
-    def _determine_risk_level(self, dr_grade: str) -> str:
-        # Bug 7 fix: Handle both integer and string inputs
-        if dr_grade.isdigit():
+    def _determine_risk_level(self, dr_grade: str | int) -> str:
+        # Handle both integer and string inputs
+        if isinstance(dr_grade, int) or (
+            isinstance(dr_grade, str) and dr_grade.isdigit()
+        ):
             return _GRADE_INT_TO_RISK.get(int(dr_grade), "moderate")
         return _GRADE_LABEL_TO_RISK.get(dr_grade, "moderate")
 
@@ -678,5 +944,12 @@ Generate structured severity report as JSON."""
         return recommendations
 
 
+_xai_pipeline: XAIPipeline | None = None
+
+
 def get_xai_pipeline() -> XAIPipeline:
-    return XAIPipeline()
+    """FastAPI dependency factory. Creates instance if not overridden."""
+    global _xai_pipeline
+    if _xai_pipeline is None:
+        _xai_pipeline = XAIPipeline()
+    return _xai_pipeline

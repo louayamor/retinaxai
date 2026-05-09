@@ -21,6 +21,11 @@ def count_tokens(text: str) -> int:
 
     Simple approximation: ~4 chars per token for English text.
     For production, use tiktoken or model-specific tokenizer.
+
+    NOTE: len(text) // 4 is a rough heuristic. Actual token counts vary
+    by language, tokenizer, and text structure. For production workloads,
+    replace with tiktoken (OpenAI models) or the model vendor's official
+    tokenizer to avoid context-window overflows or unnecessary truncation.
     """
     return len(text) // 4
 

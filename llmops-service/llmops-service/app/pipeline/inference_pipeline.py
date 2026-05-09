@@ -8,24 +8,15 @@ from loguru import logger
 from app.core.config import settings
 from app.llm.client import get_llm_client
 from app.prompts.templates import REPORT_SYSTEM_PROMPT, REPORT_USER_PROMPT
-from app.services.operation_state import set_operation
+from app.services.operation_state import get_operation_state_manager
 from app.utils.helpers import dump_compact
 from app.vectorstore.chroma_store import ChromaStore
 
 
 class InferencePipeline:
-    _instance: InferencePipeline | None = None
-
-    def __new__(cls) -> InferencePipeline:
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
+    """Pipeline for generating clinical reports using RAG + LLM."""
 
     def __init__(self) -> None:
-        if self._initialized:
-            return
-
         provider = (
             settings.llm_provider.value
             if hasattr(settings.llm_provider, "value")
@@ -61,7 +52,6 @@ class InferencePipeline:
             settings.rag_chroma_collection_name,
             settings.rag_embedding_model,
         )
-        self._initialized = True
 
     def _build_retrieval_context(self, payload: dict) -> tuple[str, float]:
         start_time = time.time()
@@ -121,18 +111,20 @@ class InferencePipeline:
             return await self._generate_report_internal(payload)
         except Exception as e:
             logger.error(f"Report generation failed: {e}")
-            set_operation("error", str(e)[:200])
+            op_manager = get_operation_state_manager()
+            op_manager.set_operation("error", str(e)[:200])
             raise
 
     async def _generate_report_internal(self, payload: dict) -> dict[str, str]:
         model_name = str(payload.get("model") or settings.llm_model)
 
         logger.info("Building retrieval context...")
-        set_operation("retrieving", "Retrieving context from RAG...")
+        op_manager = get_operation_state_manager()
+        op_manager.set_operation("retrieving", "Retrieving context from RAG...")
         retrieved_context, retrieval_time = self._build_retrieval_context(payload)
 
         logger.info(f"Generating report with {model_name}...")
-        set_operation("generating", "Generating report with LLM...")
+        op_manager.set_operation("generating", "Generating report with LLM...")
         start_time = time.time()
         user_prompt = REPORT_USER_PROMPT.format(
             patient=dump_compact(payload.get("patient", {})),
@@ -174,7 +166,7 @@ class InferencePipeline:
             summary = content[:400]
 
         logger.info(f"Report generated (content length: {len(report_content)})")
-        set_operation("idle", "Ready")
+        op_manager.set_operation("idle", "Ready")
         self._log_to_mlflow(
             model_name=model_name,
             retrieval_time=retrieval_time,
@@ -216,3 +208,14 @@ class InferencePipeline:
                 )
         except Exception:
             pass
+
+
+_inference_pipeline: InferencePipeline | None = None
+
+
+def get_inference_pipeline() -> InferencePipeline:
+    """FastAPI dependency factory. Creates instance if not overridden."""
+    global _inference_pipeline
+    if _inference_pipeline is None:
+        _inference_pipeline = InferencePipeline()
+    return _inference_pipeline
