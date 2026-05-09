@@ -42,6 +42,47 @@ SHAP_EXPLAIN_REQUESTS_TOTAL = Counter(
     ["status"],
 )
 
+XAI_GRADCAM_REQUESTS_TOTAL = Counter(
+    "retinaxai_xai_gradcam_requests_total",
+    "Total GradCAM explanation requests",
+    ["status"],
+)
+
+XAI_PREDICTION_REQUESTS_TOTAL = Counter(
+    "retinaxai_xai_prediction_requests_total",
+    "Total XAI prediction explanation requests",
+    ["status"],
+)
+
+XAI_GRADCAM_LATENCY = Histogram(
+    "retinaxai_xai_gradcam_latency_seconds",
+    "GradCAM explanation generation latency in seconds",
+    buckets=[2, 5, 10, 20, 30, 60],
+)
+
+XAI_PREDICTION_LATENCY = Histogram(
+    "retinaxai_xai_prediction_latency_seconds",
+    "XAI prediction explanation generation latency in seconds",
+    buckets=[2, 5, 10, 20, 30, 60],
+)
+
+XAI_GRADCAM_REGION_COUNT = Gauge(
+    "retinaxai_xai_gradcam_region_count",
+    "Number of regions in GradCAM per eye",
+    ["eye"],
+)
+
+XAI_RAG_AVAILABLE = Gauge(
+    "retinaxai_xai_rag_available",
+    "Whether RAG was available for the last GradCAM request",
+)
+
+XAI_GRADCAM_STRUCTURE_OK = Counter(
+    "retinaxai_xai_gradcam_structure_ok",
+    "GradCAM response passes structure validation",
+    ["result"],
+)
+
 
 def start_metrics_server(port: int = 9092) -> None:
     try:

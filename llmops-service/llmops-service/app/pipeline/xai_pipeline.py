@@ -1,15 +1,27 @@
 from __future__ import annotations
 
 import json
+import re
+import time
 
 from loguru import logger
 
 from app.core.config import settings
+from app.vectorstore.chroma_store import ChromaStore
 from app.llm.client import get_llm_client
 from app.prompts.templates import (
     GRADCAM_SYSTEM_PROMPT,
     GRADCAM_USER_PROMPT,
     REPORT_SYSTEM_PROMPT,
+)
+from app.services.prometheus_metrics import (
+    XAI_GRADCAM_LATENCY,
+    XAI_GRADCAM_REGION_COUNT,
+    XAI_GRADCAM_REQUESTS_TOTAL,
+    XAI_GRADCAM_STRUCTURE_OK,
+    XAI_PREDICTION_LATENCY,
+    XAI_PREDICTION_REQUESTS_TOTAL,
+    XAI_RAG_AVAILABLE,
 )
 from app.services.shap_service import ShapService
 from app.services.websocket_client import send_xai_event
@@ -151,6 +163,9 @@ class XAIPipeline:
             prediction_id=prediction_id,
         )
 
+        start_time = time.time()
+        XAI_PREDICTION_REQUESTS_TOTAL.labels(status="started").inc()
+
         shap_values = None
         shap_explanation = None
         imaging_explanation = None
@@ -247,6 +262,9 @@ class XAIPipeline:
             response = await self.client.generate(prompt)
             logger.info(f"LLM generation completed for prediction {prediction_id}")
 
+            XAI_PREDICTION_LATENCY.observe(time.time() - start_time)
+            XAI_PREDICTION_REQUESTS_TOTAL.labels(status="completed").inc()
+
             await send_xai_event(
                 event="xai.prediction",
                 stage="prediction",
@@ -292,6 +310,7 @@ class XAIPipeline:
                 else "clinical_shap",
             }
         except Exception as e:
+            XAI_PREDICTION_REQUESTS_TOTAL.labels(status="failed").inc()
             await send_xai_event(
                 event="xai.prediction",
                 stage="prediction",
@@ -313,7 +332,8 @@ class XAIPipeline:
     ) -> str:
         """Build prompt for imaging-based explanation using GradCAM regions.
 
-        Includes per-eye clinical analysis with specific DR pathology terminology.
+        Includes per-region model attribution (intensity, saliency) and asks the LLM
+        to explain how the model arrived at its prediction, not just describe textbook pathology.
         """
         grade_int = _validate_dr_grade(dr_grade)
         grade_label = ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"][
@@ -321,9 +341,10 @@ class XAIPipeline:
         ]
         risk_level = _GRADE_INT_TO_RISK.get(grade_int, "moderate")
 
-        # Build per-eye region analysis with clinical context
+        # Build per-eye region analysis with numeric GradCAM attribution
         left_eye_analysis = ""
         right_eye_analysis = ""
+        hotspots_text = ""
 
         if gradcam_regions:
             left_regions = gradcam_regions.get("left_eye", [])
@@ -332,38 +353,86 @@ class XAIPipeline:
             if left_regions:
                 left_clinical = []
                 for region in left_regions:
+                    if isinstance(region, dict):
+                        name = region.get("name", "unknown")
+                        intensity = region.get("intensity", 0.0)
+                        saliency = region.get("saliency_score", 0.0)
+                    else:
+                        name = region
+                        intensity = 0.0
+                        saliency = 0.0
                     clinical_info = ShapService.REGION_CLINICAL_RELEVANCE.get(
-                        region,
+                        name,
                         {
                             "significance": "Retinal region",
                             "high_contribution": "DR-related changes",
                         },
                     )
-                    pathology = self._get_pathology_for_grade(grade_int, region)
+                    pathology = self._get_pathology_for_grade(grade_int, name)
                     left_clinical.append(
-                        f"**{region}**: {clinical_info['significance']}. "
-                        f"At grade {grade_int} ({grade_label}), expected findings: {pathology}. "
-                        f"Clinical note: {clinical_info.get('high_contribution', 'Monitor for progression')}."
+                        f"**{name}** (model saliency: {saliency:.3f}, activation intensity: {intensity:.3f}): "
+                        f"{clinical_info['significance']}. "
+                        f"At grade {grade_int} ({grade_label}), expected pathology: {pathology}. "
+                        f"Model detected: {clinical_info.get('high_contribution', 'DR-related changes')}."
                     )
                 left_eye_analysis = "\n".join(left_clinical)
 
             if right_regions:
                 right_clinical = []
                 for region in right_regions:
+                    if isinstance(region, dict):
+                        name = region.get("name", "unknown")
+                        intensity = region.get("intensity", 0.0)
+                        saliency = region.get("saliency_score", 0.0)
+                    else:
+                        name = region
+                        intensity = 0.0
+                        saliency = 0.0
                     clinical_info = ShapService.REGION_CLINICAL_RELEVANCE.get(
-                        region,
+                        name,
                         {
                             "significance": "Retinal region",
                             "high_contribution": "DR-related changes",
                         },
                     )
-                    pathology = self._get_pathology_for_grade(grade_int, region)
+                    pathology = self._get_pathology_for_grade(grade_int, name)
                     right_clinical.append(
-                        f"**{region}**: {clinical_info['significance']}. "
-                        f"At grade {grade_int} ({grade_label}), expected findings: {pathology}. "
-                        f"Clinical note: {clinical_info.get('high_contribution', 'Monitor for progression')}."
+                        f"**{name}** (model saliency: {saliency:.3f}, activation intensity: {intensity:.3f}): "
+                        f"{clinical_info['significance']}. "
+                        f"At grade {grade_int} ({grade_label}), expected pathology: {pathology}. "
+                        f"Model detected: {clinical_info.get('high_contribution', 'DR-related changes')}."
                     )
                 right_eye_analysis = "\n".join(right_clinical)
+
+            # Build top-hotspot list across both eyes
+            all_with_scores = []
+            for r in left_regions:
+                if isinstance(r, dict):
+                    all_with_scores.append(
+                        (
+                            "OS",
+                            r.get("name", ""),
+                            r.get("saliency_score", 0.0),
+                            r.get("intensity", 0.0),
+                        )
+                    )
+            for r in right_regions:
+                if isinstance(r, dict):
+                    all_with_scores.append(
+                        (
+                            "OD",
+                            r.get("name", ""),
+                            r.get("saliency_score", 0.0),
+                            r.get("intensity", 0.0),
+                        )
+                    )
+            all_with_scores.sort(key=lambda x: x[2], reverse=True)
+            if all_with_scores:
+                hotspot_lines = [
+                    f"  {i + 1}. {name} ({side}) — saliency: {sal:.3f}, intensity: {inten:.3f}"
+                    for i, (side, name, sal, inten) in enumerate(all_with_scores[:5])
+                ]
+                hotspots_text = "\n" + "\n".join(hotspot_lines)
 
         shap_context = ""
         if shap_values:
@@ -387,35 +456,41 @@ Vascular Biomarkers (quantitative analysis):
 {json.dumps(vascular_biomarkers, indent=2)}
 """
 
-        prompt = f"""You are a retinal specialist explaining diabetic retinopathy (DR) imaging findings.
+        prompt = f"""You are a retinal specialist explaining how the DR grading model arrived at its prediction.
 
 PATIENT STATUS:
 - DR Grade: {grade_int} ({grade_label})
 - Model Confidence: {confidence:.1%}
 - Risk Level: {risk_level}
 
-GRADCAM HIGHLIGHTED REGIONS - PER-EYE ANALYSIS:
+GRADCAM HEATMAP ATTRIBUTION — PER-REGION MODEL ACTIVATION:
 
-LEFT EYE (OS):
-{left_eye_analysis if left_eye_analysis else "No regions highlighted."}
+LEFT EYE (OS) REGIONS (ranked by model saliency):
+{left_eye_analysis if left_eye_analysis else "No regions activated."}
 
-RIGHT EYE (OD):
-{right_eye_analysis if right_eye_analysis else "No regions highlighted."}
+RIGHT EYE (OD) REGIONS (ranked by model saliency):
+{right_eye_analysis if right_eye_analysis else "No regions activated."}
+
+TOP HOTSPOTS ACROSS BOTH EYES:{hotspots_text}
 
 {shap_context}
 {biomarker_context}
 
-CLINICAL INTERPRETATION REQUIREMENTS:
-1. Explain what the highlighted regions indicate about DR pathology in each eye
-2. Correlate specific findings (microaneurysms, hemorrhages, exudates, neovascularization) with the DR grade
-3. Describe the anatomical significance: why these regions matter for vision
-4. Integrate vascular biomarkers if provided
-5. Provide specific follow-up recommendations based on the grade and regions involved
+MODEL EXPLANATION REQUIREMENTS:
+For each eye, explain:
+1. Which regions had the HIGHEST model saliency scores and WHY those drove the prediction.
+   The model's attention was not uniform — higher saliency = stronger pattern match.
+2. What specific image features (microaneurysms, dot-blot hemorrhages, exudates, 
+   venous beading, IRMA, neovascularization) did the model likely detect in 
+   high-saliency regions that justified the {grade_label} classification?
+3. How does the DISTRIBUTION of saliency across regions explain the model's 
+   {confidence:.0%} confidence? (e.g., "one region dominated" vs "multiple weak signals")
+4. Why did the model predict grade {grade_int} specifically — what features in the 
+   activated regions are characteristic of {grade_label} NPDR rather than lower/higher grades?
+5. Integrate vascular biomarkers if provided as supporting evidence.
+6. Provide follow-up recommendations based on which specific regions showed activation.
 
-Use precise clinical terminology. Avoid generic phrases like "the model focuses on."
-Instead use: "findings consistent with," "pathology characteristic of," "changes suggestive of."
-
-Write as a retinal specialist documenting in a clinical report."""
+Use precise clinical terminology. Write as a retinal specialist documenting findings."""
 
         return f"{REPORT_SYSTEM_PROMPT}\n\n{prompt}"
 
@@ -498,37 +573,132 @@ Write as a retinal specialist documenting in a clinical report."""
 
         return "DR-related retinal changes"
 
+    def _format_region_for_prompt(self, region: str | dict) -> str:
+        """Format a single region (str or dict) with numeric attribution for prompts.
+
+        Handles both plain strings (backward compat) and full dicts with intensity/saliency.
+        """
+        if isinstance(region, dict):
+            name = region.get("name", "unknown")
+            intensity = region.get("intensity", 0.0)
+            area = region.get("area", 0)
+            saliency = region.get("saliency_score", 0.0)
+            clinical_info = ShapService.REGION_CLINICAL_RELEVANCE.get(
+                name,
+                {
+                    "significance": "Retinal region",
+                    "high_contribution": "DR-related changes",
+                },
+            )
+            return (
+                f"- {name} (intensity: {intensity:.3f}, saliency: {saliency:.3f}, area: {area}px): "
+                f"{clinical_info['significance']}. "
+                f"{clinical_info.get('high_contribution', 'Model activation pattern')}."
+            )
+        else:
+            clinical_info = ShapService.REGION_CLINICAL_RELEVANCE.get(
+                region,
+                {
+                    "significance": "Retinal region",
+                    "high_contribution": "DR-related changes",
+                },
+            )
+            return (
+                f"- {region}: {clinical_info['significance']}. "
+                f"{clinical_info.get('high_contribution', 'Model activation pattern')}."
+            )
+
+    def _rank_regions_by_saliency(self, regions: list[str | dict]) -> list[dict]:
+        """Rank regions by saliency score or intensity, handling str/dict mix."""
+        parsed = []
+        for r in regions:
+            if isinstance(r, dict):
+                parsed.append(
+                    {
+                        "name": r.get("name", "unknown"),
+                        "intensity": r.get("intensity", 0.0),
+                        "area": r.get("area", 0),
+                        "saliency_score": r.get("saliency_score", 0.0),
+                    }
+                )
+            else:
+                parsed.append(
+                    {
+                        "name": r,
+                        "intensity": 0.0,
+                        "area": 0,
+                        "saliency_score": 0.0,
+                    }
+                )
+        parsed.sort(key=lambda x: x["saliency_score"], reverse=True)
+        return parsed
+
+    def _retrieve_rag_context(self, query_text: str) -> tuple[str, float]:
+        start_time = time.time()
+        try:
+            store = ChromaStore(
+                settings.rag_chroma_persist_directory,
+                settings.rag_chroma_collection_name,
+                settings.rag_embedding_model,
+            )
+            results = store.query(query_text, top_k=2)
+        except Exception as e:
+            logger.warning(f"RAG context retrieval failed: {e}")
+            return "", 0.0
+
+        if not results:
+            return "", time.time() - start_time
+
+        snippets = []
+        for doc, _score in results:
+            text = getattr(doc, "page_content", str(doc)).strip()
+            metadata = getattr(doc, "metadata", {}) or {}
+            if text:
+                snippets.append(
+                    f"[source: {metadata.get('artifact_id', 'unknown')}] {text}"
+                )
+
+        context = "\n".join(snippets)
+        return context, time.time() - start_time
+
     async def explain_gradcam(
         self,
         prediction_id: str,
-        left_eye_regions: list[str],
-        right_eye_regions: list[str],
+        left_eye_regions: list[str | dict],
+        right_eye_regions: list[str | dict],
         dr_grade: str | int | None = None,
         confidence: float | None = None,
     ) -> dict:
-        """Interpret highlighted regions in GradCAM heatmaps with clinical specificity.
+        """Interpret highlighted regions in GradCAM heatmaps with model-attribution explanation.
+
+        Uses a single LLM call with both eyes' regions and their numeric GradCAM values
+        (intensity, saliency) to produce a model-explanatory clinical narrative.
 
         Args:
             prediction_id: Unique identifier for the prediction.
-            left_eye_regions: List of anatomical region names for left eye.
-            right_eye_regions: List of anatomical region names for right eye.
+            left_eye_regions: Region names or dicts with name/intensity/area/saliency_score.
+            right_eye_regions: Region names or dicts with name/intensity/area/saliency_score.
             dr_grade: Optional DR grade (0-4) for clinical context.
             confidence: Optional model confidence (0-1) for clinical context.
 
         Returns:
-            dict with left_eye_explanation and right_eye_explanation (distinct per eye).
+            dict with left_eye_explanation and right_eye_explanation.
         """
         await send_xai_event(
             event="xai.gradcam",
             stage="gradcam",
             status="started",
             progress=0,
-            message="Interpreting GradCAM regions...",
+            message="Interpreting GradCAM regions with model attribution...",
             prediction_id=prediction_id,
         )
 
+        start_time = time.time()
+        XAI_GRADCAM_REQUESTS_TOTAL.labels(status="started").inc()
+        XAI_GRADCAM_REGION_COUNT.labels(eye="left").set(len(left_eye_regions))
+        XAI_GRADCAM_REGION_COUNT.labels(eye="right").set(len(right_eye_regions))
+
         try:
-            # Default grade and confidence if not provided
             grade_int = _validate_dr_grade(dr_grade) if dr_grade is not None else 2
             grade_label = ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"][
                 grade_int
@@ -536,34 +706,135 @@ Write as a retinal specialist documenting in a clinical report."""
             conf = confidence if confidence is not None else 0.75
             risk_level = _GRADE_INT_TO_RISK.get(grade_int, "moderate")
 
-            # Generate per-eye explanations with clinical context
-            left_prompt = self._build_gradcam_prompt_per_eye(
-                regions=left_eye_regions,
-                eye_name="Left Eye (OS)",
-                grade_int=grade_int,
-                grade_label=grade_label,
-                confidence=conf,
-                risk_level=risk_level,
+            # Rank regions by actual GradCAM saliency
+            left_ranked = self._rank_regions_by_saliency(left_eye_regions)
+            right_ranked = self._rank_regions_by_saliency(right_eye_regions)
+
+            # Build per-eye region analyses with numeric attribution
+            left_sections = []
+            for i, r in enumerate(left_ranked):
+                line = self._format_region_for_prompt(r)
+                pct = r["saliency_score"] * 100 if r["saliency_score"] > 0 else None
+                if pct and len(left_ranked) > 1:
+                    line += f" [Rank {i + 1}/{len(left_ranked)}]"
+                left_sections.append(line)
+
+            right_sections = []
+            for i, r in enumerate(right_ranked):
+                line = self._format_region_for_prompt(r)
+                pct = r["saliency_score"] * 100 if r["saliency_score"] > 0 else None
+                if pct and len(right_ranked) > 1:
+                    line += f" [Rank {i + 1}/{len(right_ranked)}]"
+                right_sections.append(line)
+
+            left_text = (
+                "\n".join(left_sections) if left_sections else "No regions highlighted."
             )
-            right_prompt = self._build_gradcam_prompt_per_eye(
-                regions=right_eye_regions,
-                eye_name="Right Eye (OD)",
-                grade_int=grade_int,
-                grade_label=grade_label,
-                confidence=conf,
-                risk_level=risk_level,
+            right_text = (
+                "\n".join(right_sections)
+                if right_sections
+                else "No regions highlighted."
             )
 
-            left_response = await self.client.generate(
-                left_prompt, system_prompt=GRADCAM_SYSTEM_PROMPT
+            # Top hotspots across both eyes
+            all_ranked = sorted(
+                left_ranked + right_ranked,
+                key=lambda x: x["saliency_score"],
+                reverse=True,
             )
-            right_response = await self.client.generate(
-                right_prompt, system_prompt=GRADCAM_SYSTEM_PROMPT
+            hotspots = []
+            for i, r in enumerate(all_ranked[:5]):
+                side = "OS" if r in left_ranked else "OD"
+                hotspots.append(
+                    f"  {i + 1}. {r['name']} ({side}) — saliency: {r['saliency_score']:.3f}, intensity: {r['intensity']:.3f}"
+                )
+            hotspots_text = "\n".join(hotspots) if hotspots else "  No hotspot data."
+
+            # Build RAG search query from top-3 highest-saliency regions
+            top_region_names = [r["name"] for r in all_ranked[:3] if r.get("name")]
+            query_text = (
+                f"{' '.join(top_region_names)} {grade_label} GradCAM heatmap activation"
+            )
+            retrieved_context, retrieval_time = self._retrieve_rag_context(query_text)
+            if retrieved_context:
+                logger.info(
+                    f"RAG context retrieved in {retrieval_time:.2f}s ({len(retrieved_context)} chars)"
+                )
+            else:
+                logger.debug("No RAG context retrieved for GradCAM analysis")
+
+            rag_section = ""
+            if retrieved_context:
+                rag_section = f"""
+RETRIEVED CLINICAL CONTEXT:
+{retrieved_context}
+
+Use this literature as clinical reference. Note if the model's findings align with or diverge from it.
+"""
+
+            item4_note = ""
+            if not retrieved_context:
+                item4_note = " (or note that RAG context was unavailable)"
+
+            prompt = f"""Analyze the GradCAM heatmap activations for diabetic retinopathy diagnosis.
+
+PATIENT DR STATUS:
+- DR Grade: {grade_int} ({grade_label})
+- Model Confidence: {conf:.1%}
+- Risk Level: {risk_level}
+
+LEFT EYE (OS) REGIONS RANKED BY SALIENCY:
+{left_text}
+
+RIGHT EYE (OD) REGIONS RANKED BY SALIENCY:
+{right_text}
+
+TOP HOTSPOTS ACROSS BOTH EYES:
+{hotspots_text}
+{rag_section}
+MODEL EXPLANATION REQUIREMENTS:
+For EACH highlighted region, explain:
+1. What is its saliency score and how does its rank among all regions indicate 
+   the model's attention allocation? Higher saliency = stronger evidence.
+2. Given the region's activation intensity and the model's overall confidence, 
+   what specific image features (microaneurysms, hemorrhages, exudates, 
+   neovascularization, venous beading, IRMA) did the model likely detect here?
+3. How do these per-region activations explain WHY the model predicted 
+   grade {grade_int} instead of a lower or higher grade?
+4. Why is the model {conf:.0%} confident rather than higher or lower — which 
+   regions had the strongest feature matches and which were borderline?{item4_note}
+
+Use precise clinical terminology. Write as a retinal specialist documenting 
+findings. Output complete clinical narrative only."""
+
+            response = await self.client.generate(
+                prompt, system_prompt=GRADCAM_SYSTEM_PROMPT
             )
 
-            highlighted_regions = {
-                "left_eye": left_eye_regions,
-                "right_eye": right_eye_regions,
+            XAI_GRADCAM_LATENCY.observe(time.time() - start_time)
+            XAI_GRADCAM_REQUESTS_TOTAL.labels(status="completed").inc()
+
+            has_region_names = bool(
+                re.search(
+                    r"(macula|fovea|periphery|arcade|disk)\b", response, re.IGNORECASE
+                )
+            )
+            has_saliency = bool(re.search(r"\d+\.\d{2,}", response))
+            XAI_GRADCAM_STRUCTURE_OK.labels(
+                result="pass" if has_region_names and has_saliency else "fail"
+            ).inc()
+
+            # For backward compat, extract eye-specific sections from the response
+            left_explanation = response
+            right_explanation = response
+
+            highlighted_region_names = {
+                "left_eye": [
+                    r["name"] if isinstance(r, dict) else r for r in left_eye_regions
+                ],
+                "right_eye": [
+                    r["name"] if isinstance(r, dict) else r for r in right_eye_regions
+                ],
             }
 
             await send_xai_event(
@@ -589,23 +860,24 @@ Write as a retinal specialist documenting in a clinical report."""
                 message="GradCAM analysis ready",
                 prediction_id=prediction_id,
                 details={
-                    "left_eye": left_response,
-                    "right_eye": right_response,
-                    "highlighted_regions": highlighted_regions,
+                    "left_eye": left_explanation,
+                    "right_eye": right_explanation,
+                    "highlighted_regions": highlighted_region_names,
                     "dr_grade": grade_label,
                     "confidence": conf,
                 },
             )
 
             return {
-                "left_eye_explanation": left_response,
-                "right_eye_explanation": right_response,
-                "highlighted_regions": highlighted_regions,
+                "left_eye_explanation": left_explanation,
+                "right_eye_explanation": right_explanation,
+                "highlighted_regions": highlighted_region_names,
                 "dr_grade": grade_label,
                 "confidence": conf,
                 "model_used": settings.llm_model,
             }
         except Exception as e:
+            XAI_GRADCAM_REQUESTS_TOTAL.labels(status="failed").inc()
             await send_xai_event(
                 event="xai.gradcam",
                 stage="gradcam",
@@ -616,64 +888,6 @@ Write as a retinal specialist documenting in a clinical report."""
                 error=str(e),
             )
             raise
-
-    def _build_gradcam_prompt_per_eye(
-        self,
-        regions: list[str],
-        eye_name: str,
-        grade_int: int,
-        grade_label: str,
-        confidence: float,
-        risk_level: str,
-    ) -> str:
-        """Build clinical prompt for a single eye's GradCAM regions.
-
-        Args:
-            regions: List of anatomical region names.
-            eye_name: "Left Eye (OS)" or "Right Eye (OD)".
-            grade_int: DR grade integer (0-4).
-            grade_label: DR grade label (e.g., "Moderate").
-            confidence: Model confidence (0-1).
-            risk_level: Risk level string (low/moderate/high/severe).
-
-        Returns:
-            Formatted prompt string with clinical context.
-        """
-        # Build region list with clinical relevance
-        regions_with_context = []
-        for region in regions:
-            clinical_info = ShapService.REGION_CLINICAL_RELEVANCE.get(
-                region,
-                {
-                    "significance": "Retinal region",
-                    "high_contribution": "Model activation in this region",
-                    "moderate_contribution": "Regional changes detected",
-                },
-            )
-            regions_with_context.append(
-                f"- {region}: {clinical_info['significance']}. "
-                f"At grade {grade_int} ({grade_label}), findings may include: "
-                f"{clinical_info.get('high_contribution', 'DR-related changes')}."
-            )
-
-        regions_text = (
-            "\n".join(regions_with_context)
-            if regions_with_context
-            else "No regions highlighted."
-        )
-
-        return GRADCAM_USER_PROMPT.format(
-            grade_int=str(grade_int),
-            grade_label=grade_label,
-            confidence=confidence,
-            risk_level=risk_level,
-            left_regions_with_clinical_context=regions_text
-            if "Left" in eye_name
-            else "See right eye analysis.",
-            right_regions_with_clinical_context=regions_text
-            if "Right" in eye_name
-            else "See left eye analysis.",
-        )
 
     async def generate_severity_report(
         self,
