@@ -206,3 +206,9 @@ class PredictResponse(BaseModel):
     shap_explanation: Optional[dict] = Field(
         None, description="SHAP feature explanations for clinical model"
     )
+    fundus_score_left: Optional[float] = Field(
+        None, description="Fundus classifier score for left eye (0-1)"
+    )
+    fundus_score_right: Optional[float] = Field(
+        None, description="Fundus classifier score for right eye (0-1)"
+    )

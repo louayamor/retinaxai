@@ -13,6 +13,13 @@ from torchvision import transforms
 from app.entity.config_entity import ImagingTransformationConfig
 from app.utils.common import read_yaml
 from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
+from app.domains.imaging.preprocessing import (
+    circular_crop,
+    apply_clahe_l_channel,
+    CROP_THRESHOLD,
+    CLAHE_CLIP_LIMIT,
+    CLAHE_TILE_GRID_SIZE,
+)
 
 
 def oversample_clinical(df: pd.DataFrame, ratio: int = 5) -> pd.DataFrame:
@@ -53,100 +60,38 @@ class ImagingDataTransformation:
         self.config = config
         self.params = read_yaml(PARAMS_FILE_PATH)
         self.schema = read_yaml(SCHEMA_FILE_PATH)
-        self._reference_lut: np.ndarray | None = None
-        self._reference_hist_path = config.root_dir / "reference_histogram.npz"
 
-    def _compute_reference_histogram(self, ds, train_indices: list[int]) -> np.ndarray:
-        """Compute cumulative histogram from EyePACS training set."""
-        logger.info(
-            f"computing reference histogram from {len(train_indices)} train images"
-        )
+    def _resize_and_save(self, img, path: Path) -> None:
+        """
+        Preprocess and save a fundus image.
 
-        cumulative_hist = np.zeros(256, dtype=np.float64)
-        count = 0
+        Pipeline:
+        1. Convert to RGB
+        2. Convert to BGR for OpenCV operations
+        3. Circular crop (remove black borders)
+        4. CLAHE on L channel (preserve color)
+        5. Convert back to RGB
+        6. Resize to target size
+        7. Save
 
-        for idx in train_indices:
-            sample = ds[idx]
-            img = sample["image"]
-            if isinstance(img, dict) and img.get("bytes") is not None:
-                img = Image.open(io.BytesIO(img["bytes"]))
-            elif not isinstance(img, Image.Image):
-                continue
-
-            img = img.convert("RGB")
-            img_np = np.array(img)
-            img_np = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-
-            gray = cv2.cvtColor(img_np, cv2.COLOR_BGR2GRAY)
-            hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
-            cumulative_hist += hist.flatten()
-            count += 1
-
-        cumulative_hist /= max(count, 1)
-        reference_lut = np.interp(
-            cumulative_hist, np.linspace(0, cumulative_hist.max(), 256), np.arange(256)
-        ).astype(np.uint8)
-
-        np.savez(
-            self._reference_hist_path,
-            reference_lut=reference_lut,
-            cumulative_hist=cumulative_hist,
-        )
-        logger.info(f"reference histogram saved: {self._reference_hist_path}")
-
-        return reference_lut
-
-    def _load_reference_histogram(self) -> np.ndarray:
-        """Load pre-computed reference histogram or compute if not exists."""
-        if self._reference_hist_path.exists():
-            data = np.load(self._reference_hist_path)
-            logger.info(f"loaded reference histogram: {self._reference_hist_path}")
-            return data["reference_lut"]
-        return None
-
-    def _apply_histogram_matching(self, img_np: np.ndarray) -> np.ndarray:
-        """Apply histogram matching to align image with reference distribution."""
-        if self._reference_lut is None:
-            return img_np
-
-        gray = cv2.cvtColor(img_np, cv2.COLOR_BGR2GRAY)
-        matched = cv2.LUT(gray, self._reference_lut)
-        img_np[:, :, 0] = matched
-        img_np[:, :, 1] = matched
-        img_np[:, :, 2] = matched
-
-        return img_np
-
-    def _resize_and_save(self, img, path: Path, apply_hist_match: bool = True) -> None:
+        NOTE: Histogram matching was REMOVED because:
+        - Original implementation was BUGGY (inverted intensities, made images dark/black)
+        - It copied grayscale to all channels (lost color information)
+        - CLAHE alone is sufficient for contrast normalization
+        """
         img = img.convert("RGB")
         img_np = np.array(img)
         img_np = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
 
-        # Circular crop to remove black borders
-        gray = cv2.cvtColor(img_np, cv2.COLOR_BGR2GRAY)
-        _, mask = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
-        coords = cv2.findNonZero(mask)
-        if coords is not None:
-            x, y, w, h = cv2.boundingRect(coords)
-            if w > 10 and h > 10:
-                img_np = img_np[y : y + h, x : x + w]
-
-        # CLAHE for contrast enhancement
-        lab = cv2.cvtColor(img_np, cv2.COLOR_BGR2LAB)
-        l_channel = lab[:, :, 0]
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        l_enhanced = clahe.apply(l_channel)
-        lab[:, :, 0] = l_enhanced
-        img_np = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
-
-        # Histogram matching to EyePACS reference distribution
-        if apply_hist_match:
-            img_np = self._apply_histogram_matching(img_np)
+        img_np = circular_crop(img_np)
+        img_np = apply_clahe_l_channel(img_np)
 
         img_np = cv2.cvtColor(img_np, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(img_np)
 
-        img = img.resize((self.config.image_size, self.config.image_size))
+        img = img.resize(
+            (self.config.image_size, self.config.image_size), Image.Resampling.LANCZOS
+        )
         img.save(path, optimize=True)
 
     def _transform_eyepacs(self) -> None:
@@ -180,9 +125,6 @@ class ImagingDataTransformation:
             f"stratified split: {len(train_idx)} train, {len(val_idx)} val, {len(test_idx)} test"
         )
 
-        # Compute reference histogram from training set only (no data leakage)
-        self._reference_lut = self._compute_reference_histogram(ds, train_idx)
-
         for split_name, split_indices, csv_path in [
             ("train", train_idx, self.config.train_csv),
             ("val", val_idx, self.config.val_csv),
@@ -206,7 +148,7 @@ class ImagingDataTransformation:
                 elif not isinstance(img, Image.Image):
                     continue
                 img_path = output_dir / f"{idx}.png"
-                self._resize_and_save(img, img_path, apply_hist_match=True)
+                self._resize_and_save(img, img_path)
                 records.append(
                     {
                         "image_path": str(img_path),
@@ -244,13 +186,6 @@ class ImagingDataTransformation:
             f"samaya label distribution: {df['label'].value_counts().sort_index().to_dict()}"
         )
 
-        # Load reference histogram for Samaya images (computed from EyePACS train)
-        self._reference_lut = self._load_reference_histogram()
-        if self._reference_lut is None:
-            logger.warning(
-                "reference histogram not found, Samaya images will not be histogram-matched"
-            )
-
         output_dir = self.config.root_dir / "images" / "samaya"
         output_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"samaya output_dir: {output_dir}, csv={self.config.samaya_csv}")
@@ -265,7 +200,7 @@ class ImagingDataTransformation:
                 skipped += 1
                 continue
             img_path = output_dir / f"{i}.png"
-            self._resize_and_save(Image.open(src_path), img_path, apply_hist_match=True)
+            self._resize_and_save(Image.open(src_path), img_path)
             records.append(
                 {
                     "image_path": str(img_path),

@@ -26,6 +26,7 @@ from PIL import Image
 from app.domains.imaging.components.model_trainer import RetinalDataset
 from app.domains.imaging.components.tent_adapter import TENTAdapter
 from app.domains.imaging.components.fda_augment import FDAAugment
+from app.domains.imaging.preprocessing import preprocess_fundus_image
 from app.entity.config_entity import ImagingModelEvaluationConfig
 from app.utils.common import read_yaml, save_json
 from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
@@ -72,8 +73,9 @@ class ImagingModelEvaluation:
         norm = self.params.augmentation.normalize
         image_size = int(self.params.dl_training.image_size)
         tf_list: list = [
-            transforms.Resize((image_size, image_size)),
-            transforms.Lambda(lambda img: self._apply_clahe(img)),
+            transforms.Lambda(
+                lambda img: preprocess_fundus_image(img, image_size=image_size)
+            ),
             transforms.ToTensor(),
         ]
 
@@ -93,12 +95,6 @@ class ImagingModelEvaluation:
 
         tf_list.append(transforms.Normalize(mean=norm.mean, std=norm.std))
         return transforms.Compose(tf_list)
-
-    @staticmethod
-    def _apply_clahe(img_pil: Image.Image) -> Image.Image:
-        img_np = np.array(img_pil.convert("L"))
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        return Image.fromarray(clahe.apply(img_np)).convert("RGB")
 
     def _run_inference(self, model: nn.Module, csv_path: Path, transform=None) -> tuple:
         tf = transform if transform is not None else self._build_transform()
@@ -266,6 +262,18 @@ class ImagingModelEvaluation:
                 num_workers=self.params.evaluation.dl.num_workers,
                 pin_memory=True,
             )
+
+            if tent_enabled and self.device.type == "cuda":
+                torch.cuda.empty_cache()
+                free_memory = (
+                    torch.cuda.get_device_properties(0).total_memory
+                    - torch.cuda.memory_allocated()
+                )
+                if free_memory < 1_000_000_000:
+                    logger.warning(
+                        f"GPU memory low ({free_memory / 1e9:.2f}GB), skipping TENT"
+                    )
+                    tent_enabled = False
 
             if tent_enabled:
                 logger.info(f"TENT adaptation: lr={tent_lr} steps={tent_steps}")

@@ -293,53 +293,10 @@ class ImagingModelTrainer:
             return
 
         mlflow_cfg = self.params.get("mlflow", {}) or {}
-        logger.info(f"preparing best checkpoint for mlflow: {checkpoint_path}")
+        logger.info(f"logging checkpoint path to mlflow: {checkpoint_path}")
 
-        # Rebuild a CPU model from the best checkpoint once to avoid
-        # expensive per-epoch deepcopy/logging overhead inside the train loop.
-        model = timm.create_model(
-            self.config.model_name,
-            pretrained=False,
-            num_classes=num_classes,
-            drop_rate=self.params.dl_training.dropout,
-        )
-        logger.info("loading checkpoint state_dict on cpu")
-        state_dict = torch.load(checkpoint_path, map_location="cpu")
-        model.load_state_dict(state_dict)
-        model.eval()
-
-        timeout_seconds = int(mlflow_cfg.get("model_log_timeout_seconds", 600))
-        timeout_seconds = max(1, timeout_seconds)
-
-        logger.info(f"starting mlflow model upload (timeout={timeout_seconds}s)")
-        start_time = time.perf_counter()
-
-        def _upload_model() -> None:
-            import os
-
-            os.environ["MLFLOW_RECORD_ENV_VARS_IN_MODEL_LOGGING"] = "false"
-            input_np = torch.randn(
-                1, 3, self.config.image_size, self.config.image_size
-            ).numpy()
-            mlflow.pytorch.log_model(
-                model,
-                name="imaging_model",
-                input_example=input_np,
-                serialization_format="pickle",
-            )
-            logger.info("mlflow model logged successfully")
-
-        try:
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(_upload_model)
-                future.result(timeout=timeout_seconds)
-            elapsed = time.perf_counter() - start_time
-            logger.info(f"best imaging model logged to mlflow in {elapsed:.1f}s")
-        except FuturesTimeoutError:
-            elapsed = time.perf_counter() - start_time
-            logger.warning(
-                f"mlflow model upload timed out after {elapsed:.1f}s; skipping artifact log"
-            )
+        mlflow.log_param("checkpoint_path", str(checkpoint_path))
+        logger.info("checkpoint path logged to mlflow")
 
     def train(self) -> Path:
         set_seed(self.params.dl_training.seed)

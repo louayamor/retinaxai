@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import math
 import os
 from functools import lru_cache
 from typing import Any
@@ -10,6 +12,19 @@ from loguru import logger
 
 BACKEND_WS_URL = os.environ.get("BACKEND_WS_URL", "ws://localhost:8000/ws")
 BACKEND_API_KEY = os.environ.get("ML_SERVICE_API_KEY", "")
+
+
+def _sanitize_json(obj: Any) -> Any:
+    """Replace NaN/Inf with None for JSON serialization."""
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_json(v) for v in obj]
+    return obj
 
 
 class WebSocketClient:
@@ -99,6 +114,16 @@ async def send_prediction_event(
     """Send prediction.completed event to backend WebSocket server."""
     from datetime import datetime
 
+    # Pre-sanitize float parameters before building payload
+    if math.isnan(confidence) or math.isinf(confidence):
+        confidence = 0.0
+    if math.isnan(imaging_confidence) or math.isinf(imaging_confidence):
+        imaging_confidence = 0.0
+    if clinical_confidence is not None and (
+        math.isnan(clinical_confidence) or math.isinf(clinical_confidence)
+    ):
+        clinical_confidence = None
+
     event_type = "prediction.failed" if error else "prediction.completed"
     payload = {
         "prediction_id": prediction_id,
@@ -117,16 +142,27 @@ async def send_prediction_event(
     room = f"prediction:{patient_id}"
     emit_url = f"{BACKEND_WS_URL.replace('ws://', 'http://').replace('/ws', '')}/emit"
 
+    sanitized_payload = _sanitize_json(payload)
+    json_data = json.dumps(
+        {
+            "event": event_type,
+            "data": sanitized_payload,
+            "room": room,
+        },
+        allow_nan=False,
+    )
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
                 emit_url,
-                json={
-                    "event": event_type,
-                    "data": payload,
-                    "room": room,
-                },
-                headers={"X-API-Key": BACKEND_API_KEY} if BACKEND_API_KEY else {},
+                content=json_data,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-API-Key": BACKEND_API_KEY,
+                }
+                if BACKEND_API_KEY
+                else {"Content-Type": "application/json"},
             )
             if response.status_code < 400:
                 logger.debug(f"Sent prediction event: {event_type} for {prediction_id}")
@@ -134,6 +170,9 @@ async def send_prediction_event(
                 logger.warning(
                     f"Failed to emit prediction event: {response.status_code}"
                 )
+    except (TypeError, ValueError) as e:
+        logger.error(f"JSON serialization failed (NaN/Inf in payload): {e}")
+        logger.debug(f"Payload keys: {list(payload.keys())}")
     except Exception as e:
         logger.warning(f"Failed to send prediction event: {e}")
 
@@ -160,18 +199,31 @@ async def send_prediction_log(
     room = f"prediction:{patient_id}"
     emit_url = f"{BACKEND_WS_URL.replace('ws://', 'http://').replace('/ws', '')}/emit"
 
+    sanitized_payload = _sanitize_json(payload)
+    json_data = json.dumps(
+        {
+            "event": "prediction.log",
+            "data": sanitized_payload,
+            "room": room,
+        },
+        allow_nan=False,
+    )
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
                 emit_url,
-                json={
-                    "event": "prediction.log",
-                    "data": payload,
-                    "room": room,
-                },
-                headers={"X-API-Key": BACKEND_API_KEY} if BACKEND_API_KEY else {},
+                content=json_data,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-API-Key": BACKEND_API_KEY,
+                }
+                if BACKEND_API_KEY
+                else {"Content-Type": "application/json"},
             )
             if response.status_code < 400:
                 logger.debug(f"Sent log: {step} - {status}")
+    except (TypeError, ValueError) as e:
+        logger.error(f"JSON serialization failed in send_prediction_log: {e}")
     except Exception as e:
         logger.warning(f"Failed to send prediction log: {e}")

@@ -121,8 +121,8 @@ inference:
 
 evaluation:
   dl:
-    batch_size: 16
-    num_workers: 4
+    batch_size: 8
+    num_workers: 0
     metrics:
       - accuracy
       - quadratic_weighted_kappa
@@ -142,3 +142,10 @@ evaluation:
 mlflow:
   imaging_run_name: efficientnet_b4
   model_log_timeout_seconds: 600
+
+fundus_classifier:
+  model_name: mobilenetv3_small_100
+  threshold: 0.3
+  image_size: 300
+  num_classes: 2
+  dropout: 0.1

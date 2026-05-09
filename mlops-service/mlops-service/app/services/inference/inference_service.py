@@ -15,7 +15,9 @@ from torchvision import transforms
 
 from app.api.schemas import ClinicalFeatures
 from app.config.settings import Settings
+from app.domains.imaging.preprocessing import preprocess_fundus_image
 from app.services.inference.gradcam_service import GradCAMService
+from app.services.inference.fundus_classifier import FundusClassifierService
 from app.utils.common import load_json, read_yaml
 from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
 from app.services.monitoring.prometheus_metrics import (
@@ -74,6 +76,7 @@ class InferenceService:
         self._feature_meta = None
         self._clinical_encoders = None
         self._clinical_numeric_medians = None
+        self._fundus_classifier = None
 
         # Add model registry service for loading models
         self._registry_service = ModelRegistryService(
@@ -133,10 +136,8 @@ class InferenceService:
             )
 
         p = self.params.dl_training
-        model_name = (
-            self.params.get("mlflow", {})
-            .get("imaging_run_name", "efficientnet_b4")
-            .rsplit("_", 1)[0]
+        model_name = self.params.get("mlflow", {}).get(
+            "imaging_run_name", "efficientnet_b4"
         )
         logger.info(
             f"[IMAGING MODEL] creating {model_name} num_classes={p.num_classes} drop={p.dropout}"
@@ -213,13 +214,63 @@ class InferenceService:
 
     def _build_transform(self):
         norm = self.params.augmentation.normalize
+        image_size = int(self.params.dl_training.image_size)
         return transforms.Compose(
             [
-                transforms.Resize((224, 224)),
+                transforms.Lambda(
+                    lambda img: preprocess_fundus_image(img, image_size=image_size)
+                ),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=norm.mean, std=norm.std),
             ]
         )
+
+    def _load_fundus_classifier(self) -> FundusClassifierService:
+        """Lazy load the fundus classifier on first use."""
+        if self._fundus_classifier is not None:
+            return self._fundus_classifier
+
+        fc_cfg = self.params.get("fundus_classifier", {})
+        model_name = fc_cfg.get("model_name", "mobilenetv3_small_100")
+        image_size = fc_cfg.get("image_size", 300)
+        threshold = fc_cfg.get("threshold", 0.3)
+
+        model_path = (
+            self.settings.artifacts_root / "model" / "imaging" / "fundus_classifier.pth"
+        )
+
+        self._fundus_classifier = FundusClassifierService(
+            model_path=model_path,
+            model_name=model_name,
+            image_size=image_size,
+            device=self.device,
+            threshold=threshold,
+        )
+
+        logger.info(
+            f"[FUNDUS] classifier initialized: {model_name} threshold={threshold}"
+        )
+        return self._fundus_classifier
+
+    def _validate_fundus(self, image_bytes: bytes, eye_side: str) -> float:
+        """
+        Validate that the image is a valid fundus photograph.
+
+        Raises ValueError if the image is rejected.
+        Returns the fundus score if accepted.
+        """
+        classifier = self._load_fundus_classifier()
+
+        try:
+            is_valid, fundus_score, message = classifier.is_fundus(image_bytes)
+        except FileNotFoundError as e:
+            logger.warning(f"[FUNDUS] classifier not found, skipping validation: {e}")
+            return 1.0
+
+        if not is_valid:
+            raise ValueError(f"{eye_side} eye: rejected — {message}")
+
+        return fundus_score
 
     def get_embedding(self, image_tensor: torch.Tensor) -> list[float]:
         """Extract the 1536-dim EfficientNet-B3 embedding before classification."""
@@ -368,14 +419,25 @@ class InferenceService:
 
         return result
 
-    def predict_imaging_with_gradcam(self, image_bytes: bytes) -> dict:
+    def predict_imaging_with_gradcam(
+        self, image_bytes: bytes, eye_side: str = "unknown"
+    ) -> dict:
         start = time.time()
-        model = self._load_imaging_model()
 
         try:
             img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            original_size = img.size
         except Exception as e:
             raise ValueError(f"Failed to open image: {e}") from e
+
+        logger.info(
+            f"[IMAGING] {eye_side} eye: original_size={original_size} "
+            f"→ resize={self.params.dl_training.image_size}x{self.params.dl_training.image_size}"
+        )
+
+        fundus_score = self._validate_fundus(image_bytes, eye_side)
+
+        model = self._load_imaging_model()
 
         tf: nn.Module = self._build_transform()  # type: ignore[assignment]
         tensor = tf(img).unsqueeze(0).to(self.device)  # type: ignore[operator]
@@ -409,6 +471,11 @@ class InferenceService:
             )
         )
 
+        logger.info(
+            f"[IMAGING] {eye_side} eye: fundus={fundus_score:.3f} → "
+            f"DR grade={pred_class} ({DR_CLASSES[pred_class]}) conf={confidence:.4f}"
+        )
+
         INFERENCE_LATENCY.labels(model="imaging").observe(time.time() - start)
         _emit_gpu_metrics()
 
@@ -427,4 +494,5 @@ class InferenceService:
             "gradcam_heatmap": gradcam_base64,
             "regions": regions,
             "top_hotspots": top_hotspots,
+            "fundus_score": fundus_score,
         }

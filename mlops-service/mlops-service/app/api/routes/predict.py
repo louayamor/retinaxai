@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import math
 from datetime import datetime
-from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
@@ -34,7 +34,6 @@ MLOPS_BACKEND_WS_URL = "ws://localhost:8000/ws"
 MLOPS_BACKEND_API_KEY = ""
 
 
-@lru_cache()
 def get_inference_service(
     settings: Settings = Depends(get_settings),
 ) -> InferenceService:
@@ -82,13 +81,13 @@ async def predict(
             f"Processing for patient (gender: {request.patient_gender}, age: {request.patient_age})",
         )
 
-        await log_msg("step_6", "info", "Running EfficientNet-B3 for left eye")
+        await log_msg("step_6", "info", "Running EfficientNet-B4 for left eye")
         left_imaging_result = await run_in_threadpool(
-            service.predict_imaging_with_gradcam, left_bytes
+            service.predict_imaging_with_gradcam, left_bytes, "left"
         )
-        await log_msg("step_7", "info", "Running EfficientNet-B3 for right eye")
+        await log_msg("step_7", "info", "Running EfficientNet-B4 for right eye")
         right_imaging_result = await run_in_threadpool(
-            service.predict_imaging_with_gradcam, right_bytes
+            service.predict_imaging_with_gradcam, right_bytes, "right"
         )
         await log_msg(
             "step_8",
@@ -150,9 +149,34 @@ async def predict(
             f"Combined: DR Grade {combined_prediction['combined_grade']}",
         )
 
+        left_confidence = left_imaging_result.get("confidence", 0.0)
+        if (
+            not isinstance(left_confidence, (int, float))
+            or math.isnan(left_confidence)
+            or math.isinf(left_confidence)
+        ):
+            left_confidence = 0.0
+        right_confidence = right_imaging_result.get("confidence", 0.0)
+        if (
+            not isinstance(right_confidence, (int, float))
+            or math.isnan(right_confidence)
+            or math.isinf(right_confidence)
+        ):
+            right_confidence = 0.0
+        clinical_confidence = (
+            clinical_result.get("risk_score") if clinical_result else None
+        )
+        if clinical_confidence is not None:
+            if (
+                not isinstance(clinical_confidence, (int, float))
+                or math.isnan(clinical_confidence)
+                or math.isinf(clinical_confidence)
+            ):
+                clinical_confidence = None
+
         response = PredictResponse(
             prediction=combined_prediction,
-            confidence_score=left_imaging_result["confidence"],
+            confidence_score=float(left_confidence),
             model_name=request.model_name,
             model_version=request.model_version,
             embedding=left_imaging_result.get("embedding"),
@@ -163,6 +187,8 @@ async def predict(
             top_hotspots_left=left_imaging_result.get("top_hotspots"),
             top_hotspots_right=right_imaging_result.get("top_hotspots"),
             shap_explanation=None,
+            fundus_score_left=left_imaging_result.get("fundus_score"),
+            fundus_score_right=right_imaging_result.get("fundus_score"),
         )
 
         async def _send_event():
@@ -171,9 +197,9 @@ async def predict(
                     prediction_id=prediction_id,
                     patient_id=patient_id,
                     dr_grade=combined_prediction["combined_grade"],
-                    confidence=left_imaging_result["confidence"],
-                    imaging_confidence=left_imaging_result["confidence"],
-                    clinical_confidence=clinical_result.get("risk_score"),
+                    confidence=float(left_confidence),
+                    imaging_confidence=float(left_confidence),
+                    clinical_confidence=clinical_confidence,
                     combined_grade=combined_prediction["combined_grade"],
                     overall_severity=combined_prediction["overall_severity"],
                     triggers_xai=True,
@@ -204,6 +230,31 @@ async def predict(
 
         return response
 
+    except ValueError as e:
+        PREDICTION_ERRORS_TOTAL.labels(
+            model=request.model_name, error_type="fundus_rejection"
+        ).inc()
+        logger.warning(f"[PREDICT FUNDUS REJECTION] {e}")
+        await send_prediction_log(
+            patient_id,
+            prediction_id,
+            "error",
+            "error",
+            f"Image validation failed: {str(e)[:50]}",
+        )
+        await send_prediction_event(
+            prediction_id=prediction_id,
+            patient_id=patient_id,
+            dr_grade=0,
+            confidence=0.0,
+            imaging_confidence=0.0,
+            clinical_confidence=None,
+            combined_grade=0,
+            overall_severity="unknown",
+            triggers_xai=False,
+            error=str(e)[:200],
+        )
+        raise HTTPException(status_code=422, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
