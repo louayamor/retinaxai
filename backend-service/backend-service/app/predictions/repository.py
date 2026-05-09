@@ -67,3 +67,7 @@ class PredictionRepository:
         await self.db.flush()
         await self.db.refresh(prediction)
         return prediction
+
+    async def delete(self, prediction: Prediction) -> None:
+        await self.db.delete(prediction)
+        await self.db.flush()

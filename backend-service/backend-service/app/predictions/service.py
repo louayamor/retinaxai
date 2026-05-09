@@ -4,18 +4,15 @@ import traceback
 import uuid
 from datetime import datetime, timezone
 
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import NotFoundException, UnprocessableEntityException
 from app.models.prediction import Prediction, PredictionStatus
-from app.models.vascular_biomarker import BiomarkerStatus
 from app.mri_scans.repository import MRIScanRepository
 from app.patients.repository import PatientRepository
 from app.predictions.repository import PredictionRepository
-from app.biomarkers.service import BiomarkerService
-from app.models.vascular_biomarker import VascularBiomarker
 from app.schemas.prediction_schema import PredictionRequest
-from app.services.biomarker_client.service import biomarker_client
 from app.services.ml_client.ml_service import ml_client
 from app.services.ml_client.schemas import MLPredictRequest
 from app.websockets.manager import get_socket_manager
@@ -29,7 +26,6 @@ class PredictionService:
         self.repo = PredictionRepository(db)
         self.patient_repo = PatientRepository(db)
         self.mri_scan_repo = MRIScanRepository(db)
-        self.biomarker_service = BiomarkerService(db)
 
     async def run(self, data: PredictionRequest, requested_by: uuid.UUID) -> Prediction:
         logger.info(
@@ -149,180 +145,27 @@ class PredictionService:
             }
 
             try:
-                socket_manager = get_socket_manager()
-                await socket_manager.emit_biomarker_event(
-                    prediction_id=str(prediction.id),
-                    patient_id=str(data.patient_id),
-                    eye_side="left",
-                    status="started",
-                    progress=65,
-                    message="Extracting left-eye biomarkers...",
-                )
-                left_biomarker_payload = await biomarker_client.extract_from_scan_path(
-                    scan_path=scan.left_scan_path,
-                    prediction_id=str(prediction.id),
-                    patient_id=str(data.patient_id),
-                    eye_side="left",
-                    model_version=data.model_version,
-                )
-                await socket_manager.emit_biomarker_event(
-                    prediction_id=str(prediction.id),
-                    patient_id=str(data.patient_id),
-                    eye_side="left",
-                    status="completed",
-                    progress=72,
-                    message="Left-eye biomarkers extracted",
-                    biomarkers=left_biomarker_payload.get("biomarkers", {}),
-                )
+                from app.explanations.service import ExplanationService
 
-                await socket_manager.emit_biomarker_event(
-                    prediction_id=str(prediction.id),
-                    patient_id=str(data.patient_id),
-                    eye_side="right",
-                    status="started",
-                    progress=76,
-                    message="Extracting right-eye biomarkers...",
-                )
-                right_biomarker_payload = await biomarker_client.extract_from_scan_path(
-                    scan_path=scan.right_scan_path,
-                    prediction_id=str(prediction.id),
-                    patient_id=str(data.patient_id),
-                    eye_side="right",
-                    model_version=data.model_version,
-                )
-                await socket_manager.emit_biomarker_event(
-                    prediction_id=str(prediction.id),
-                    patient_id=str(data.patient_id),
-                    eye_side="right",
-                    status="completed",
-                    progress=84,
-                    message="Right-eye biomarkers extracted",
-                    biomarkers=right_biomarker_payload.get("biomarkers", {}),
-                )
-
-                output_payload = dict(prediction.output_payload or {})
-                output_payload["vascular_biomarkers_left"] = left_biomarker_payload.get(
-                    "biomarkers", {}
-                )
-                output_payload["vascular_biomarkers_right"] = (
-                    right_biomarker_payload.get("biomarkers", {})
-                )
-                prediction.output_payload = output_payload
-                prediction.biomarker_status = BiomarkerStatus.COMPLETED
-                prediction.biomarker_error_message = None
-                prediction.biomarker_error_code = None
-
-                biomarker_record = await self.biomarker_service.get_by_prediction_id(
-                    prediction.id
-                )
-                biomarker_payload = {
-                    "left_eye": left_biomarker_payload.get("biomarkers", {}),
-                    "right_eye": right_biomarker_payload.get("biomarkers", {}),
+                explain_service = ExplanationService(self.db)
+                patient_data["vascular_biomarkers"] = {
+                    "left_eye": {},
+                    "right_eye": {},
                 }
-                if biomarker_record is None:
-                    biomarker_record = VascularBiomarker(
-                        prediction_id=prediction.id,
-                        patient_id=prediction.patient_id,
-                        eye_side="both",
-                        service_name=left_biomarker_payload.get(
-                            "service_name", "biomarker-service"
-                        ),
-                        service_version=left_biomarker_payload.get(
-                            "service_version", "unknown"
-                        ),
-                        contract_version=left_biomarker_payload.get(
-                            "contract_version", "1.0"
-                        ),
-                        status=BiomarkerStatus.COMPLETED,
-                        biomarkers=biomarker_payload,
-                        error_code=None,
-                        error_message=None,
-                        extracted_at=datetime.fromisoformat(
-                            left_biomarker_payload["extracted_at"]
-                        ).replace(tzinfo=timezone.utc)
-                        if left_biomarker_payload.get("extracted_at")
-                        else None,
-                    )
-                    await self.biomarker_service.create(biomarker_record)
-                else:
-                    biomarker_record.status = BiomarkerStatus.COMPLETED
-                    biomarker_record.biomarkers = biomarker_payload
-                    biomarker_record.error_code = None
-                    biomarker_record.error_message = None
-                    biomarker_record.extracted_at = (
-                        datetime.fromisoformat(
-                            left_biomarker_payload["extracted_at"]
-                        ).replace(tzinfo=timezone.utc)
-                        if left_biomarker_payload.get("extracted_at")
-                        else None
-                    )
-                    await self.biomarker_service.update(biomarker_record)
-
-                try:
-                    from app.explanations.service import ExplanationService
-
-                    explain_service = ExplanationService(self.db)
-                    patient_data["vascular_biomarkers"] = {
-                        "left_eye": left_biomarker_payload.get("biomarkers", {}),
-                        "right_eye": right_biomarker_payload.get("biomarkers", {}),
-                    }
-                    await explain_service.trigger_xai_for_prediction(
-                        prediction, patient_data
-                    )
-                    logger.info(
-                        f"[PREDICT SERVICE] XAI pipeline triggered for {prediction.id}"
-                    )
-                except Exception as e:
-                    logger.warning(f"[PREDICT SERVICE] Failed to trigger XAI: {e}")
-            except Exception as biomarker_error:
-                prediction.biomarker_status = BiomarkerStatus.FAILED
-                prediction.biomarker_error_message = str(biomarker_error)[:497]
-                prediction.biomarker_error_code = getattr(
-                    biomarker_error, "error_code", "BIOMARKER_ERROR"
+                await explain_service.trigger_xai_for_prediction(
+                    prediction, patient_data
                 )
-                biomarker_record = await self.biomarker_service.get_by_prediction_id(
-                    prediction.id
+                logger.info(
+                    f"[PREDICT SERVICE] XAI pipeline triggered for {prediction.id}"
                 )
-                if biomarker_record is None:
-                    biomarker_record = VascularBiomarker(
-                        prediction_id=prediction.id,
-                        patient_id=prediction.patient_id,
-                        eye_side="both",
-                        service_name="biomarker-service",
-                        service_version="unknown",
-                        contract_version="1.0",
-                        status=BiomarkerStatus.FAILED,
-                        biomarkers={},
-                        error_code=prediction.biomarker_error_code,
-                        error_message=prediction.biomarker_error_message,
-                        extracted_at=None,
-                    )
-                    await self.biomarker_service.create(biomarker_record)
-                else:
-                    biomarker_record.status = BiomarkerStatus.FAILED
-                    biomarker_record.biomarkers = {}
-                    biomarker_record.error_code = prediction.biomarker_error_code
-                    biomarker_record.error_message = prediction.biomarker_error_message
-                    biomarker_record.extracted_at = None
-                    await self.biomarker_service.update(biomarker_record)
-                try:
-                    socket_manager = get_socket_manager()
-                    await socket_manager.emit_biomarker_event(
-                        prediction_id=str(prediction.id),
-                        patient_id=str(data.patient_id),
-                        eye_side="both",
-                        status="failed",
-                        progress=70,
-                        message="Biomarker extraction failed",
-                        error=str(biomarker_error)[:200],
-                    )
-                except Exception as ws_error:
-                    logger.warning(
-                        f"[PREDICT SERVICE] Failed to emit biomarker failure event: {ws_error}"
-                    )
-                logger.warning(
-                    f"[PREDICT SERVICE] Biomarker extraction failed but prediction remains successful: {biomarker_error}"
-                )
+            except Exception as e:
+                logger.warning(f"[PREDICT SERVICE] Failed to trigger XAI: {e}")
+        except UnprocessableEntityException as e:
+            await self.repo.delete(prediction)
+            logger.warning(
+                f"[PREDICT SERVICE] Fundus validation failed, rejecting prediction: {e.detail}"
+            )
+            raise HTTPException(status_code=422, detail=str(e.detail))
         except Exception as e:
             logger.error(
                 f"[PREDICT SERVICE] Prediction FAILED: {type(e).__name__}: {e}"
