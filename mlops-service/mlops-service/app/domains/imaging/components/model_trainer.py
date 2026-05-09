@@ -292,11 +292,31 @@ class ImagingModelTrainer:
             logger.warning("best checkpoint missing; skipping mlflow model log")
             return
 
-        mlflow_cfg = self.params.get("mlflow", {}) or {}
-        logger.info(f"logging checkpoint path to mlflow: {checkpoint_path}")
+        logger.info(f"logging best model to mlflow: {checkpoint_path}")
 
         mlflow.log_param("checkpoint_path", str(checkpoint_path))
-        logger.info("checkpoint path logged to mlflow")
+
+        try:
+            import timm
+
+            model = timm.create_model(
+                self.config.model_name,
+                pretrained=False,
+                num_classes=num_classes,
+                drop_rate=self.params.dl_training.dropout,
+            )
+            state_dict = torch.load(checkpoint_path, map_location="cpu")
+            model.load_state_dict(state_dict)
+            model.eval()
+
+            mlflow.pytorch.log_model(
+                pytorch_model=model,
+                artifact_path="imaging_model",
+                registered_model_name="efficientnet_b4",
+            )
+            logger.info("model logged to mlflow model registry")
+        except Exception as e:
+            logger.warning(f"failed to log model to mlflow registry: {e}")
 
     def train(self) -> Path:
         set_seed(self.params.dl_training.seed)

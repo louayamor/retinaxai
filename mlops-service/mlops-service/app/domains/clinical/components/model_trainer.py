@@ -1,17 +1,28 @@
 import pickle
 import time
+from pathlib import Path
 
+import matplotlib
+import matplotlib.pyplot as plt
 import mlflow
 import mlflow.sklearn
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from loguru import logger
-from pathlib import Path
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import (
+    accuracy_score,
+    cohen_kappa_score,
+    confusion_matrix,
+    f1_score,
+    roc_auc_score,
+)
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-from app.entity.config_entity import (
+matplotlib.use("Agg")
+
+from app.entity.config_entity import (  # noqa: E402
     ClinicalModelTrainerConfig,
     ClinicalTransformationConfig,
 )
@@ -143,15 +154,78 @@ class ClinicalModelTrainer:
             test_acc = accuracy_score(y_test, test_preds)
             BEST_VAL_ACCURACY.labels(pipeline="clinical").set(float(test_acc))
 
+            test_probs = model.predict_proba(X_test)
+            test_qwk = cohen_kappa_score(y_test, test_preds, weights="quadratic")
+            test_macro_f1 = float(
+                f1_score(y_test, test_preds, average="macro", zero_division=0)
+            )
+            try:
+                present = sorted(set(y_test))
+                if len(present) >= 2:
+                    test_auc = float(
+                        roc_auc_score(
+                            y_test,
+                            test_probs[:, present]
+                            if test_probs.shape[1] > len(present)
+                            else test_probs,
+                            multi_class="ovr",
+                            average="macro",
+                            labels=present,
+                        )
+                    )
+                else:
+                    test_auc = None
+            except Exception:
+                test_auc = None
+
+            per_class_f1 = f1_score(y_test, test_preds, average=None, zero_division=0)
+
             mlflow.log_metrics(
                 {
                     "train_accuracy": float(round(train_acc, 4)),
                     "test_accuracy": float(round(test_acc, 4)),
+                    "test_qwk": float(round(test_qwk, 4)),
+                    "test_macro_f1": float(round(test_macro_f1, 4)),
+                    "test_auc": float(round(test_auc, 4))
+                    if test_auc is not None
+                    else 0.0,
                 }
             )
 
-            logger.info(f"train accuracy: {train_acc:.4f}")
-            logger.info(f"test accuracy: {test_acc:.4f}")
+            for cls_idx, cls_f1 in enumerate(per_class_f1):
+                mlflow.log_metric(f"test_f1_class_{cls_idx}", float(cls_f1))
+
+            cm = confusion_matrix(y_test, test_preds)
+            dr_labels = ["No DR", "Mild", "Moderate", "Severe", "Proliferative"][
+                : cm.shape[0]
+            ]
+            fig, ax = plt.subplots(figsize=(6, 5))
+            sns.heatmap(
+                cm,
+                annot=True,
+                fmt="d",
+                ax=ax,
+                xticklabels=dr_labels,
+                yticklabels=dr_labels,
+                cmap="Blues",
+            )
+            ax.set_xlabel("Predicted")
+            ax.set_ylabel("True")
+            ax.set_title("Confusion Matrix — Clinical")
+            plt.tight_layout()
+            cm_path = Path("/tmp/cm_clinical_train.png")
+            fig.savefig(cm_path)
+            mlflow.log_artifact(str(cm_path), "confusion_matrices")
+            plt.close(fig)
+
+            auc_str = f"{test_auc:.4f}" if test_auc is not None else "N/A"
+            logger.info(
+                f"train_accuracy={train_acc:.4f} "
+                f"test_accuracy={test_acc:.4f} "
+                f"test_qwk={test_qwk:.4f} "
+                f"test_macro_f1={test_macro_f1:.4f} "
+                f"test_auc={auc_str}"
+            )
 
             feature_importance = dict(
                 zip(feature_cols, model.feature_importances_.tolist())
@@ -185,6 +259,12 @@ class ClinicalModelTrainer:
             )
 
             mlflow.log_artifact(str(self.config.feature_importance_path))
+            mlflow.log_artifact(str(self.config.checkpoint_path))
+            mlflow.sklearn.log_model(
+                sk_model=model,
+                artifact_path="clinical_model",
+                registered_model_name="xgboost_clinical",
+            )
 
         logger.info("=" * 60)
         logger.info("clinical model training complete")

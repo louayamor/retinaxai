@@ -1,21 +1,32 @@
 import pickle
 import time
+from pathlib import Path
+
+import matplotlib
+import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from loguru import logger
 from sklearn.metrics import (
     accuracy_score,
     cohen_kappa_score,
     classification_report,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
     roc_auc_score,
 )
 from xgboost import XGBClassifier
 
-from app.entity.config_entity import ClinicalModelEvaluationConfig
-from app.utils.common import load_json, read_yaml, save_json
-from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
-from app.services.monitoring.prometheus_metrics import QUADRATIC_WEIGHTED_KAPPA
+matplotlib.use("Agg")
+
+from app.entity.config_entity import ClinicalModelEvaluationConfig  # noqa: E402
+from app.utils.common import load_json, read_yaml, save_json  # noqa: E402
+from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH  # noqa: E402
+from app.services.monitoring.prometheus_metrics import QUADRATIC_WEIGHTED_KAPPA  # noqa: E402
 
 
 class ClinicalModelEvaluation:
@@ -96,11 +107,25 @@ class ClinicalModelEvaluation:
             f"label distribution: {dict(zip(*np.unique(y_test, return_counts=True)))}"
         )
 
+        macro_f1 = float(f1_score(y_test, preds, average="macro", zero_division=0))
+        precision_macro = float(
+            precision_score(y_test, preds, average="macro", zero_division=0)
+        )
+        recall_macro = float(
+            recall_score(y_test, preds, average="macro", zero_division=0)
+        )
+        per_class_f1 = f1_score(y_test, preds, average=None, zero_division=0)
+        cm = confusion_matrix(y_test, preds)
+
         metrics = {
             "accuracy": round(accuracy, 4),
             "quadratic_weighted_kappa": round(qwk, 4),
             "roc_auc_macro": round(auc, 4) if auc is not None else None,
+            "macro_f1": round(macro_f1, 4),
+            "precision_macro": round(precision_macro, 4),
+            "recall_macro": round(recall_macro, 4),
             "classification_report": report,
+            "confusion_matrix": cm.tolist(),
             "num_samples": len(y_test),
             "label_offset": label_offset,
             "features_used": available_features,
@@ -124,8 +149,36 @@ class ClinicalModelEvaluation:
                     "test_accuracy": metrics["accuracy"],
                     "test_qwk": metrics["quadratic_weighted_kappa"],
                     "test_auc": metrics["roc_auc_macro"] or 0.0,
+                    "test_macro_f1": metrics["macro_f1"],
+                    "test_precision_macro": metrics["precision_macro"],
+                    "test_recall_macro": metrics["recall_macro"],
                 }
             )
+            for cls_idx, cls_f1 in enumerate(per_class_f1):
+                mlflow.log_metric(f"test_f1_class_{cls_idx}", float(cls_f1))
+
+            dr_labels = ["No DR", "Mild", "Moderate", "Severe", "Proliferative"][
+                : cm.shape[0]
+            ]
+            fig, ax = plt.subplots(figsize=(6, 5))
+            sns.heatmap(
+                cm,
+                annot=True,
+                fmt="d",
+                ax=ax,
+                xticklabels=dr_labels,
+                yticklabels=dr_labels,
+                cmap="Blues",
+            )
+            ax.set_xlabel("Predicted")
+            ax.set_ylabel("True")
+            ax.set_title("Confusion Matrix — Clinical Evaluation")
+            plt.tight_layout()
+            cm_path = Path("/tmp/cm_clinical_eval.png")
+            fig.savefig(cm_path)
+            mlflow.log_artifact(str(cm_path), "confusion_matrices")
+            plt.close(fig)
+
             mlflow.log_artifact(str(self.config.metric_file))
 
         logger.info("=" * 60)

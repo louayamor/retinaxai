@@ -3,8 +3,6 @@ from pathlib import Path
 from collections.abc import Callable
 
 import argparse
-import dagshub
-import mlflow
 from dotenv import load_dotenv
 from loguru import logger
 
@@ -45,15 +43,7 @@ CLINICAL_PIPELINE: dict[str, Callable] = {
 
 PIPELINE_ORDER = ["ingest", "clean", "transform", "train", "evaluate"]
 
-
-def configure_mlflow() -> None:
-    dagshub.init(
-        repo_owner="louayamor",
-        repo_name="retinaxai",
-        mlflow=True,
-    )
-    mlflow.set_experiment("retinaxai-dr-classification")
-    logger.info("MLflow configured via DagsHub")
+from app.utils.mlflow_utils import configure_mlflow  # noqa: E402
 
 
 def run_stage(stage: str, pipeline: dict[str, Callable]) -> None:

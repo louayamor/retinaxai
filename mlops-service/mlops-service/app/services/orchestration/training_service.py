@@ -8,9 +8,6 @@ from typing import Optional
 from loguru import logger
 import threading
 
-import dagshub
-import mlflow
-
 from app.domains.imaging.pipeline.stage_01_data_ingestion import run as img_s1
 from app.domains.imaging.pipeline.stage_02_data_cleaning import run as img_s2
 from app.domains.imaging.pipeline.stage_03_data_transformation import run as img_s3
@@ -197,13 +194,9 @@ def get_active_jobs_count(pipeline: str) -> tuple[int, int]:
 
 
 def _configure_mlflow() -> None:
-    dagshub.init(
-        repo_owner="louayamor",
-        repo_name="retinaxai",
-        mlflow=True,
-    )
-    mlflow.set_experiment("retinaxai-dr-classification")
-    logger.info("mlflow configured in background task")
+    from app.utils.mlflow_utils import configure_mlflow as _cfg
+
+    _cfg()
 
 
 def run_pipeline_task(job_id: str, pipeline: str) -> None:

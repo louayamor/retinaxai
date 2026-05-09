@@ -4,7 +4,6 @@ import io
 import sys
 from pathlib import Path
 
-import dagshub
 import mlflow
 import timm
 import torch
@@ -379,6 +378,16 @@ def train_fundus_classifier(
 
         scheduler.step()
 
+        mlflow.log_metrics(
+            {
+                "train_loss": float(round(train_loss, 4)),
+                "train_acc": float(round(train_acc, 4)),
+                "val_loss": float(round(val_loss, 4)),
+                "val_acc": float(round(val_acc, 4)),
+            },
+            step=epoch,
+        )
+
         logger.info(
             f"[FUNDUS] epoch {epoch + 1}/{num_epochs}: "
             f"train_loss={train_loss:.4f} train_acc={train_acc:.4f} "
@@ -391,6 +400,7 @@ def train_fundus_classifier(
             torch.save(model.state_dict(), output_path)
             logger.info(f"[FUNDUS] best model saved to {output_path}")
 
+    mlflow.log_metric("best_val_acc", float(round(best_val_acc, 4)))
     logger.info(f"[FUNDUS] training complete: best_val_acc={best_val_acc:.4f}")
     return output_path
 
@@ -407,8 +417,9 @@ def run():
     num_classes = fc_cfg.get("num_classes", 2)
     threshold = fc_cfg.get("threshold", 0.3)
 
-    dagshub.init(repo_owner="louayamor", repo_name="retinaxai", mlflow=True)
-    mlflow.set_experiment("retinaxai-dr-classification")
+    from app.utils.mlflow_utils import configure_mlflow
+
+    configure_mlflow()
 
     try:
         with mlflow.start_run(run_name="fundus_classifier"):

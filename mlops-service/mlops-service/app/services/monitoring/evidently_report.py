@@ -1,3 +1,4 @@
+import json
 import pandas as pd
 from pathlib import Path
 from loguru import logger
@@ -141,6 +142,25 @@ class EvidentlyReportGenerator:
         logger.info(f"domain shift report saved: {output_path}")
         return self._extract_drift_values(snapshot)
 
+    def _save_evidently_metrics(
+        self, pipeline: str, dataset_drift: float, features_drifted: int
+    ) -> None:
+        """Persist Evidently drift metrics to JSON so the FastAPI process can serve them."""
+        metrics_file = self.reports_dir / "evidently_metrics.json"
+        try:
+            existing = {}
+            if metrics_file.exists():
+                with open(metrics_file) as f:
+                    existing = json.load(f)
+            existing[pipeline] = {
+                "dataset_drift": dataset_drift,
+                "features_drifted": features_drifted,
+            }
+            with open(metrics_file, "w") as f:
+                json.dump(existing, f, indent=2)
+        except Exception as e:
+            logger.warning(f"failed to persist evidently metrics: {e}")
+
     def run_drift_and_emit(
         self, pipeline: str, reference_csv: Path, current_csv: Path
     ) -> dict:
@@ -157,6 +177,7 @@ class EvidentlyReportGenerator:
 
         EVIDENTLY_DRIFT_DATASET_SHIFT.labels(pipeline=pipeline).set(dataset_drift)
         EVIDENTLY_DRIFT_FEATURES_DRIFTED.labels(pipeline=pipeline).set(drifted_count)
+        self._save_evidently_metrics(pipeline, dataset_drift, drifted_count)
 
         logger.info(
             f"Evidently drift check complete: {pipeline} - dataset_drift={dataset_drift:.4f}, features_drifted={drifted_count}"

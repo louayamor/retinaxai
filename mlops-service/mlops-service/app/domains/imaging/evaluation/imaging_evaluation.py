@@ -14,15 +14,14 @@ from sklearn.metrics import (
     classification_report,
     roc_auc_score,
     f1_score,
+    precision_score,
+    recall_score,
     confusion_matrix,
     ConfusionMatrixDisplay,
 )
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import cv2
-from PIL import Image
-
 from app.domains.imaging.components.model_trainer import RetinalDataset
 from app.domains.imaging.components.tent_adapter import TENTAdapter
 from app.domains.imaging.components.fda_augment import FDAAugment
@@ -69,7 +68,7 @@ class ImagingModelEvaluation:
             ]
         )
 
-    def _build_samaya_transform(self):
+    def _build_samaya_transform(self, fda_inverse=None):
         norm = self.params.augmentation.normalize
         image_size = int(self.params.dl_training.image_size)
         tf_list: list = [
@@ -79,19 +78,8 @@ class ImagingModelEvaluation:
             transforms.ToTensor(),
         ]
 
-        fda_cfg = self.params.get("fda", {}) or {}
-        if fda_cfg.get("enabled", False):
-            source_cache = Path(self.config.root_dir / "eyepacs_amplitude_source.pt")
-            if not source_cache.exists():
-                source_cache = (
-                    self.config.root_dir.parent / "eyepacs_amplitude_source.pt"
-                )
-            if (
-                self._fda_eval is not None
-                and self._fda_eval.source_amplitude is not None
-            ):
-                fda_inv = self._fda_eval.inverse
-                tf_list.append(transforms.Lambda(lambda t: fda_inv(t)))  # type: ignore[arg-type]
+        if fda_inverse is not None:
+            tf_list.append(transforms.Lambda(lambda t: fda_inverse(t)))  # type: ignore[arg-type]
 
         tf_list.append(transforms.Normalize(mean=norm.mean, std=norm.std))
         return transforms.Compose(tf_list)
@@ -180,6 +168,12 @@ class ImagingModelEvaluation:
         report = classification_report(labels, preds, output_dict=True, zero_division=0)  # type: ignore[call-overload]
         auc = self._compute_auc(labels, probs)
         macro_f1 = float(f1_score(labels, preds, average="macro", zero_division="warn"))
+        precision_macro = float(
+            precision_score(labels, preds, average="macro", zero_division=0)
+        )
+        recall_macro = float(
+            recall_score(labels, preds, average="macro", zero_division=0)
+        )
         cm = confusion_matrix(labels, preds)
 
         auc_str = f"{auc:.4f}" if auc is not None else "N/A"
@@ -193,6 +187,8 @@ class ImagingModelEvaluation:
             "quadratic_weighted_kappa": round(qwk, 4),
             "roc_auc_macro": round(auc, 4) if auc is not None else None,
             "macro_f1": round(macro_f1, 4),
+            "precision_macro": precision_macro,
+            "recall_macro": recall_macro,
             "confusion_matrix": cm.tolist(),
             "classification_report": report,
             "num_samples": len(labels),
@@ -210,6 +206,7 @@ class ImagingModelEvaluation:
         model = self._load_model()
 
         self._fda_eval: FDAAugment | None = None
+        fda_inverse = None
         fda_cfg = self.params.get("fda", {}) or {}
         if fda_cfg.get("enabled", False):
             target_dir = Path(fda_cfg["target_images_dir"])
@@ -232,7 +229,13 @@ class ImagingModelEvaluation:
                 if eye_images.exists():
                     self._fda_eval.set_source_amplitude(eye_images, src_cache)
             self._fda_eval.beta = float(fda_cfg.get("inference_beta", 0.1))
-            logger.info("FDA inverse available for Samaya evaluation")
+            if self._fda_eval.source_amplitude is not None:
+                fda_inverse = self._fda_eval.inverse
+                logger.info("FDA inverse available for Samaya evaluation")
+            else:
+                logger.warning(
+                    "FDA enabled but source amplitude not set; inverse not available"
+                )
 
         tent_cfg = self.params.get("tent", {}) or {}
         tent_enabled = tent_cfg.get("enabled", False)
@@ -253,7 +256,7 @@ class ImagingModelEvaluation:
         if self.config.samaya_csv.exists():
             logger.info("--- evaluating on Samaya domain validation set ---")
 
-            samaya_tf = self._build_samaya_transform()
+            samaya_tf = self._build_samaya_transform(fda_inverse=fda_inverse)
             samaya_dataset = RetinalDataset(self.config.samaya_csv, samaya_tf)
             samaya_loader = DataLoader(
                 samaya_dataset,
@@ -297,7 +300,7 @@ class ImagingModelEvaluation:
             ds_cfg = self.params.get("evaluation", {}).get("domain_shift", {}) or {}
             if ds_cfg.get("compute_confidence_ece", False):
                 domain_shift_metrics["confidence_ece"] = self._compute_ece(
-                    samaya_preds, samaya_probs
+                    samaya_labels, samaya_preds, samaya_probs
                 )
 
             if ds_cfg.get("compute_embedding_mmd", False):
@@ -335,14 +338,31 @@ class ImagingModelEvaluation:
 
         run_suffix = f"_{int(time.time()) % 1000:03d}"
         with mlflow.start_run(run_name=self.config.run_name + "_eval" + run_suffix):
-            mlflow.log_metrics(
-                {
-                    "test_accuracy": test_metrics["accuracy"],
-                    "test_qwk": test_metrics["quadratic_weighted_kappa"],
-                    "test_auc": test_metrics["roc_auc_macro"] or 0.0,
-                    "test_macro_f1": test_metrics["macro_f1"],
-                }
-            )
+            test_mlflow_metrics: dict[str, float] = {
+                "test_accuracy": test_metrics["accuracy"],
+                "test_qwk": test_metrics["quadratic_weighted_kappa"],
+                "test_auc": test_metrics["roc_auc_macro"] or 0.0,
+                "test_macro_f1": test_metrics["macro_f1"],
+                "test_precision_macro": test_metrics["precision_macro"],
+                "test_recall_macro": test_metrics["recall_macro"],
+            }
+            for grade_label, grade_vals in test_metrics[
+                "classification_report"
+            ].items():
+                maybe_digit = (
+                    grade_label if isinstance(grade_label, str) else str(grade_label)
+                )
+                if maybe_digit.isdigit():
+                    test_mlflow_metrics[f"test_class_{maybe_digit}_f1"] = grade_vals[
+                        "f1-score"
+                    ]
+                    test_mlflow_metrics[f"test_class_{maybe_digit}_precision"] = (
+                        grade_vals["precision"]
+                    )
+                    test_mlflow_metrics[f"test_class_{maybe_digit}_recall"] = (
+                        grade_vals["recall"]
+                    )
+            mlflow.log_metrics(test_mlflow_metrics)
 
             cm_fig_path = (
                 self.config.metric_file.parent
@@ -370,14 +390,33 @@ class ImagingModelEvaluation:
                 logger.warning(f"Failed to save confusion matrix: {e}")
 
             if samaya_metrics:
-                mlflow.log_metrics(
-                    {
-                        "samaya_accuracy": samaya_metrics["accuracy"],
-                        "samaya_qwk": samaya_metrics["quadratic_weighted_kappa"],
-                        "samaya_auc": samaya_metrics["roc_auc_macro"] or 0.0,
-                        "samaya_macro_f1": samaya_metrics["macro_f1"],
-                    }
-                )
+                samaya_mlflow_metrics: dict[str, float] = {
+                    "samaya_accuracy": samaya_metrics["accuracy"],
+                    "samaya_qwk": samaya_metrics["quadratic_weighted_kappa"],
+                    "samaya_auc": samaya_metrics["roc_auc_macro"] or 0.0,
+                    "samaya_macro_f1": samaya_metrics["macro_f1"],
+                    "samaya_precision_macro": samaya_metrics["precision_macro"],
+                    "samaya_recall_macro": samaya_metrics["recall_macro"],
+                }
+                for grade_label, grade_vals in samaya_metrics[
+                    "classification_report"
+                ].items():
+                    maybe_digit = (
+                        grade_label
+                        if isinstance(grade_label, str)
+                        else str(grade_label)
+                    )
+                    if maybe_digit.isdigit():
+                        samaya_mlflow_metrics[f"samaya_class_{maybe_digit}_f1"] = (
+                            grade_vals["f1-score"]
+                        )
+                        samaya_mlflow_metrics[
+                            f"samaya_class_{maybe_digit}_precision"
+                        ] = grade_vals["precision"]
+                        samaya_mlflow_metrics[f"samaya_class_{maybe_digit}_recall"] = (
+                            grade_vals["recall"]
+                        )
+                mlflow.log_metrics(samaya_mlflow_metrics)
 
                 for k, v in domain_shift_metrics.items():
                     if isinstance(v, (int, float)):
@@ -426,10 +465,12 @@ class ImagingModelEvaluation:
         return full_metrics
 
     @staticmethod
-    def _compute_ece(preds: list, probs: np.ndarray, n_bins: int = 10) -> float:
+    def _compute_ece(
+        labels: list, preds: list, probs: np.ndarray, n_bins: int = 10
+    ) -> float:
         confidences = np.max(probs, axis=1)
+        targets = np.array(labels)
         preds_arr = np.array(preds)
-        targets = preds_arr
 
         bin_boundaries = np.linspace(0.0, 1.0, n_bins + 1)
         ece = 0.0
@@ -480,8 +521,8 @@ class ImagingModelEvaluation:
         eye_embs = _extract_embeddings(eyepacs_csv, self._build_transform())
         samaya_embs = _extract_embeddings(samaya_csv, samaya_transform)
 
-        n = min(len(eye_embs), 100)
-        m = min(len(samaya_embs), 66)
+        n = min(len(eye_embs), len(samaya_embs))
+        m = n
         eye_sub = eye_embs[:n]
         sam_sub = samaya_embs[:m]
 

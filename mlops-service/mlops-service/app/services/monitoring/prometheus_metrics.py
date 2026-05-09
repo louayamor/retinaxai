@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import json
+import threading
+import time
+from pathlib import Path
+
 import numpy as np
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 from loguru import logger
@@ -45,7 +50,7 @@ INFERENCE_LATENCY = Histogram(
     "retinaxai_inference_latency_seconds",
     "Inference request latency in seconds",
     ["model"],
-    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0],
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
 )
 
 INFERENCE_OOM_KILLS = Counter(
@@ -278,3 +283,139 @@ def start_metrics_server(port: int = 9101) -> None:
         logger.info(f"prometheus metrics server started on port {port}")
     except OSError as e:
         logger.warning(f"Could not start metrics server on port {port}: {e}")
+
+
+def update_qwk_from_metrics_files(
+    imaging_metrics_path: Path,
+    clinical_metrics_path: Path,
+) -> None:
+    """Read persisted metrics.json files and update QWK gauges.
+
+    The evaluation pipeline writes metrics.json to disk, but runs as a
+    transient CLI process (python main.py pipeline) that exits before
+    Prometheus can scrape.  This bridge lets the long-lived FastAPI
+    process pick up the persisted values so the dashboard has data.
+    """
+    if imaging_metrics_path.exists():
+        try:
+            with open(imaging_metrics_path) as f:
+                data = json.load(f)
+            eyepacs = data.get("eyepacs_test", {})
+            if "quadratic_weighted_kappa" in eyepacs:
+                QUADRATIC_WEIGHTED_KAPPA.labels(
+                    pipeline="imaging", split="eyepacs_test"
+                ).set(eyepacs["quadratic_weighted_kappa"])
+            samaya = data.get("samaya_validation", {}) or {}
+            if "quadratic_weighted_kappa" in samaya:
+                QUADRATIC_WEIGHTED_KAPPA.labels(
+                    pipeline="imaging", split="samaya_validation"
+                ).set(samaya["quadratic_weighted_kappa"])
+        except Exception as e:
+            logger.warning(f"failed to load imaging QWK: {e}")
+
+    if clinical_metrics_path.exists():
+        try:
+            with open(clinical_metrics_path) as f:
+                data = json.load(f)
+            if "quadratic_weighted_kappa" in data:
+                QUADRATIC_WEIGHTED_KAPPA.labels(pipeline="clinical", split="test").set(
+                    data["quadratic_weighted_kappa"]
+                )
+        except Exception as e:
+            logger.warning(f"failed to load clinical QWK: {e}")
+
+
+def start_qwk_background_refresh(
+    imaging_metrics_path: Path,
+    clinical_metrics_path: Path,
+    interval_seconds: int = 300,
+) -> None:
+    """Start a daemon thread that periodically reloads QWK from metrics files."""
+
+    def _refresh_loop() -> None:
+        while True:
+            try:
+                update_qwk_from_metrics_files(
+                    imaging_metrics_path, clinical_metrics_path
+                )
+            except Exception as e:
+                logger.warning(f"QWK background refresh error: {e}")
+            time.sleep(interval_seconds)
+
+    thread = threading.Thread(target=_refresh_loop, daemon=True)
+    thread.start()
+    logger.info(f"QWK background refresh started (interval={interval_seconds}s)")
+
+
+def update_drift_metrics_from_files(
+    drift_history_path: Path,
+    evidently_metrics_path: Path,
+) -> None:
+    """Read persisted drift-check results and update Prometheus gauges.
+
+    The pipeline and automation service both write drift results to disk;
+    this bridge makes them visible to Prometheus scrapes in the FastAPI
+    process, just like the QWK bridge.
+    """
+    pipelines = ["imaging", "clinical"]
+
+    # --- PSI drift from drift_history.json ---
+    if drift_history_path.exists():
+        try:
+            with open(drift_history_path) as f:
+                history: list[dict] = json.load(f)
+
+            for pipe in pipelines:
+                pipe_entries = [h for h in history if h.get("pipeline") == pipe]
+                if not pipe_entries:
+                    continue
+                latest = pipe_entries[-1]
+                DRIFT_DETECTED.labels(pipeline=pipe).set(
+                    1 if latest.get("drift_detected", False) else 0
+                )
+                overall_psi = latest.get("overall_psi", 0.0)
+                DRIFT_PSI_SCORE.labels(pipeline=pipe).set(overall_psi)
+                for feature in latest.get("features", []):
+                    DRIFT_PSI_SCORE.labels(
+                        pipeline=pipe, feature=feature["feature_name"]
+                    ).set(feature["psi"])
+        except Exception as e:
+            logger.warning(f"failed to load drift PSI from history: {e}")
+
+    # --- Evidently metrics from evidently_metrics.json ---
+    if evidently_metrics_path.exists():
+        try:
+            with open(evidently_metrics_path) as f:
+                metrics: dict = json.load(f)
+            for pipe in pipelines:
+                entry = metrics.get(pipe, {})
+                dataset_drift = entry.get("dataset_drift", 0.0)
+                features_drifted = entry.get("features_drifted", 0)
+                EVIDENTLY_DRIFT_DATASET_SHIFT.labels(pipeline=pipe).set(dataset_drift)
+                EVIDENTLY_DRIFT_FEATURES_DRIFTED.labels(pipeline=pipe).set(
+                    features_drifted
+                )
+        except Exception as e:
+            logger.warning(f"failed to load evidently metrics: {e}")
+
+
+def start_drift_background_refresh(
+    drift_history_path: Path,
+    evidently_metrics_path: Path,
+    interval_seconds: int = 300,
+) -> None:
+    """Start a daemon thread that periodically reloads drift gauges."""
+
+    def _refresh_loop() -> None:
+        while True:
+            try:
+                update_drift_metrics_from_files(
+                    drift_history_path, evidently_metrics_path
+                )
+            except Exception as e:
+                logger.warning(f"drift background refresh error: {e}")
+            time.sleep(interval_seconds)
+
+    thread = threading.Thread(target=_refresh_loop, daemon=True)
+    thread.start()
+    logger.info(f"drift background refresh started (interval={interval_seconds}s)")

@@ -23,6 +23,10 @@ from app.api.dependencies import get_settings
 from app.services.monitoring.prometheus_metrics import (
     start_metrics_server,
     init_metrics,
+    update_qwk_from_metrics_files,
+    start_qwk_background_refresh,
+    update_drift_metrics_from_files,
+    start_drift_background_refresh,
 )
 
 logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING)
@@ -36,6 +40,28 @@ async def lifespan(app: FastAPI):
     logger.info(f"environment: {settings.app_env}")
     init_metrics()
     start_metrics_server(port=settings.prometheus_metrics_port)
+
+    # Bridge pipeline-evaluation metrics into Prometheus gauges
+    update_qwk_from_metrics_files(
+        settings.imaging_metrics_path,
+        settings.clinical_metrics_path,
+    )
+    start_qwk_background_refresh(
+        settings.imaging_metrics_path,
+        settings.clinical_metrics_path,
+        interval_seconds=300,
+    )
+
+    # Bridge drift-check results into Prometheus gauges
+    drift_history_path = settings.monitoring_dir / "drift" / "drift_history.json"
+    evidently_metrics_path = settings.monitoring_dir / "evidently_metrics.json"
+    update_drift_metrics_from_files(drift_history_path, evidently_metrics_path)
+    start_drift_background_refresh(
+        drift_history_path,
+        evidently_metrics_path,
+        interval_seconds=300,
+    )
+
     if settings.automation_enabled:
         from app.services.orchestration.automation_service import get_automation_service
 

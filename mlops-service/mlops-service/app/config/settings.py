@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     mlflow_tracking_username: str = ""
     mlflow_tracking_password: str = ""
 
+    dagshub_repo_owner: str = "louayamor"
+    dagshub_repo_name: str = "retinaxai"
+
     llmops_service_url: str = "http://llmops-service:8002"
     backend_service_url: str = "http://backend-service:8000"
     timeout_seconds: int = 30
