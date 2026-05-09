@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import PageContainer from '@/components/layout/page-container';
-import { PageHero } from '@/components/ui/page-hero';
-import { PageSection, PageGrid } from '@/components/ui/page-section';
+import { PageHeader } from '@/components/ui/page-header';
 import { StatsRow } from '@/components/ui/stats-row';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -163,7 +162,7 @@ export default function LLMOpsPage() {
 
   return (
     <PageContainer className='flex flex-col gap-6'>
-      <PageHero
+      <PageHeader
         title='LLMOps Monitor'
         description='LLM service, RAG pipeline, and explainability queue'
         actions={
@@ -198,7 +197,7 @@ export default function LLMOpsPage() {
         </Card>
       </StatsRow>
 
-      <PageGrid columns={3}>
+      <div className='grid grid-cols-1 md:grid-cols-3 gap-5'>
         <StatsCard
           title='RAG Documents'
           value={loading && !ragStatus ? 'Loading...' : (ragStatus?.total_documents ?? '—')}
@@ -218,7 +217,7 @@ export default function LLMOpsPage() {
           icon={ragStatus?.status === 'ready' ? CheckCircle2 : AlertCircle}
           color={ragStatus?.status === 'ready' ? '#22c55e' : ragStatus?.status === 'indexing' ? '#3b82f6' : '#6b7280'}
         />
-      </PageGrid>
+      </div>
 
       <Tabs defaultValue='rag' className='space-y-4'>
         <TabsList>
@@ -227,11 +226,15 @@ export default function LLMOpsPage() {
         </TabsList>
 
         <TabsContent value='rag'>
-          <PageSection
-            title='RAG Vector Store'
-            description='Document collection and indexing status'
-            icon={<Database className='h-5 w-5' />}
-            headerAction={
+          <div className='rounded-lg border bg-card p-4'>
+            <div className='flex items-start justify-between mb-4'>
+              <div className='flex items-center gap-2'>
+                <Database className='h-5 w-5' />
+                <div>
+                  <h3 className='font-semibold'>RAG Vector Store</h3>
+                  <p className='text-sm text-muted-foreground'>Document collection and indexing status</p>
+                </div>
+              </div>
               <Button onClick={handleReindex} disabled={reindexing}>
                 {reindexing ? (
                   <Loader2 className='h-4 w-4 mr-2 animate-spin' />
@@ -240,8 +243,7 @@ export default function LLMOpsPage() {
                 )}
                 Reindex
               </Button>
-            }
-          >
+            </div>
             <div className='grid gap-4 md:grid-cols-2'>
               <div className='p-4 rounded-lg border'>
                 <p className='text-sm text-muted-foreground'>Collection Name</p>
@@ -266,15 +268,18 @@ export default function LLMOpsPage() {
                 </Badge>
               </div>
             </div>
-          </PageSection>
+          </div>
         </TabsContent>
 
         <TabsContent value='xai'>
-          <PageSection
-            title='Explainability Queue'
-            description='Current XAI operation status'
-            icon={<Sparkles className='h-5 w-5' />}
-          >
+          <div className='rounded-lg border bg-card p-4'>
+            <div className='flex items-start gap-2 mb-4'>
+              <Sparkles className='h-5 w-5' />
+              <div>
+                <h3 className='font-semibold'>Explainability Queue</h3>
+                <p className='text-sm text-muted-foreground'>Current XAI operation status</p>
+              </div>
+            </div>
             {operation && operation.status !== 'idle' ? (
               <div className='space-y-4'>
                 <div className='flex items-center justify-between p-4 rounded-lg border'>
@@ -314,7 +319,7 @@ export default function LLMOpsPage() {
                 <p className='text-sm text-muted-foreground mt-1'>XAI explanations are generated on-demand via predictions</p>
               </div>
             )}
-          </PageSection>
+          </div>
         </TabsContent>
       </Tabs>
     </PageContainer>

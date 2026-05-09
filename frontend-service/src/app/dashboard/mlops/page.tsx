@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import PageContainer from '@/components/layout/page-container';
-import { PageHero } from '@/components/ui/page-hero';
-import { PageSection, PageGrid } from '@/components/ui/page-section';
+import { PageHeader } from '@/components/ui/page-header';
 import { StatsRow } from '@/components/ui/stats-row';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -216,7 +215,7 @@ export default function MLOpsPage() {
 
   return (
     <PageContainer className='flex flex-col gap-6'>
-      <PageHero
+      <PageHeader
         title='MLOps Monitor'
         description='Training pipelines, drift detection, and model performance'
       />
@@ -249,7 +248,8 @@ export default function MLOpsPage() {
       </StatsRow>
 
       {promMetrics && (
-        <PageSection title='Live Prometheus Metrics'>
+        <div className='rounded-lg border bg-card p-4'>
+          <h3 className='font-semibold mb-4'>Live Prometheus Metrics</h3>
           <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
             <Card>
               <CardContent className='pt-4'>
@@ -296,10 +296,10 @@ export default function MLOpsPage() {
               </CardContent>
             </Card>
           </div>
-        </PageSection>
+        </div>
       )}
 
-      <PageGrid columns={2}>
+      <div className='grid grid-cols-1 md:grid-cols-2 gap-5'>
         {metrics?.imaging && (
           <Card>
             <CardHeader>
@@ -360,10 +360,11 @@ export default function MLOpsPage() {
             </CardContent>
           </Card>
         )}
-      </PageGrid>
+      </div>
 
       {getMetricsRadarData().length > 0 && (
-        <PageSection title='Model Performance Comparison'>
+        <div className='rounded-lg border bg-card p-4'>
+          <h3 className='font-semibold mb-4'>Model Performance Comparison</h3>
           <div className='h-[300px]'>
             <ResponsiveContainer width='100%' height='100%'>
               <RadarChart data={getMetricsRadarData()}>
@@ -377,11 +378,15 @@ export default function MLOpsPage() {
               </RadarChart>
             </ResponsiveContainer>
           </div>
-        </PageSection>
+        </div>
       )}
 
-      <PageGrid columns={2}>
-        <PageSection title='Training Jobs' icon={<Activity className='h-5 w-5' />}>
+      <div className='grid grid-cols-1 md:grid-cols-2 gap-5'>
+        <div className='rounded-lg border bg-card p-4'>
+          <div className='flex items-center gap-2 mb-4'>
+            <Activity className='h-5 w-5' />
+            <h3 className='font-semibold'>Training Jobs</h3>
+          </div>
           {jobs.length === 0 ? (
             <p className='text-sm text-muted-foreground py-4 text-center'>No training jobs</p>
           ) : (
@@ -402,9 +407,13 @@ export default function MLOpsPage() {
               ))}
             </div>
           )}
-        </PageSection>
+        </div>
 
-        <PageSection title='Drift Status' icon={<TrendingUp className='h-5 w-5' />}>
+        <div className='rounded-lg border bg-card p-4'>
+          <div className='flex items-center gap-2 mb-4'>
+            <TrendingUp className='h-5 w-5' />
+            <h3 className='font-semibold'>Drift Status</h3>
+          </div>
           <div className='space-y-3'>
             {PIPELINES.map((pipeline) => {
               const status = driftStatus[pipeline];
@@ -447,11 +456,15 @@ export default function MLOpsPage() {
               );
             })}
           </div>
-        </PageSection>
-      </PageGrid>
+        </div>
+      </div>
 
       {hasEvidentlyData && (
-        <PageSection title='Evidently Drift Analysis' icon={<FileText className='h-5 w-5' />}>
+        <div className='rounded-lg border bg-card p-4'>
+          <div className='flex items-center gap-2 mb-4'>
+            <FileText className='h-5 w-5' />
+            <h3 className='font-semibold'>Evidently Drift Analysis</h3>
+          </div>
           <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
             <Card>
               <CardContent className='pt-4'>
@@ -480,11 +493,12 @@ export default function MLOpsPage() {
               </CardContent>
             </Card>
           </div>
-        </PageSection>
+        </div>
       )}
 
-      <PageGrid columns={2}>
-        <PageSection title='Drift History (PSI)'>
+      <div className='grid grid-cols-1 md:grid-cols-2 gap-5'>
+        <div className='rounded-lg border bg-card p-4'>
+          <h3 className='font-semibold mb-4'>Drift History (PSI)</h3>
           <div className='h-[200px]'>
             {getDriftChartData().length > 0 ? (
               <ResponsiveContainer width='100%' height='100%'>
@@ -502,9 +516,16 @@ export default function MLOpsPage() {
               <p className='text-sm text-muted-foreground flex items-center justify-center h-full'>No drift history</p>
             )}
           </div>
-        </PageSection>
+        </div>
 
-        <PageSection title='Feature Store' icon={<Database className='h-5 w-5' />} headerAction={<Badge variant='secondary'>{features.length}</Badge>}>
+        <div className='rounded-lg border bg-card p-4'>
+          <div className='flex items-center justify-between mb-4'>
+            <div className='flex items-center gap-2'>
+              <Database className='h-5 w-5' />
+              <h3 className='font-semibold'>Feature Store</h3>
+            </div>
+            <Badge variant='secondary'>{features.length}</Badge>
+          </div>
           {features.length === 0 ? (
             <p className='text-sm text-muted-foreground py-4 text-center'>No features in store</p>
           ) : (
@@ -519,8 +540,8 @@ export default function MLOpsPage() {
               ))}
             </div>
           )}
-        </PageSection>
-      </PageGrid>
+        </div>
+      </div>
     </PageContainer>
   );
 }

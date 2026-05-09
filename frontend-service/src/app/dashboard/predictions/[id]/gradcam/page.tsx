@@ -89,6 +89,7 @@ interface ImageProps {
   title: string;
   gradcamBase64?: string;
   originalBase64?: string;
+  fundusScore?: number;
 }
 
 function ZoomableImage({ src, alt, isActive }: { src?: string; alt: string; isActive?: boolean }) {
@@ -148,13 +149,20 @@ function ZoomableImage({ src, alt, isActive }: { src?: string; alt: string; isAc
   );
 }
 
-function ImageCard({ title, gradcamBase64, originalBase64 }: ImageProps) {
+function ImageCard({ title, gradcamBase64, originalBase64, fundusScore }: ImageProps) {
   const hasGradCAM = !!gradcamBase64;
-  
+  const isFundus = fundusScore !== undefined && fundusScore >= 0.3;
+
   return (
     <Card className="overflow-hidden">
       <CardHeader className="bg-slate-900/50">
         <CardTitle className="text-lg text-white">{title}</CardTitle>
+        {fundusScore !== undefined && (
+          <div className={`text-xs mt-1 ${isFundus ? 'text-green-400' : 'text-red-400'}`}>
+            {isFundus ? '\u2705 Valid fundus' : '\u274c Rejected'}
+            <span className="ml-1 text-slate-300">({fundusScore.toFixed(3)})</span>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="p-0 space-y-2">
         {/* GradCAM Heatmap - always available when prediction has gradcam */}
@@ -314,6 +322,9 @@ export default function GradCAMPage() {
   const gradcamLeft = prediction?.output_payload?.gradcam_left as string | undefined;
   const gradcamRight = prediction?.output_payload?.gradcam_right as string | undefined;
 
+  const fundusLeft = prediction?.output_payload?.fundus_score_left as number | undefined;
+  const fundusRight = prediction?.output_payload?.fundus_score_right as number | undefined;
+
   const leftEye = prediction?.output_payload?.left_eye as Record<string, unknown> | undefined;
   const rightEye = prediction?.output_payload?.right_eye as Record<string, unknown> | undefined;
 
@@ -415,11 +426,13 @@ export default function GradCAMPage() {
                 title="Left Eye (OS)"
                 gradcamBase64={gradcamLeft}
                 originalBase64={originalImages.left}
+                fundusScore={fundusLeft}
               />
               <ImageCard
                 title="Right Eye (OD)"
                 gradcamBase64={gradcamRight}
                 originalBase64={originalImages.right}
+                fundusScore={fundusRight}
               />
             </div>
 

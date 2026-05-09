@@ -31,7 +31,6 @@ import {
 } from '@/components/ui/sidebar';
 import { navGroups, navItems } from '@/config/nav-config';
 import { useFilteredNavItems } from '@/hooks/use-nav';
-import { useMediaQuery } from '@/hooks/use-media-query';
 import { clearTokens, apiFetch } from '@/lib/auth';
 import {
   IconBell,
@@ -57,6 +56,11 @@ function parseUserFromToken(token: string | null) {
   }
 }
 
+function isActivePath(pathname: string, url: string): boolean {
+  if (pathname === url) return true;
+  return pathname.startsWith(url) && url !== '/dashboard';
+}
+
 function NavItemComponent({
   item,
   pathname,
@@ -65,21 +69,23 @@ function NavItemComponent({
   pathname: string;
 }) {
   const Icon = item.icon ? Icons[item.icon] : Icons.logo;
+  const hasActiveChild =
+    item.items?.some((sub) => pathname === sub.url || pathname.startsWith(sub.url)) ?? false;
 
   if (item.items && item.items.length > 0) {
     return (
       <Collapsible
         key={item.title}
         asChild
-        defaultOpen={pathname.startsWith(item.url)}
+        defaultOpen={hasActiveChild || isActivePath(pathname, item.url)}
         className='group/collapsible'
       >
         <SidebarMenuItem>
           <CollapsibleTrigger asChild>
             <SidebarMenuButton
               tooltip={item.title}
-              isActive={pathname === item.url}
-              className='text-sm py-1.5'
+              isActive={hasActiveChild}
+              className='text-sm py-1'
             >
               {item.icon && <Icon className="size-4" />}
               <span>{item.title}</span>
@@ -90,11 +96,11 @@ function NavItemComponent({
             <SidebarMenuSub>
               {item.items.map((subItem) => (
                 <SidebarMenuSubItem key={subItem.title}>
-                    <SidebarMenuSubButton
-                      asChild
-                      isActive={pathname === subItem.url}
-                      className='text-sm py-1.5'
-                    >
+                  <SidebarMenuSubButton
+                    asChild
+                    isActive={pathname === subItem.url}
+                    className='text-sm py-1'
+                  >
                     <Link href={subItem.url}>
                       <span>{subItem.title}</span>
                     </Link>
@@ -108,13 +114,15 @@ function NavItemComponent({
     );
   }
 
+  const active = isActivePath(pathname, item.url);
+
   return (
     <SidebarMenuItem key={item.title}>
       <SidebarMenuButton
         asChild
         tooltip={item.title}
-        isActive={pathname === item.url}
-        className='text-sm py-1.5'
+        isActive={active}
+        className='text-sm py-1'
       >
         <Link href={item.url}>
           <Icon className="size-4" />
@@ -159,10 +167,10 @@ export default function AppSidebar() {
             alt='RetinaXAI'
             width={100}
             height={100}
-            className='h-8 w-8 rounded-md'
+            className='h-7 w-7 rounded-md'
             priority
           />
-          <span className='font-semibold transition-opacity duration-200 group-data-[collapsible=icon]:opacity-0'>
+          <span className='text-sm font-semibold transition-opacity duration-200 group-data-[collapsible=icon]:opacity-0'>
             RetinaXAI
           </span>
         </div>
@@ -171,7 +179,7 @@ export default function AppSidebar() {
       <SidebarContent>
         {navGroups.map((group) => (
           <SidebarGroup key={group.title}>
-            <SidebarGroupLabel className='text-[10px] uppercase tracking-wider text-muted-foreground px-2'>
+            <SidebarGroupLabel className='text-[10px] uppercase tracking-widest text-sidebar-primary font-semibold px-2 pb-1'>
               {group.title}
             </SidebarGroupLabel>
             <SidebarMenu>

@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import PageContainer from '@/components/layout/page-container';
-import { PageHero } from '@/components/ui/page-hero';
-import { PageSection, PageGrid } from '@/components/ui/page-section';
+import { PageHeader } from '@/components/ui/page-header';
 import { StatsRow } from '@/components/ui/stats-row';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -184,7 +183,7 @@ export default function SystemStatsPage() {
 
   return (
     <PageContainer className='flex flex-col gap-6'>
-      <PageHero
+      <PageHeader
         title='System Monitor'
         description='Infrastructure, services, and database statistics'
         actions={
@@ -195,10 +194,11 @@ export default function SystemStatsPage() {
         }
       />
 
-      <PageSection
-        title='Service Health'
-        icon={<Server className='h-5 w-5' />}
-      >
+      <div className='rounded-lg border bg-card p-4'>
+        <div className='flex items-center gap-2 mb-4'>
+          <Server className='h-5 w-5' />
+          <h3 className='font-semibold'>Service Health</h3>
+        </div>
         <div className='grid grid-cols-3 gap-4'>
           {Object.entries(serviceHealth).map(([service, health]) => (
             <div key={service} className='flex items-center justify-between p-3 rounded-lg border'>
@@ -222,10 +222,10 @@ export default function SystemStatsPage() {
               </div>
             ))}
         </div>
-      </PageSection>
+      </div>
 
       {systemMetrics && (
-        <PageGrid columns={4}>
+        <div className='grid grid-cols-2 md:grid-cols-4 gap-5'>
           <Card>
             <CardContent className='pt-6'>
               <div className='flex items-center gap-2 text-sm text-muted-foreground mb-2'>
@@ -289,11 +289,15 @@ export default function SystemStatsPage() {
               <p className='text-xs text-muted-foreground'>↑{systemMetrics.network.tx_mbps.toFixed(1)} Mbps</p>
             </CardContent>
           </Card>
-        </PageGrid>
+        </div>
       )}
 
       {gpuInfo.length > 0 && (
-        <PageSection title='GPU' icon={<Gauge className='h-5 w-5' />}>
+        <div className='rounded-lg border bg-card p-4'>
+          <div className='flex items-center gap-2 mb-4'>
+            <Gauge className='h-5 w-5' />
+            <h3 className='font-semibold'>GPU</h3>
+          </div>
           <div className='grid grid-cols-2 md:grid-cols-3 gap-4'>
             {gpuInfo.map((gpu, i) => (
               <Card key={i}>
@@ -329,10 +333,10 @@ export default function SystemStatsPage() {
               </Card>
             ))}
           </div>
-        </PageSection>
+        </div>
       )}
 
-      <PageGrid columns={4}>
+      <div className='grid grid-cols-2 md:grid-cols-4 gap-5'>
         <Card>
           <CardContent className='pt-6'>
             <div className='flex items-center gap-2 text-sm text-muted-foreground mb-2'>
@@ -373,10 +377,11 @@ export default function SystemStatsPage() {
             </div>
           </CardContent>
         </Card>
-      </PageGrid>
+      </div>
 
-      <PageGrid columns={3}>
-        <PageSection title='DR Grades'>
+      <div className='grid grid-cols-1 md:grid-cols-3 gap-5'>
+        <div className='rounded-lg border bg-card p-4'>
+          <h3 className='font-semibold mb-4'>DR Grades</h3>
           {severityData.length > 0 ? (
             <div className='h-[150px]'>
               <ResponsiveContainer width='100%' height='100%'>
@@ -402,9 +407,10 @@ export default function SystemStatsPage() {
           ) : (
             <p className='text-sm text-muted-foreground text-center py-8'>No data</p>
           )}
-        </PageSection>
+        </div>
 
-        <PageSection title='Age Distribution'>
+        <div className='rounded-lg border bg-card p-4'>
+          <h3 className='font-semibold mb-4'>Age Distribution</h3>
           {dashboardStats?.age_distribution && Object.keys(dashboardStats.age_distribution).length > 0 ? (
             <div className='space-y-2'>
               {Object.entries(dashboardStats.age_distribution).map(([age, count]) => (
@@ -425,9 +431,10 @@ export default function SystemStatsPage() {
           ) : (
             <p className='text-sm text-muted-foreground text-center py-8'>No data</p>
           )}
-        </PageSection>
+        </div>
 
-        <PageSection title='Gender Distribution'>
+        <div className='rounded-lg border bg-card p-4'>
+          <h3 className='font-semibold mb-4'>Gender Distribution</h3>
           {dashboardStats?.gender_distribution && Object.keys(dashboardStats.gender_distribution).length > 0 ? (
             <div className='h-[150px]'>
               <ResponsiveContainer width='100%' height='100%'>
@@ -453,8 +460,8 @@ export default function SystemStatsPage() {
           ) : (
             <p className='text-sm text-muted-foreground text-center py-8'>No data</p>
           )}
-        </PageSection>
-      </PageGrid>
+        </div>
+      </div>
     </PageContainer>
   );
 }

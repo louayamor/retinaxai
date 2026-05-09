@@ -1,5 +1,6 @@
 import KBar from '@/components/kbar';
 import AppSidebar from '@/components/layout/app-sidebar';
+import { Breadcrumbs } from '@/components/breadcrumbs';
 import Header from '@/components/layout/header';
 import { InfoSidebar } from '@/components/layout/info-sidebar';
 import { InfobarProvider } from '@/components/ui/infobar';
@@ -31,7 +32,10 @@ export default async function DashboardLayout({
           <AppSidebar />
           <SidebarInset>
             <Header />
-            <main className='flex-1 overflow-auto'>
+            <main className='flex-1 overflow-auto page-transition'>
+              <div className='px-6 pt-3 pb-1'>
+                <Breadcrumbs />
+              </div>
               {children}
             </main>
           </SidebarInset>

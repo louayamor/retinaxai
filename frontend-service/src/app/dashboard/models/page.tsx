@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import PageContainer from '@/components/layout/page-container';
-import { PageHero } from '@/components/ui/page-hero';
-import { PageSection, PageGrid } from '@/components/ui/page-section';
+import { PageHeader, RefreshButton } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,7 +21,6 @@ import { useWebSocket } from '@/hooks/use-websocket';
 import { TrainingProgress } from '@/components/training-progress';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { RefreshButton } from '@/components/ui/page-header';
 
 const MLOPS_BASE = process.env.NEXT_PUBLIC_MLOPS_URL || 'http://localhost:8004';
 
@@ -191,17 +189,19 @@ export default function ModelsPage() {
 
   return (
     <PageContainer className='flex flex-col gap-6'>
-      <PageHero
+      <PageHeader
         title='AI Models'
         description='Model performance, training and evaluation metrics of EfficientNet-B3 + XGBoost'
-        imageUrl='https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=800&q=80'
       />
 
-      <PageSection
-        title='Training Pipeline'
-        icon={<Play className='h-5 w-5' />}
-        headerAction={<RefreshButton onClick={fetchData} loading={loading} />}
-      >
+      <div className='rounded-lg border bg-card p-4'>
+        <div className='flex items-center justify-between mb-4'>
+          <div className='flex items-center gap-2'>
+            <Play className='h-5 w-5' />
+            <h3 className='font-semibold'>Training Pipeline</h3>
+          </div>
+          <RefreshButton onClick={fetchData} loading={loading} />
+        </div>
         <div className='flex flex-wrap gap-4 items-center'>
           <Button
             onClick={() => void triggerTraining('imaging')}
@@ -259,9 +259,9 @@ export default function ModelsPage() {
         {jobStatus?.error && (
           <p className='text-sm text-destructive mt-4'>{jobStatus.error}</p>
         )}
-      </PageSection>
+      </div>
 
-      <PageGrid columns={2}>
+      <div className='grid grid-cols-1 md:grid-cols-2 gap-5'>
         <Card>
           <CardHeader>
             <CardTitle className='flex items-center gap-2'>
@@ -335,9 +335,10 @@ export default function ModelsPage() {
             )}
           </CardContent>
         </Card>
-      </PageGrid>
+      </div>
 
-      <PageSection title='Model Comparison'>
+      <div className='rounded-lg border bg-card p-4'>
+        <h3 className='font-semibold mb-4'>Model Comparison</h3>
         <div className='h-[300px]'>
           <ResponsiveContainer width='100%' height='100%'>
             <RadarChart data={radarData}>
@@ -362,9 +363,9 @@ export default function ModelsPage() {
             </RadarChart>
           </ResponsiveContainer>
         </div>
-      </PageSection>
+      </div>
 
-      <PageGrid columns={2}>
+      <div className='grid grid-cols-1 md:grid-cols-2 gap-5'>
         <Card>
           <CardHeader>
             <CardTitle>MLOps Service</CardTitle>
@@ -415,7 +416,7 @@ export default function ModelsPage() {
             </div>
           </CardContent>
         </Card>
-      </PageGrid>
+      </div>
     </PageContainer>
   );
 }

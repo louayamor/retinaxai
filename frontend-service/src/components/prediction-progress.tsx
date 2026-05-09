@@ -6,7 +6,7 @@ interface PredictionProgressProps {
   progress: number;
   stage: string;
   message?: string;
-  status: 'idle' | 'uploading' | 'predicting' | 'biomarker' | 'xai' | 'reporting' | 'completed' | 'failed';
+  status: 'idle' | 'uploading' | 'predicting' | 'biomarker' | 'xai' | 'reporting' | 'completed' | 'failed' | 'rejected';
   className?: string;
 }
 
@@ -19,6 +19,7 @@ const STATUS_COLORS: Record<PredictionProgressProps['status'], string> = {
   reporting: 'bg-amber-500',
   completed: 'bg-emerald-500',
   failed: 'bg-rose-500',
+  rejected: 'bg-orange-500',
 };
 
 const STAGE_LABELS: Record<string, string> = {
@@ -31,6 +32,7 @@ const STAGE_LABELS: Record<string, string> = {
   report: 'Generating report',
   completed: 'Completed',
   failed: 'Failed',
+  rejected: 'Rejected',
 };
 
 export function PredictionProgress({ progress, stage, message, status, className }: PredictionProgressProps) {

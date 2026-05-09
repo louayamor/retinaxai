@@ -9,6 +9,7 @@ interface PageHeaderProps {
   title: string;
   description?: string;
   actions?: ReactNode;
+  metadata?: ReactNode;
   className?: string;
 }
 
@@ -16,21 +17,27 @@ export function PageHeader({
   title,
   description,
   actions,
+  metadata,
   className,
 }: PageHeaderProps) {
   return (
     <div className={cn(
-      'flex flex-col md:flex-row md:items-center justify-between gap-4',
+      'flex flex-col md:flex-row md:items-start justify-between gap-3',
       className
     )}>
-      <div>
-        <h1 className='text-2xl font-bold tracking-tight'>{title}</h1>
+      <div className='min-w-0 flex-1'>
+        <h1 className='text-xl font-bold tracking-tight'>{title}</h1>
         {description && (
-          <p className='text-sm text-muted-foreground mt-1'>{description}</p>
+          <p className='text-sm text-muted-foreground mt-0.5'>{description}</p>
+        )}
+        {metadata && (
+          <div className='flex items-center gap-3 mt-1.5 text-xs text-muted-foreground'>
+            {metadata}
+          </div>
         )}
       </div>
       {actions && (
-        <div className='flex items-center gap-2'>
+        <div className='flex items-center gap-2 shrink-0'>
           {actions}
         </div>
       )}

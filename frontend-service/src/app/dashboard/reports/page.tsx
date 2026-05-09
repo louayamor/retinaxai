@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { motion, useReducedMotion } from 'motion/react';
 import {
   getPatients,
   getPatient,
@@ -14,28 +13,25 @@ import {
   type OperationStatus
 } from '@/lib/api';
 import PageContainer from '@/components/layout/page-container';
-import { PageHero } from '@/components/ui/page-hero';
-import { PageSection } from '@/components/ui/page-section';
+import { PageHeader } from '@/components/ui/page-header';
 import { StatsRow } from '@/components/ui/stats-row';
-import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
+  Database,
   FileText,
   Loader2,
   RefreshCw,
-  Search,
-  Database,
   Sparkles,
   WifiOff,
-  Calendar,
   FileCheck,
   Clock,
-  Activity
+  Activity,
+  Search
 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { Report, ReportStatus } from '@/types';
-import { fadeInUp, slideInUp, statusPulse } from '@/lib/animations';
+import type { Report } from '@/types';
 import { ReportCard } from '@/components/reports/ReportCard';
 import { ReportFilters } from '@/components/reports/ReportFilters';
 import { StatsCard } from '@/components/ui/stats-card';
@@ -49,7 +45,6 @@ export default function ReportsPage() {
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [patientNames, setPatientNames] = useState<Record<string, string>>({});
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
-  const shouldReduceMotion = useReducedMotion();
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
@@ -203,197 +198,181 @@ export default function ReportsPage() {
 
   return (
     <PageContainer className='flex flex-col gap-6'>
-      <motion.div
-        variants={shouldReduceMotion ? {} : fadeInUp}
-        initial='hidden'
-        animate='visible'
-        className='flex flex-col gap-6'
-      >
-        <PageHero
-          title='Clinical Reports'
-          description='AI-generated clinical reports powered by LLM with retrieval-augmented generation'
-          imageUrl='https://images.unsplash.com/photo-1579684385127-1ef15d508118?w=800&q=80'
+      <PageHeader
+        title='Clinical Reports'
+        description='AI-generated clinical reports powered by LLM with retrieval-augmented generation'
+      />
+
+      <StatsRow columns={4}>
+        <StatsCard
+          title='Total Reports'
+          value={totalReports}
+          icon={FileText}
+          subtitle='All time'
         />
+        <StatsCard
+          title='Completed'
+          value={completedReports}
+          icon={FileCheck}
+          color='#22c55e'
+        />
+        <StatsCard
+          title='In Progress'
+          value={pendingReports}
+          icon={Clock}
+          color='#3b82f6'
+        />
+        <StatsCard
+          title='Success Rate'
+          value={`${successRate}%`}
+          icon={Activity}
+          color={successRate >= 80 ? '#22c55e' : successRate >= 50 ? '#eab308' : '#ef4444'}
+        />
+      </StatsRow>
 
-        <StatsRow columns={4}>
-          <StatsCard
-            title='Total Reports'
-            value={totalReports}
-            icon={FileText}
-            subtitle='All time'
-          />
-          <StatsCard
-            title='Completed'
-            value={completedReports}
-            icon={FileCheck}
-            color='#22c55e'
-          />
-          <StatsCard
-            title='In Progress'
-            value={pendingReports}
-            icon={Clock}
-            color='#3b82f6'
-          />
-          <StatsCard
-            title='Success Rate'
-            value={`${successRate}%`}
-            icon={Activity}
-            color={successRate >= 80 ? '#22c55e' : successRate >= 50 ? '#eab308' : '#ef4444'}
-          />
-        </StatsRow>
+      {/* Active Operation Banner */}
+      {operation && operation.state !== 'idle' && (
+        <Card className={operation.state === 'error' ? 'border-destructive' : 'border-primary'}>
+          <CardContent className='p-3'>
+            <div className='flex items-center gap-2 text-sm font-medium'>
+              {operation.state === 'error' ? (
+                <span className='text-destructive'>{operation.message}</span>
+              ) : (
+                <span className='text-muted-foreground'>{operation.message}</span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-        {operation && operation.state !== 'idle' && (
-          <motion.div variants={shouldReduceMotion ? {} : slideInUp}>
-            <Card className={operation.state === 'error' ? 'border-destructive bg-red-50' : 'border-primary'}>
-              <CardHeader>
-                <CardTitle className='flex items-center gap-2'>
-                  {operation.state === 'indexing' && <Database className='h-5 w-5' />}
-                  {operation.state === 'retrieving' && <Search className='h-5 w-5' />}
-                  {operation.state === 'generating' && <Sparkles className='h-5 w-5' />}
-                  {operation.state === 'indexing' && 'Indexing RAG'}
-                  {operation.state === 'retrieving' && 'Retrieving Context'}
-                  {operation.state === 'generating' && 'Generating Report'}
-                  {operation.state === 'error' && 'Error'}
-                </CardTitle>
-                <CardDescription className={operation.state === 'error' ? 'text-destructive font-medium' : ''}>
-                  {operation.message}
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          </motion.div>
-        )}
-
-        {llmopsDown ? (
-          <motion.div variants={shouldReduceMotion ? {} : slideInUp}>
-            <Card className='border-destructive'>
-              <CardHeader>
-                <CardTitle className='flex items-center gap-2 text-destructive'>
-                  <WifiOff className='h-5 w-5' />
-                  LLMOps Service Unavailable
-                </CardTitle>
-                <CardDescription>
-                  The LLMOps service is currently down or unreachable.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          </motion.div>
-        ) : (
-          <PageSection
-            title='RAG Index'
-            description='Current state of the Retrieval-Augmented Generation index'
-            icon={<Database className='h-5 w-5' />}
-            headerAction={
-              <div className='flex gap-2'>
-                <Button variant='outline' size='sm' onClick={loadRagStatus} disabled={ragLoading}>
-                  <RefreshCw className={`mr-2 h-4 w-4 ${ragLoading ? 'animate-spin' : ''}`} />
-                  Refresh
-                </Button>
-                <Button size='sm' onClick={handleReindex} disabled={reindexing}>
-                  {reindexing ? (
-                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                  ) : (
-                    <Sparkles className='mr-2 h-4 w-4' />
-                  )}
-                  Reindex
-                </Button>
-              </div>
-            }
-          >
-            {ragLoading && !ragStatus ? (
-              <div className='py-4 text-center'>
-                <Loader2 className='mx-auto h-6 w-6 animate-spin text-muted-foreground' />
-              </div>
-            ) : ragStatus ? (
-              <div className='grid gap-4 md:grid-cols-4'>
-                <div>
-                  <p className='text-sm text-muted-foreground'>Status</p>
-                  <Badge
-                    variant='outline'
-                    className={
-                      ragStatus.status === 'ok'
-                        ? 'bg-green-500 text-white'
-                        : ragStatus.status === 'idle'
-                        ? 'bg-yellow-500 text-white'
-                        : 'bg-red-500 text-white'
-                    }
-                  >
-                    {ragStatus.status}
-                  </Badge>
-                </div>
-                <div>
-                  <p className='text-sm text-muted-foreground'>Artifacts</p>
-                  <p className='text-2xl font-bold'>{ragStatus.artifact_count}</p>
-                </div>
-                <div>
-                  <p className='text-sm text-muted-foreground'>Schema Version</p>
-                  <p className='font-mono text-sm'>{ragStatus.schema_version || '—'}</p>
-                </div>
-                <div>
-                  <p className='text-sm text-muted-foreground'>Run ID</p>
-                  <p className='font-mono text-sm truncate'>{ragStatus.run_id || '—'}</p>
-                </div>
-              </div>
-            ) : (
-              <p className='text-muted-foreground'>Unable to load RAG status</p>
-            )}
-          </PageSection>
-        )}
-
-        <PageSection
-          title='Clinical Reports'
-          description={`${filteredReports.length} of ${reports.length} reports`}
-          icon={<FileText className='h-5 w-5' />}
-          padding='none'
-          headerAction={
-            <Button variant='outline' size='sm' onClick={loadReports}>
-              <RefreshCw className='mr-2 h-4 w-4' />
-              Refresh
-            </Button>
-          }
-        >
-          <div className='space-y-4 p-4 md:p-6'>
-            <ReportFilters
-              search={search}
-              onSearchChange={setSearch}
-              status={statusFilter}
-              onStatusChange={setStatusFilter}
-            />
-
-            {reportsLoading ? (
-              <div className='py-8 text-center'>
-                <Loader2 className='mx-auto h-8 w-8 animate-spin text-muted-foreground' />
-                <p className='mt-2 text-sm text-muted-foreground'>Loading reports...</p>
-              </div>
-            ) : filteredReports.length === 0 ? (
-              <div className='flex flex-col items-center justify-center py-12'>
-                <FileText className='mb-4 h-16 w-16 text-muted-foreground/30' />
-                <p className='text-muted-foreground text-center'>
-                  {search || statusFilter !== 'all'
-                    ? 'No reports match your filters'
-                    : 'No reports generated yet'}
-                </p>
-                <p className='text-sm text-muted-foreground/70 mt-1'>
-                  {search || statusFilter !== 'all'
-                    ? 'Try adjusting your search or filters'
-                    : 'Generate reports from completed predictions'}
-                </p>
-              </div>
-            ) : (
-              <div className='grid gap-4'>
-                {filteredReports.map((report) => (
-                  <ReportCard
-                    key={report.id}
-                    report={report}
-                    patientName={patientNames[report.patient_id] || 'Loading...'}
-                    expanded={expandedReportId === report.id}
-                    onExpand={() => toggleReportExpand(report)}
-                  />
-                ))}
-              </div>
-            )}
+      {/* RAG Status / LLMOps Error */}
+      {llmopsDown ? (
+        <Card className='border-destructive'>
+          <CardContent className='p-4'>
+            <div className='flex items-center gap-2 text-sm font-medium text-destructive'>
+              <WifiOff className='h-4 w-4' />
+              LLMOps Service Unavailable
+            </div>
+            <p className='text-xs text-muted-foreground mt-1'>
+              The LLMOps service is currently down or unreachable.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className='rounded-lg border bg-card p-4'>
+          <div className='flex items-center justify-between mb-3'>
+            <div className='flex items-center gap-2 text-sm font-semibold'>
+              <Database className='h-4 w-4 text-[var(--brand-teal)]' />
+              RAG Index
+            </div>
+            <div className='flex gap-2'>
+              <Button variant='outline' size='sm' onClick={loadRagStatus} disabled={ragLoading}>
+                <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${ragLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              <Button size='sm' onClick={handleReindex} disabled={reindexing}>
+                {reindexing ? (
+                  <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+                ) : (
+                  <Sparkles className='mr-1.5 h-3.5 w-3.5' />
+                )}
+                Reindex
+              </Button>
+            </div>
           </div>
-        </PageSection>
-      </motion.div>
+          {ragLoading && !ragStatus ? (
+            <div className='py-3 text-center'>
+              <Loader2 className='mx-auto h-5 w-5 animate-spin text-muted-foreground' />
+            </div>
+          ) : ragStatus ? (
+            <div className='grid gap-3 md:grid-cols-4'>
+              <div>
+                <p className='text-xs text-muted-foreground'>Status</p>
+                <Badge
+                  variant='outline'
+                  className={`text-[11px] ${
+                    ragStatus.status === 'ok'
+                      ? 'bg-green-500 text-white'
+                      : ragStatus.status === 'idle'
+                      ? 'bg-yellow-500 text-white'
+                      : 'bg-red-500 text-white'
+                  }`}
+                >
+                  {ragStatus.status}
+                </Badge>
+              </div>
+              <div>
+                <p className='text-xs text-muted-foreground'>Artifacts</p>
+                <p className='text-lg font-bold'>{ragStatus.artifact_count}</p>
+              </div>
+              <div>
+                <p className='text-xs text-muted-foreground'>Schema Version</p>
+                <p className='font-mono text-xs'>{ragStatus.schema_version || '—'}</p>
+              </div>
+              <div>
+                <p className='text-xs text-muted-foreground'>Run ID</p>
+                <p className='font-mono text-xs truncate'>{ragStatus.run_id || '—'}</p>
+              </div>
+            </div>
+          ) : (
+            <p className='text-xs text-muted-foreground'>Unable to load RAG status</p>
+          )}
+        </div>
+      )}
+
+      {/* Reports List */}
+      <div className='rounded-lg border bg-card'>
+        <div className='flex items-center justify-between p-4 pb-2'>
+          <h3 className='text-sm font-semibold'>
+            Clinical Reports
+            <span className='ml-1.5 font-normal text-muted-foreground'>({filteredReports.length} of {reports.length})</span>
+          </h3>
+          <Button variant='outline' size='sm' onClick={loadReports}>
+            <RefreshCw className='mr-1.5 h-3.5 w-3.5' />
+            Refresh
+          </Button>
+        </div>
+        <div className='px-4 pb-3'>
+          <ReportFilters
+            search={search}
+            onSearchChange={setSearch}
+            status={statusFilter}
+            onStatusChange={setStatusFilter}
+          />
+        </div>
+        {reportsLoading ? (
+          <div className='py-8 text-center'>
+            <Loader2 className='mx-auto h-6 w-6 animate-spin text-muted-foreground' />
+            <p className='mt-1 text-xs text-muted-foreground'>Loading reports...</p>
+          </div>
+        ) : filteredReports.length === 0 ? (
+          <div className='flex flex-col items-center justify-center py-10'>
+            <FileText className='mb-3 h-10 w-10 text-muted-foreground/30' />
+            <p className='text-xs text-muted-foreground text-center'>
+              {search || statusFilter !== 'all'
+                ? 'No reports match your filters'
+                : 'No reports generated yet'}
+            </p>
+            <p className='text-[11px] text-muted-foreground/70 mt-0.5'>
+              {search || statusFilter !== 'all'
+                ? 'Try adjusting your search or filters'
+                : 'Generate reports from completed predictions'}
+            </p>
+          </div>
+        ) : (
+          <div className='grid gap-2 p-4 pt-0'>
+            {filteredReports.map((report) => (
+              <ReportCard
+                key={report.id}
+                report={report}
+                patientName={patientNames[report.patient_id] || 'Loading...'}
+                expanded={expandedReportId === report.id}
+                onExpand={() => toggleReportExpand(report)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </PageContainer>
   );
 }

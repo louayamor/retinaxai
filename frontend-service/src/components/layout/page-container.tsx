@@ -4,6 +4,7 @@ import React from 'react';
 import { Heading } from '@/components/ui/heading';
 import { LoadingState } from '@/components/ui/empty-state';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import type { InfobarContent } from '@/components/ui/infobar';
 import { cn } from '@/lib/utils';
@@ -35,13 +36,19 @@ function PageSkeleton() {
   return (
     <div className='flex flex-1 flex-col gap-4 p-4 md:px-6'>
       <div className='flex items-center justify-between'>
-        <div>
-          <div className='bg-muted mb-2 h-8 w-48 rounded animate-pulse' />
-          <div className='bg-muted h-4 w-64 rounded animate-pulse' />
+        <div className='space-y-2'>
+          <Skeleton className='h-5 w-40' />
+          <Skeleton className='h-3 w-56' />
         </div>
       </div>
-      <div className='bg-muted mt-6 h-40 w-full rounded-lg animate-pulse' />
-      <div className='bg-muted h-40 w-full rounded-lg animate-pulse' />
+      <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
+        <Skeleton className='h-24' />
+        <Skeleton className='h-24' />
+        <Skeleton className='h-24' />
+        <Skeleton className='h-24' />
+      </div>
+      <Skeleton className='h-64 w-full' />
+      <Skeleton className='h-48 w-full' />
     </div>
   );
 }
@@ -116,9 +123,9 @@ export default function PageContainer({
   }
 
   return (
-    <div className={cn('flex flex-col p-3 md:p-5 w-full', className)}>
+    <div className={cn('flex flex-col p-4 md:p-6 w-full', className)}>
       {pageTitle && (
-        <div className='mb-3 flex items-start justify-between'>
+        <div className='mb-4 flex items-start justify-between'>
           <Heading
             title={pageTitle}
             description={pageDescription}

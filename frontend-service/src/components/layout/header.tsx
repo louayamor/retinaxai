@@ -9,27 +9,27 @@ import { NotificationCenter } from '@/components/notifications/notification-cent
 
 export default function Header() {
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-4 transition-[width,height] ease-linear bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-4">
-      <div className="flex items-center gap-2 flex-1">
-        <SidebarTrigger className="h-7 w-7" />
-        <Separator orientation="vertical" className="h-4 bg-sidebar-border" />
-        <div className="hidden md:flex">
+    <header className="flex h-12 shrink-0 items-center justify-between gap-3 transition-[width,height] ease-linear bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-3">
+      <div className="flex items-center gap-2 min-w-0 flex-[2]">
+        <SidebarTrigger className="h-6 w-6 shrink-0" />
+        <Separator orientation="vertical" className="h-3.5 bg-sidebar-border shrink-0" />
+        <div className="hidden md:flex flex-1 max-w-md">
           <SearchInput />
         </div>
       </div>
 
-      <div className="flex items-center gap-2 absolute left-1/2 -translate-x-1/2">
+      <div className="flex items-center shrink-0">
         <Image
           src="https://www.samayahospital.ae/home/images/logo.png"
           alt="Samaya Specialized Center"
-          width={120}
-          height={36}
-          className="h-8 w-auto object-contain "
+          width={80}
+          height={24}
+          className="h-6 w-auto object-contain opacity-80"
           unoptimized
         />
       </div>
 
-      <div className="flex items-center gap-2 flex-1 justify-end">
+      <div className="flex items-center gap-1.5 flex-1 justify-end min-w-0">
         <ConnectionStatus />
         <NotificationCenter />
         <UserNav />
