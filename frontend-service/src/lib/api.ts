@@ -412,6 +412,8 @@ interface XAIGradCAMResponse {
     left_eye: string[];
     right_eye: string[];
   };
+  dr_grade?: string;
+  confidence?: number;
   model_used: string;
 }
 
@@ -448,8 +450,8 @@ export async function generateXAIExplanation(
 
 export async function generateXAIGradCAM(
   predictionId: string,
-  leftEyeRegions: string[] = [],
-  rightEyeRegions: string[] = []
+  leftEyeRegions: (string | Record<string, unknown>)[] = [],
+  rightEyeRegions: (string | Record<string, unknown>)[] = []
 ): Promise<XAIGradCAMResponse> {
   const res = await fetch(`${LLMOPS_BASE}/api/xai/gradcam`, {
     method: 'POST',

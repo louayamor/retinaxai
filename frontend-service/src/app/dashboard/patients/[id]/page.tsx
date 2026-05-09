@@ -232,8 +232,8 @@ export default function PatientProfilePage() {
       toast.info('Generating AI explanation...');
       const xaiResult = await generateXAIExplanation(prediction.id, drGrade, confidence, clinicalFeatures);
 
-      const leftRegions = ((prediction.output_payload?.gradcam_left_regions as any[]) || []).map((r: any) => r.name || r.region || '').filter(Boolean);
-      const rightRegions = ((prediction.output_payload?.gradcam_right_regions as any[]) || []).map((r: any) => r.name || r.region || '').filter(Boolean);
+      const leftRegions = ((prediction.output_payload?.gradcam_left_regions as any[]) || []).filter(Boolean);
+      const rightRegions = ((prediction.output_payload?.gradcam_right_regions as any[]) || []).filter(Boolean);
 
       let gradcamResult = null;
       if (leftRegions.length > 0 || rightRegions.length > 0) {
@@ -606,6 +606,54 @@ export default function PatientProfilePage() {
                                 rightHotspots={pred.output_payload?.top_hotspots_right as GradCAMHotspot[] | undefined}
                               />
                             </div>
+                            {xaiData[pred.id]?.gradcam_explanation && (
+                              <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {xaiData[pred.id]?.gradcam_explanation?.left_eye_explanation && (
+                                  <div className="border-2 border-blue-200 dark:border-blue-800 rounded-lg p-4 bg-blue-50/50 dark:bg-blue-950/30">
+                                    <div className="flex items-center justify-between mb-3">
+                                      <h4 className="font-semibold text-blue-900 dark:text-blue-100 flex items-center gap-2">
+                                        <Eye className="h-4 w-4" />
+                                        Left Eye (OS)
+                                      </h4>
+                                      <span className="text-xs text-muted-foreground">
+                                        {xaiData[pred.id]?.gradcam_explanation?.highlighted_regions?.left_eye?.length || 0} regions
+                                      </span>
+                                    </div>
+                                    <div className="text-sm text-muted-foreground space-y-2 max-h-48 overflow-y-auto">
+                                      {xaiData[pred.id]?.gradcam_explanation?.left_eye_explanation
+                                        .split(/(?=\d+\.\s|\n)/)
+                                        .filter(Boolean)
+                                        .slice(0, 8)
+                                        .map((paragraph: string, idx: number) => (
+                                          <p key={idx} className="leading-relaxed">{paragraph.trim().replace(/^\d+\.\s*/, '')}</p>
+                                        ))}
+                                    </div>
+                                  </div>
+                                )}
+                                {xaiData[pred.id]?.gradcam_explanation?.right_eye_explanation && (
+                                  <div className="border-2 border-purple-200 dark:border-purple-800 rounded-lg p-4 bg-purple-50/50 dark:bg-purple-950/30">
+                                    <div className="flex items-center justify-between mb-3">
+                                      <h4 className="font-semibold text-purple-900 dark:text-purple-100 flex items-center gap-2">
+                                        <Eye className="h-4 w-4" />
+                                        Right Eye (OD)
+                                      </h4>
+                                      <span className="text-xs text-muted-foreground">
+                                        {xaiData[pred.id]?.gradcam_explanation?.highlighted_regions?.right_eye?.length || 0} regions
+                                      </span>
+                                    </div>
+                                    <div className="text-sm text-muted-foreground space-y-2 max-h-48 overflow-y-auto">
+                                      {xaiData[pred.id]?.gradcam_explanation?.right_eye_explanation
+                                        .split(/(?=\d+\.\s|\n)/)
+                                        .filter(Boolean)
+                                        .slice(0, 8)
+                                        .map((paragraph: string, idx: number) => (
+                                          <p key={idx} className="leading-relaxed">{paragraph.trim().replace(/^\d+\.\s*/, '')}</p>
+                                        ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })
