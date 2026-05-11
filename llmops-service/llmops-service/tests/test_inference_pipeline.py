@@ -8,6 +8,7 @@ import pytest
 from app.core.config import LLMProvider
 from app.llm.client import MockLLMClient
 from app.pipeline import inference_pipeline as ip
+from app.pipeline import xai_pipeline as xp
 from app.pipeline.inference_pipeline import InferencePipeline, get_inference_pipeline
 from app.pipeline.xai_pipeline import InvalidGradeError, XAIPipeline, _validate_dr_grade
 from app.prompts.templates import REPORT_USER_PROMPT, _safe_format
@@ -237,39 +238,103 @@ class TestGradCAMPerEyeAnalysis:
         pathology = pipeline._get_pathology_for_grade(0, "macula_center")
         assert "No DR" in pathology or "expected" in pathology.lower()
 
-    def test_build_gradcam_prompt_per_eye_includes_clinical_context(self):
+    def test_format_region_for_prompt_with_string(self):
         pipeline = XAIPipeline()
-        prompt = pipeline._build_gradcam_prompt_per_eye(
-            regions=["macula_center", "inferior_periphery"],
-            eye_name="Left Eye (OS)",
-            grade_int=2,
-            grade_label="Moderate",
-            confidence=0.85,
-            risk_level="moderate",
-        )
-        assert "macula_center" in prompt
-        assert "grade 2" in prompt.lower() or "Grade: 2" in prompt
-        assert "Moderate" in prompt
-        assert "85.0%" in prompt or "0.85" in prompt
+        result = pipeline._format_region_for_prompt("macula_center")
+        assert "macula_center" in result
+        assert "significance" in result.lower() or "vision" in result.lower()
 
-    def test_build_gradcam_prompt_per_eye_differentiates_eyes(self):
+    def test_format_region_for_prompt_with_dict(self):
         pipeline = XAIPipeline()
-        left_prompt = pipeline._build_gradcam_prompt_per_eye(
-            regions=["macula_center"],
-            eye_name="Left Eye (OS)",
-            grade_int=2,
-            grade_label="Moderate",
-            confidence=0.85,
-            risk_level="moderate",
+        result = pipeline._format_region_for_prompt(
+            {
+                "name": "fovea_centralis",
+                "intensity": 0.85,
+                "area": 450,
+                "saliency_score": 0.72,
+            }
         )
-        right_prompt = pipeline._build_gradcam_prompt_per_eye(
-            regions=["inferior_periphery"],
-            eye_name="Right Eye (OD)",
-            grade_int=2,
-            grade_label="Moderate",
-            confidence=0.85,
-            risk_level="moderate",
+        assert "fovea_centralis" in result
+        assert "0.850" in result or "0.85" in result
+        assert "0.720" in result or "0.72" in result
+
+    def test_rank_regions_by_saliency_sorts_descending(self):
+        pipeline = XAIPipeline()
+        regions = [
+            {"name": "low", "intensity": 0.3, "area": 100, "saliency_score": 0.2},
+            {"name": "high", "intensity": 0.9, "area": 200, "saliency_score": 0.8},
+            {"name": "mid", "intensity": 0.6, "area": 150, "saliency_score": 0.5},
+        ]
+        ranked = pipeline._rank_regions_by_saliency(regions)
+        assert [r["name"] for r in ranked] == ["high", "mid", "low"]
+
+    def test_rank_regions_with_string_fallback(self):
+        pipeline = XAIPipeline()
+        ranked = pipeline._rank_regions_by_saliency(
+            ["macula_center", "inferior_periphery"]
         )
-        # Each prompt should focus on its specific regions
-        assert "macula_center" in left_prompt
-        assert "inferior_periphery" in right_prompt
+        assert len(ranked) == 2
+        assert all(r["saliency_score"] == 0.0 for r in ranked)
+
+    def _patch_xai_settings(self, monkeypatch):
+        monkeypatch.setattr(xp.settings, "llm_provider", "mock")
+        monkeypatch.setattr(xp.settings, "llm_model", "mock-model")
+        monkeypatch.setattr(xp.settings, "timeout_seconds", 30)
+        monkeypatch.setattr(xp.settings, "max_tokens", 1024)
+        monkeypatch.setattr(xp.settings, "github_token", "")
+        monkeypatch.setattr(xp.settings, "github_endpoint", "")
+        monkeypatch.setattr(xp.settings, "llm_api_key", "")
+        monkeypatch.setattr(xp.settings, "llm_base_url", "")
+        monkeypatch.setattr(xp.settings, "ollama_base_url", "")
+
+    def test_explain_gradcam_returns_required_keys(self, monkeypatch):
+        self._patch_xai_settings(monkeypatch)
+
+        pipeline = XAIPipeline()
+        result = asyncio.run(
+            pipeline.explain_gradcam(
+                prediction_id="test-id",
+                left_eye_regions=[
+                    {
+                        "name": "macula_center",
+                        "intensity": 0.85,
+                        "area": 450,
+                        "saliency_score": 0.72,
+                    },
+                ],
+                right_eye_regions=[
+                    {
+                        "name": "inferior_periphery",
+                        "intensity": 0.55,
+                        "area": 290,
+                        "saliency_score": 0.34,
+                    },
+                ],
+                dr_grade=2,
+                confidence=0.85,
+            )
+        )
+        assert "left_eye_explanation" in result
+        assert "right_eye_explanation" in result
+        assert "highlighted_regions" in result
+        assert "dr_grade" in result
+        assert "confidence" in result
+        assert "model_used" in result
+        assert result["highlighted_regions"]["left_eye"] == ["macula_center"]
+
+    def test_explain_gradcam_handles_string_regions_fallback(self, monkeypatch):
+        self._patch_xai_settings(monkeypatch)
+
+        pipeline = XAIPipeline()
+        result = asyncio.run(
+            pipeline.explain_gradcam(
+                prediction_id="test-id",
+                left_eye_regions=["macula_center"],
+                right_eye_regions=["inferior_periphery"],
+                dr_grade=2,
+                confidence=0.85,
+            )
+        )
+        assert result["left_eye_explanation"]
+        assert result["right_eye_explanation"]
+        assert result["highlighted_regions"]["left_eye"] == ["macula_center"]

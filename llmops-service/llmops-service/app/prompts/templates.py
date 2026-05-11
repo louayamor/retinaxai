@@ -81,7 +81,14 @@ Write a focused clinical analysis (3-5 sentences per eye) that:
 Do NOT use generic phrases like "the model is focusing on this region" or "significant activation."
 Instead, use specific clinical language: "findings consistent with," "pathology characteristic of," "changes suggestive of."
 
-Output complete clinical narrative only."""
+Output format:
+**LEFT EYE (OS):**
+<left eye analysis>
+
+**RIGHT EYE (OD):**
+<right eye analysis>
+
+Separate left and right eye clearly with the markers above."""
 
 
 GRADCAM_USER_PROMPT = """Analyze the GradCAM-highlighted regions for diabetic retinopathy diagnosis.
@@ -103,4 +110,13 @@ For each eye, address:
 2. What is the anatomical significance of these regions for vision?
 3. How do these findings correlate with the overall DR grade and risk level?
 
-Write as a retinal specialist documenting findings in a clinical report."""
+Write as a retinal specialist documenting findings in a clinical report.
+
+OUTPUT FORMAT:
+**LEFT EYE (OS):**
+<left eye analysis>
+
+**RIGHT EYE (OD):**
+<right eye analysis>
+
+Separate left and right eye sections clearly with the markers above."""

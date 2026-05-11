@@ -283,7 +283,7 @@ class InferenceService:
         return fundus_score
 
     def get_embedding(self, image_tensor: torch.Tensor) -> list[float]:
-        """Extract the 1536-dim EfficientNet-B4 embedding before classification."""
+        """Extract the 1536-dim EfficientNet-B3 embedding before classification."""
         model = self._load_imaging_model()
 
         if hasattr(model, "module"):

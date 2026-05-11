@@ -50,13 +50,22 @@ class ExplanationService:
         gradcam_right = output_payload.get("gradcam_right")
         gradcam_left_regions = output_payload.get("gradcam_left_regions", [])
         gradcam_right_regions = output_payload.get("gradcam_right_regions", [])
-        vascular_biomarkers = patient_data.get("vascular_biomarkers", {})
 
         left_region_names = [
-            r.get("name") for r in gradcam_left_regions if isinstance(r, dict) and r.get("name")
+            r.get("name")
+            for r in gradcam_left_regions
+            if isinstance(r, dict) and r.get("name")
         ]
         right_region_names = [
-            r.get("name") for r in gradcam_right_regions if isinstance(r, dict) and r.get("name")
+            r.get("name")
+            for r in gradcam_right_regions
+            if isinstance(r, dict) and r.get("name")
+        ]
+        left_regions_full = [
+            r for r in gradcam_left_regions if isinstance(r, dict) and r.get("name")
+        ]
+        right_regions_full = [
+            r for r in gradcam_right_regions if isinstance(r, dict) and r.get("name")
         ]
 
         results = {
@@ -67,6 +76,10 @@ class ExplanationService:
         xai_failed = False
         shap_values = None
 
+        gradcam_regions_full = {
+            "left_eye": left_regions_full,
+            "right_eye": right_regions_full,
+        }
         gradcam_regions = {
             "left_eye": left_region_names,
             "right_eye": right_region_names,
@@ -74,7 +87,9 @@ class ExplanationService:
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             if dr_grade is not None and dr_grade != "Unknown":
-                dr_grade_value = str(dr_grade) if isinstance(dr_grade, int) else dr_grade
+                dr_grade_value = (
+                    str(dr_grade) if isinstance(dr_grade, int) else dr_grade
+                )
                 try:
                     resp = await client.post(
                         f"{LLM_SERVICE_URL}/api/xai/explain",
@@ -83,8 +98,7 @@ class ExplanationService:
                             "dr_grade": dr_grade_value,
                             "confidence": confidence,
                             "clinical_features": prediction.input_payload,
-                            "gradcam_regions": gradcam_regions,
-                            "vascular_biomarkers": vascular_biomarkers,
+                            "gradcam_regions": gradcam_regions_full,
                         },
                     )
                     if resp.status_code == 200:
@@ -122,8 +136,10 @@ class ExplanationService:
                         f"{LLM_SERVICE_URL}/api/xai/gradcam",
                         json={
                             "prediction_id": str(prediction.id),
-                            "left_eye_regions": left_region_names,
-                            "right_eye_regions": right_region_names,
+                            "left_eye_regions": left_regions_full,
+                            "right_eye_regions": right_regions_full,
+                            "dr_grade": str(dr_grade) if dr_grade is not None else None,
+                            "confidence": confidence,
                         },
                     )
                     if resp.status_code == 200:
@@ -159,7 +175,9 @@ class ExplanationService:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    risk_level = _normalize_risk_level(data.get("risk_level", "moderate"))
+                    risk_level = _normalize_risk_level(
+                        data.get("risk_level", "moderate")
+                    )
                     severity = SeverityReport(
                         id=uuid.uuid4(),
                         prediction_id=prediction.id,

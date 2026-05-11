@@ -329,14 +329,17 @@ class ShapService:
 
     def explain_imaging_prediction(
         self,
-        regions: dict[str, list[str]],
+        regions: dict[str, list[str | dict]],
         prediction_grade: int,
         confidence: float,
     ) -> ImagingExplanation:
         """Generate feature importance from GradCAM regions for imaging predictions.
 
+        Uses real GradCAM saliency scores when available in region dicts.
+        Falls back to synthetic grade-based contribution when only names are provided.
+
         Args:
-            regions: Dictionary with 'left_eye' and 'right_eye' lists of region names
+            regions: Dictionary with 'left_eye' and 'right_eye' lists of region names or dicts
             prediction_grade: DR grade (0-4)
             confidence: Model confidence score (0-1)
 
@@ -346,17 +349,33 @@ class ShapService:
         left_regions = regions.get("left_eye", [])
         right_regions = regions.get("right_eye", [])
 
-        all_regions = list(set(left_regions + right_regions))
+        # Extract unique region names with their actual GradCAM saliency
+        region_map: dict[str, float] = {}
+        for r in left_regions + right_regions:
+            if isinstance(r, dict):
+                name = r.get("name", "")
+                if name:
+                    saliency = r.get("saliency_score", 0.0)
+                    intensity = r.get("intensity", 0.0)
+                    # Use saliency if available, otherwise intensity, otherwise synthetic
+                    current = region_map.get(name, 0.0)
+                    region_map[name] = max(current, saliency or intensity)
+            elif isinstance(r, str):
+                if r not in region_map:
+                    region_map[r] = 0.0  # will fill with synthetic below
 
-        if not all_regions:
-            all_regions = ["posterior_pole"]
+        all_regions = list(region_map.keys()) or ["posterior_pole"]
 
         region_contributions = []
 
         for region in all_regions:
-            contribution = self._get_region_contribution(
-                region, prediction_grade, confidence
-            )
+            actual_saliency = region_map.get(region, 0.0)
+            if actual_saliency > 0.0:
+                contribution = round(actual_saliency, 4)
+            else:
+                contribution = self._get_region_contribution(
+                    region, prediction_grade, confidence
+                )
             significance, clinical_relevance = self._get_region_anatomical_info(region)
 
             region_contributions.append(

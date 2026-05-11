@@ -5,7 +5,6 @@ data_ingestion:
   huggingface:
     dataset_name: bumbledeep/eyepacs
     train_split: train
-    max_samples: 10000
   samaya:
     images_dir: artifacts/ocr/output/images
     reports_csv: artifacts/ocr/output/reports.csv

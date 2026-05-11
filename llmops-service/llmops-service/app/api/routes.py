@@ -262,13 +262,29 @@ class XAIPredictionRequest(BaseModel):
     confidence: float
     clinical_features: dict | None = None
     gradcam_regions: dict | None = None
-    vascular_biomarkers: dict | None = None
+
+
+def _normalize_regions(
+    regions: list[str] | list[dict] | None,
+) -> list[dict]:
+    """Normalize mixed str/dict region input to uniform list[dict]."""
+    if not regions:
+        return []
+    result = []
+    for r in regions:
+        if isinstance(r, dict):
+            result.append(r)
+        elif isinstance(r, str):
+            result.append(
+                {"name": r, "intensity": 0.0, "area": 0, "saliency_score": 0.0}
+            )
+    return result
 
 
 class XAIGradCAMRequest(BaseModel):
     prediction_id: str
-    left_eye_regions: list[str] | None = None
-    right_eye_regions: list[str] | None = None
+    left_eye_regions: list[str] | list[dict] | None = None
+    right_eye_regions: list[str] | list[dict] | None = None
     dr_grade: str | int | None = None
     confidence: float | None = None
 
@@ -295,7 +311,6 @@ async def explain_prediction(
         confidence=payload.confidence,
         clinical_features=payload.clinical_features,
         gradcam_regions=payload.gradcam_regions,
-        vascular_biomarkers=payload.vascular_biomarkers,
     )
 
 
@@ -310,8 +325,8 @@ async def explain_gradcam(
     """
     return await pipeline.explain_gradcam(
         prediction_id=payload.prediction_id,
-        left_eye_regions=payload.left_eye_regions or [],
-        right_eye_regions=payload.right_eye_regions or [],
+        left_eye_regions=_normalize_regions(payload.left_eye_regions),
+        right_eye_regions=_normalize_regions(payload.right_eye_regions),
         dr_grade=payload.dr_grade,
         confidence=payload.confidence,
     )

@@ -9,7 +9,7 @@ import { NotificationCenter } from '@/components/notifications/notification-cent
 
 export default function Header() {
   return (
-    <header className="flex h-12 shrink-0 items-center justify-between gap-3 transition-[width,height] ease-linear bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-3">
+    <header className="flex h-20 shrink-0 items-center justify-between gap-3 transition-[width,height] ease-linear bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-3">
       <div className="flex items-center gap-2 min-w-0 flex-[2]">
         <SidebarTrigger className="h-6 w-6 shrink-0" />
         <Separator orientation="vertical" className="h-3.5 bg-sidebar-border shrink-0" />
@@ -24,7 +24,7 @@ export default function Header() {
           alt="Samaya Specialized Center"
           width={80}
           height={24}
-          className="h-6 w-auto object-contain opacity-80"
+          className="h-10 w-auto object-contain opacity-80"
           unoptimized
         />
       </div>

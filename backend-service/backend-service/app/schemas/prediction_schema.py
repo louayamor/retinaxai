@@ -26,8 +26,5 @@ class PredictionRead(BaseResponse):
     output_payload: dict | None
     confidence_score: float | None
     status: PredictionStatus
-    biomarker_status: str | None
-    biomarker_error_code: str | None
-    biomarker_error_message: str | None
     error_message: str | None
     created_at: datetime

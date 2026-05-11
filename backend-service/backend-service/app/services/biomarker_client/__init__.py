@@ -1,1 +1,0 @@
-from app.services.biomarker_client.service import BiomarkerServiceClient, biomarker_client

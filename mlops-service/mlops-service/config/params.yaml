@@ -10,17 +10,9 @@ global:
 
 data:
   ratios:
-    clinical: 0.7
-    eyepacs: 0.3
+    clinical: 0.12   # achievable: 90 Samaya × 5 oversample = 450 samples
+    eyepacs: 0.88
   keep_no_dr_ratio: 0.55
-  oversampling:
-    enabled: true
-    min_samples_per_class:
-      0: 2400
-      1: 600
-      2: 950
-      3: 400
-      4: 400
 
 # ── Augmentation ──────────────────────────────────────────────────────────────
 

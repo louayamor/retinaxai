@@ -223,7 +223,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
         _configure_mlflow()
 
         if pipeline in ("imaging", "both"):
-            max_samples = int(os.environ.get("MAX_SAMPLES", "10000"))
+            max_samples = int(os.environ.get("MAX_SAMPLES", "35000"))
             _emit_stage_event(
                 job_id,
                 pipeline,

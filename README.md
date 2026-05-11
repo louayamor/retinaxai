@@ -48,14 +48,13 @@
 - OCR: Tesseract + OpenCV         - LangChain                   - llmops-service/data/
 ```
 
-### Data Flow
+ ### Data Flow
 
-1. **Upload**: Frontend uploads fundus scans → Backend stores in local data directory
-2. **Predict**: Backend sends base64 images to MLOps → Runs EfficientNet + XGBoost
-3. **Store**: Prediction results saved to PostgreSQL
-4. **Biomarkers**: Backend sends raw image bytes to biomarker-service → VascX extracts vascular biomarkers
-5. **Report**: Backend requests LLM report → LLMOps retrieves RAG context → Generates report after biomarker success
-6. **Visualize**: Grad-CAM and biomarker outputs displayed in frontend dashboard
+ 1. **Upload**: Frontend uploads fundus scans → Backend stores in local data directory
+ 2. **Predict**: Backend sends base64 images to MLOps → Runs EfficientNet + XGBoost
+ 3. **Store**: Prediction results saved to PostgreSQL
+ 4. **Report**: Backend requests LLM report → LLMOps retrieves RAG context → Generates report
+ 5. **Visualize**: Grad-CAM outputs displayed in frontend dashboard
 
 ---
 
@@ -75,13 +74,12 @@ cd infra/infra
 docker-compose up -d
 ```
 
-Services available at:
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8000
-- API Docs: http://localhost:8000/docs
-- MLOps API: http://localhost:8004
-- LLMOps API: http://localhost:8002
-- Biomarker API: http://localhost:8010
+ Services available at:
+ - Frontend: http://localhost:3000
+ - Backend API: http://localhost:8000
+ - API Docs: http://localhost:8000/docs
+ - MLOps API: http://localhost:8004
+ - LLMOps API: http://localhost:8002
 
 ### Option 2: Manual Setup
 
@@ -149,21 +147,14 @@ RetinaXAI/
 │   │   ├── services/         # Inference, training
 │   │   └── pipeline/         # Training, OCR pipelines
 │   └── Dockerfile
-├── llmops-service/          # LLM/RAG (port 8002)
-│   ├── llmops-service/app/
-│   │   ├── api/routes.py     # Generate, RAG endpoints
-│   │   ├── llm/client.py     # GitHub/Ollama/Mock clients
-│   │   ├── pipeline/         # Indexing, inference
-│   │   └── vectorstore/      # ChromaDB store
-│   └── Dockerfile
-├── biomarker-service/       # VascX vascular biomarker extraction (port 8010)
-│   ├── app/
-│   │   ├── main.py          # FastAPI entry point
-│   │   ├── service.py       # Biomarker extraction pipeline
-│   │   ├── schemas.py       # Request/response contract
-│   │   └── metrics.py       # Prometheus metrics
-│   └── Dockerfile
-├── infra/
+ ├── llmops-service/          # LLM/RAG (port 8002)
+ │   ├── llmops-service/app/
+ │   │   ├── api/routes.py     # Generate, RAG endpoints
+ │   │   ├── llm/client.py     # GitHub/Ollama/Mock clients
+ │   │   ├── pipeline/         # Indexing, inference
+ │   │   └── vectorstore/      # ChromaDB store
+ │   └── Dockerfile
+ ├── infra/
 │   └── infra/
 │       ├── docker-compose.yml
 │       └── k8s/
@@ -195,18 +186,12 @@ GITHUB_ACCESS_TOKEN=ghp_xxx
 RAG_CHROMA_PERSIST_DIRECTORY=./data/chroma
 ```
 
-**frontend-service/.env:**
-```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
+ **frontend-service/.env:**
+ ```env
+ NEXT_PUBLIC_API_URL=http://localhost:8000
+ ```
 
-**biomarker-service/.env:**
-```env
-BIOMARKER_SERVICE_URL=http://localhost:8010
-BIOMARKER_SERVICE_TIMEOUT=60
-```
-
----
+ ---
 
 ## API Endpoints
 

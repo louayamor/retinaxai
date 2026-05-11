@@ -81,11 +81,11 @@ async def predict(
             f"Processing for patient (gender: {request.patient_gender}, age: {request.patient_age})",
         )
 
-        await log_msg("step_6", "info", "Running EfficientNet-B4 for left eye")
+        await log_msg("step_6", "info", "Running EfficientNet-B3 for left eye")
         left_imaging_result = await run_in_threadpool(
             service.predict_imaging_with_gradcam, left_bytes, "left"
         )
-        await log_msg("step_7", "info", "Running EfficientNet-B4 for right eye")
+        await log_msg("step_7", "info", "Running EfficientNet-B3 for right eye")
         right_imaging_result = await run_in_threadpool(
             service.predict_imaging_with_gradcam, right_bytes, "right"
         )

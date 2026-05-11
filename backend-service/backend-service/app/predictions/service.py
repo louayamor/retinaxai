@@ -148,10 +148,6 @@ class PredictionService:
                 from app.explanations.service import ExplanationService
 
                 explain_service = ExplanationService(self.db)
-                patient_data["vascular_biomarkers"] = {
-                    "left_eye": {},
-                    "right_eye": {},
-                }
                 await explain_service.trigger_xai_for_prediction(
                     prediction, patient_data
                 )

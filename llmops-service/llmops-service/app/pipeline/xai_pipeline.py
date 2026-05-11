@@ -151,9 +151,15 @@ class XAIPipeline:
         confidence: float,
         clinical_features: dict | None = None,
         gradcam_regions: dict | None = None,
-        vascular_biomarkers: dict | None = None,
     ) -> dict:
         """Generate natural language explanation of DR prediction using SHAP values or GradCAM regions."""
+        logger.info(
+            f"explain_prediction_input: pred={prediction_id} grade={dr_grade} conf={confidence} "
+            f"clinical={clinical_features is not None} "
+            f"gradcam_left={len(gradcam_regions.get('left_eye', [])) if gradcam_regions else None} "
+            f"gradcam_right={len(gradcam_regions.get('right_eye', [])) if gradcam_regions else None}"
+        )
+
         await send_xai_event(
             event="xai.prediction",
             stage="prediction",
@@ -248,7 +254,6 @@ class XAIPipeline:
                     confidence,
                     gradcam_regions,
                     shap_values,
-                    vascular_biomarkers,
                 )
             else:
                 prompt = self._build_prediction_prompt_with_shap(
@@ -256,7 +261,6 @@ class XAIPipeline:
                     confidence,
                     clinical_features,
                     shap_values,
-                    vascular_biomarkers,
                 )
             logger.info(f"Starting LLM generation for prediction {prediction_id}")
             response = await self.client.generate(prompt)
@@ -328,7 +332,6 @@ class XAIPipeline:
         confidence: float,
         gradcam_regions: dict | None,
         shap_values: dict | None,
-        vascular_biomarkers: dict | None,
     ) -> str:
         """Build prompt for imaging-based explanation using GradCAM regions.
 
@@ -449,13 +452,6 @@ Region Importance Analysis (GradCAM activation strength):
 {regions_str}
 """
 
-        biomarker_context = ""
-        if vascular_biomarkers:
-            biomarker_context = f"""
-Vascular Biomarkers (quantitative analysis):
-{json.dumps(vascular_biomarkers, indent=2)}
-"""
-
         prompt = f"""You are a retinal specialist explaining how the DR grading model arrived at its prediction.
 
 PATIENT STATUS:
@@ -474,9 +470,15 @@ RIGHT EYE (OD) REGIONS (ranked by model saliency):
 TOP HOTSPOTS ACROSS BOTH EYES:{hotspots_text}
 
 {shap_context}
-{biomarker_context}
 
-MODEL EXPLANATION REQUIREMENTS:
+OUTPUT FORMAT — Use these exact headers to separate per-eye analysis:
+
+### LEFT EYE (OS):
+[analysis of each left eye region — do NOT discuss right eye regions here]
+
+### RIGHT EYE (OD):
+[analysis of each right eye region — do NOT discuss left eye regions here]
+
 For each eye, explain:
 1. Which regions had the HIGHEST model saliency scores and WHY those drove the prediction.
    The model's attention was not uniform — higher saliency = stronger pattern match.
@@ -487,8 +489,7 @@ For each eye, explain:
    {confidence:.0%} confidence? (e.g., "one region dominated" vs "multiple weak signals")
 4. Why did the model predict grade {grade_int} specifically — what features in the 
    activated regions are characteristic of {grade_label} NPDR rather than lower/higher grades?
-5. Integrate vascular biomarkers if provided as supporting evidence.
-6. Provide follow-up recommendations based on which specific regions showed activation.
+5. Provide follow-up recommendations based on which specific regions showed activation.
 
 Use precise clinical terminology. Write as a retinal specialist documenting findings."""
 
@@ -684,6 +685,12 @@ Use precise clinical terminology. Write as a retinal specialist documenting find
         Returns:
             dict with left_eye_explanation and right_eye_explanation.
         """
+        logger.info(
+            f"gradcam_input_data: pred={prediction_id} dr={dr_grade} conf={confidence} "
+            f"left_regions({len(left_eye_regions)})={left_eye_regions} "
+            f"right_regions({len(right_eye_regions)})={right_eye_regions}"
+        )
+
         await send_xai_event(
             event="xai.gradcam",
             stage="gradcam",
@@ -792,8 +799,24 @@ RIGHT EYE (OD) REGIONS RANKED BY SALIENCY:
 TOP HOTSPOTS ACROSS BOTH EYES:
 {hotspots_text}
 {rag_section}
-MODEL EXPLANATION REQUIREMENTS:
-For EACH highlighted region, explain:
+OUTPUT FORMAT — Use these exact headers to separate per-eye analysis:
+
+### LEFT EYE (OS):
+[detailed analysis of each left eye region — do NOT discuss right eye regions here]
+For EACH highlighted region, cover:
+1. What is its saliency score and how does its rank among all regions indicate 
+   the model's attention allocation? Higher saliency = stronger evidence.
+2. Given the region's activation intensity and the model's overall confidence, 
+   what specific image features (microaneurysms, hemorrhages, exudates, 
+   neovascularization, venous beading, IRMA) did the model likely detect here?
+3. How do these per-region activations explain WHY the model predicted 
+   grade {grade_int} instead of a lower or higher grade?
+4. Why is the model {conf:.0%} confident rather than higher or lower — which 
+   regions had the strongest feature matches and which were borderline?{item4_note}
+
+### RIGHT EYE (OD):
+[detailed analysis of each right eye region — do NOT discuss left eye regions here]
+For EACH highlighted region, cover:
 1. What is its saliency score and how does its rank among all regions indicate 
    the model's attention allocation? Higher saliency = stronger evidence.
 2. Given the region's activation intensity and the model's overall confidence, 
@@ -824,9 +847,28 @@ findings. Output complete clinical narrative only."""
                 result="pass" if has_region_names and has_saliency else "fail"
             ).inc()
 
-            # For backward compat, extract eye-specific sections from the response
-            left_explanation = response
-            right_explanation = response
+            # Parse per-eye sections from the response
+            left_match = re.search(
+                r"###\s*LEFT EYE\s*\(?OS\)?\s*:\s*\n+(.*?)(?=\n*###\s*RIGHT EYE\s*\(?OD\)?\s*:\s*|\Z)",
+                response,
+                re.DOTALL | re.IGNORECASE,
+            )
+            right_match = re.search(
+                r"###\s*RIGHT EYE\s*\(?OD\)?\s*:\s*\n+(.*?)(?=\Z)",
+                response,
+                re.DOTALL | re.IGNORECASE,
+            )
+            left_explanation = left_match.group(1).strip() if left_match else response
+            right_explanation = (
+                right_match.group(1).strip() if right_match else response
+            )
+            if not left_match or not right_match:
+                logger.warning(
+                    "gradcam_parse_fallback",
+                    has_left=left_match is not None,
+                    has_right=right_match is not None,
+                    response_length=len(response),
+                )
 
             highlighted_region_names = {
                 "left_eye": [
@@ -866,6 +908,11 @@ findings. Output complete clinical narrative only."""
                     "dr_grade": grade_label,
                     "confidence": conf,
                 },
+            )
+
+            logger.info(
+                f"gradcam_output_data: pred={prediction_id} grade={grade_label} conf={conf} "
+                f"left_len={len(left_explanation)} right_len={len(right_explanation)}"
             )
 
             return {
@@ -987,7 +1034,6 @@ Generate structured explanation as JSON."""
         confidence: float,
         clinical_features: dict | None,
         shap_values: dict | None,
-        vascular_biomarkers: dict | None,
     ) -> str:
         shap_context = ""
         if shap_values:
@@ -1021,12 +1067,6 @@ SHAP Feature Analysis:
         if clinical_features:
             clinical_context = f"\nClinical Features: {clinical_features}"
 
-        biomarker_context = ""
-        if vascular_biomarkers:
-            biomarker_context = (
-                f"\nVascular Biomarkers: {json.dumps(vascular_biomarkers)}"
-            )
-
         prompt = f"""You are a medical AI assistant explaining diabetic retinopathy (DR) prediction results.
 
 Explain this prediction in patient-friendly terms addressing these key areas:
@@ -1035,7 +1075,7 @@ Explain this prediction in patient-friendly terms addressing these key areas:
 
 2. FEATURE CONTRIBUTIONS:{shap_context}
 
-3. CLINICAL CONTEXT:{clinical_context}{biomarker_context}
+3. CLINICAL CONTEXT:{clinical_context}
 
 Please provide:
 - A clear explanation of what this diagnosis means for the patient
@@ -1080,8 +1120,7 @@ Right Eye: {", ".join(right_formatted) if right_formatted else "No regions detec
 Explain what these regions indicate for DR diagnosis, focusing on:
 1. Which regions have the highest activation intensity?
 2. How does the area of abnormalities compare?
-3. What is the clinical significance of the saliency scores?
-4. Correlation between intensity values and known DR biomarkers."""
+3. What is the clinical significance of the saliency scores?"""
 
     def _build_severity_prompt(
         self,

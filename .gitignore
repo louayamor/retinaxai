@@ -136,7 +136,6 @@ infra/template.py
 # Tmp log files
 /tmp/*.log
 
-# ML research and thesis documents
-mlops-service/mlops-thesis.md/
-llmops-service/llmops-thesis.md/
-biomarker-service1/
+ # ML research and thesis documents
+ mlops-service/mlops-thesis.md/
+ llmops-service/llmops-thesis.md/
