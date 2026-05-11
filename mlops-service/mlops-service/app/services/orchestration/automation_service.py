@@ -15,6 +15,7 @@ from app.services.monitoring.prometheus_metrics import (
     AUTOMATION_SCHEDULER_RUNNING,
     DRIFT_DETECTED,
     DRIFT_PSI_SCORE,
+    sanitize_label_value,
 )
 from app.services.platform.automation_history import AutomationHistory
 from app.services.registry.model_registry import ModelRegistryService
@@ -112,11 +113,13 @@ class AutomationService:
         )
 
         DRIFT_DETECTED.labels(pipeline=pipeline).set(1 if report.drift_detected else 0)
-        DRIFT_PSI_SCORE.labels(pipeline=pipeline).set(report.overall_psi)
+        DRIFT_PSI_SCORE.labels(pipeline=pipeline, feature="_overall").set(
+            report.overall_psi
+        )
         for feature in report.feature_results:
-            DRIFT_PSI_SCORE.labels(pipeline=pipeline, feature=feature.feature_name).set(
-                feature.psi
-            )
+            DRIFT_PSI_SCORE.labels(
+                pipeline=pipeline, feature=sanitize_label_value(feature.feature_name)
+            ).set(feature.psi)
 
         try:
             self._evidently.run_drift_and_emit(

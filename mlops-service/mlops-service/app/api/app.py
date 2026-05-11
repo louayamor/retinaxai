@@ -27,6 +27,8 @@ from app.services.monitoring.prometheus_metrics import (
     start_qwk_background_refresh,
     update_drift_metrics_from_files,
     start_drift_background_refresh,
+    update_evaluation_metrics_from_files,
+    start_evaluation_background_refresh,
 )
 
 logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING)
@@ -42,13 +44,14 @@ async def lifespan(app: FastAPI):
     start_metrics_server(port=settings.prometheus_metrics_port)
 
     # Bridge pipeline-evaluation metrics into Prometheus gauges
-    update_qwk_from_metrics_files(
-        settings.imaging_metrics_path,
-        settings.clinical_metrics_path,
-    )
+    update_qwk_from_metrics_files(settings.imaging_metrics_path)
     start_qwk_background_refresh(
         settings.imaging_metrics_path,
-        settings.clinical_metrics_path,
+        interval_seconds=300,
+    )
+    update_evaluation_metrics_from_files(settings.imaging_metrics_path)
+    start_evaluation_background_refresh(
+        settings.imaging_metrics_path,
         interval_seconds=300,
     )
 

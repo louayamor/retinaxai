@@ -27,6 +27,7 @@ from app.services.monitoring.prometheus_metrics import (
     TRAINING_SLOTS_USED,
     DRIFT_DETECTED,
     DRIFT_PSI_SCORE,
+    sanitize_label_value,
 )
 
 try:
@@ -690,11 +691,13 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                 DRIFT_DETECTED.labels(pipeline=pipe).set(
                     1 if report.drift_detected else 0
                 )
-                DRIFT_PSI_SCORE.labels(pipeline=pipe).set(report.overall_psi)
+                DRIFT_PSI_SCORE.labels(pipeline=pipe, feature="_overall").set(
+                    report.overall_psi
+                )
                 for f in report.feature_results:
-                    DRIFT_PSI_SCORE.labels(pipeline=pipe, feature=f.feature_name).set(
-                        f.psi
-                    )
+                    DRIFT_PSI_SCORE.labels(
+                        pipeline=pipe, feature=sanitize_label_value(f.feature_name)
+                    ).set(f.psi)
 
                 evidently.run_drift_and_emit(
                     pipeline=pipe,

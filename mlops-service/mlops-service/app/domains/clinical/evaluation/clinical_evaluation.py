@@ -26,7 +26,6 @@ matplotlib.use("Agg")
 from app.entity.config_entity import ClinicalModelEvaluationConfig  # noqa: E402
 from app.utils.common import load_json, read_yaml, save_json  # noqa: E402
 from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH  # noqa: E402
-from app.services.monitoring.prometheus_metrics import QUADRATIC_WEIGHTED_KAPPA  # noqa: E402
 
 
 class ClinicalModelEvaluation:
@@ -134,10 +133,6 @@ class ClinicalModelEvaluation:
                 for k, v in zip(*np.unique(y_test, return_counts=True))
             },
         }
-
-        QUADRATIC_WEIGHTED_KAPPA.labels(pipeline="clinical", split="test").set(
-            metrics["quadratic_weighted_kappa"]
-        )
 
         save_json(self.config.metric_file, metrics)
         logger.info(f"metrics saved: {self.config.metric_file}")

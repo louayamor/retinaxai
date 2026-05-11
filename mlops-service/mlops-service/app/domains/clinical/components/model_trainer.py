@@ -28,7 +28,6 @@ from app.entity.config_entity import (  # noqa: E402
 )
 from app.utils.common import load_json, read_yaml, save_json
 from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
-from app.services.monitoring.prometheus_metrics import BEST_VAL_ACCURACY
 
 
 class ClinicalModelTrainer:
@@ -152,7 +151,6 @@ class ClinicalModelTrainer:
             test_preds = model.predict(X_test)
             train_acc = accuracy_score(y_train, train_preds)
             test_acc = accuracy_score(y_test, test_preds)
-            BEST_VAL_ACCURACY.labels(pipeline="clinical").set(float(test_acc))
 
             test_probs = model.predict_proba(X_test)
             test_qwk = cohen_kappa_score(y_test, test_preds, weights="quadratic")

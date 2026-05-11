@@ -143,38 +143,15 @@ class TrainingPipeline:
         return {"pipeline": "clinical", "metrics": metrics, "version": version}
 
     def run_imaging_phase_based(self) -> dict:
-        """Run imaging training with 2-phase approach for domain adaptation."""
-        logger.info("=== imaging phase-based training started ===")
+        """Run imaging training (2-phase by default).
 
-        imaging_ingest()
-        imaging_clean()
-        imaging_transform()
-
-        params = read_yaml(PARAMS_FILE_PATH)
-        phase_cfg = params.get("phase_based_training", {})
-        phase1_epochs = phase_cfg.get("phase1_epochs", 20)
-        phase2_epochs = phase_cfg.get("phase2_epochs", 5)
-
-        logger.info(f">>> Phase 1: Full eyepacs training ({phase1_epochs} epochs)")
-        imaging_train(phase="phase1", checkpoint_path=None)
-
-        logger.info(f">>> Phase 2: Clinical fine-tuning ({phase2_epochs} epochs)")
-        imaging_train(phase="phase2", checkpoint_path=settings.imaging_model_path)
-
-        logger.info(">>> Running evaluation on final model")
-        metrics = imaging_evaluate()
-
-        # Register the trained model
-        version = self._generate_version("imaging")
-        self._register_model(
-            pipeline="imaging",
-            version=version,
-            model_path=settings.imaging_model_path,
-            metrics=metrics,
+        This method is kept for backward compatibility.
+        Use `run_imaging()` instead - it now also runs 2-phase training.
+        """
+        logger.warning(
+            "run_imaging_phase_based() is deprecated. Use run_imaging() instead (now 2-phase by default)."
         )
-
-        logger.info("=== imaging phase-based training complete ===")
-        return {"pipeline": "imaging", "metrics": metrics, "version": version}
+        return self.run_imaging()
 
     def run(self) -> dict:
         """Run unified training pipeline."""

@@ -42,6 +42,8 @@ class OrdinalCrossEntropyLoss(nn.Module):
         """
         Compute ordinal cross-entropy loss with distance penalty.
 
+        Uses expected class distance (differentiable) instead of argmax (non-differentiable).
+
         Args:
             logits: Tensor of shape (batch_size, num_classes) - raw model outputs
             targets: Tensor of shape (batch_size,) - integer class labels [0, num_classes-1]
@@ -59,9 +61,13 @@ class OrdinalCrossEntropyLoss(nn.Module):
             ce_loss = F.cross_entropy(logits, targets, weight=self.class_weights)
 
         probs = F.softmax(logits, dim=1)
-        predicted_classes = probs.argmax(dim=1)
 
-        distance = torch.abs(predicted_classes.float() - targets.float())
+        class_indices = torch.arange(
+            self.num_classes, device=logits.device, dtype=torch.float32
+        )
+        expected_class = torch.sum(probs * class_indices, dim=1)
+
+        distance = torch.abs(expected_class - targets.float())
         distance_penalty = distance.mean()
 
         return ce_loss + self.distance_weight * distance_penalty
@@ -106,6 +112,8 @@ class FocalOrdinalLoss(nn.Module):
         """
         Compute focal ordinal loss with distance penalty.
 
+        Uses expected class distance (differentiable) instead of argmax (non-differentiable).
+
         Args:
             logits: Tensor of shape (batch_size, num_classes) - raw model outputs
             targets: Tensor of shape (batch_size,) - integer class labels [0, num_classes-1]
@@ -133,8 +141,12 @@ class FocalOrdinalLoss(nn.Module):
         else:
             focal_loss = ce_loss.mean()
 
-        predicted_classes = probs.argmax(dim=1)
-        distance = torch.abs(predicted_classes.float() - targets.float())
+        class_indices = torch.arange(
+            self.num_classes, device=logits.device, dtype=torch.float32
+        )
+        expected_class = torch.sum(probs * class_indices, dim=1)
+
+        distance = torch.abs(expected_class - targets.float())
         distance_penalty = distance.mean()
 
         return focal_loss + self.distance_weight * distance_penalty

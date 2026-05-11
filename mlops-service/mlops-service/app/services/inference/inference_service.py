@@ -83,6 +83,17 @@ class InferenceService:
             self.settings.artifacts_root / "model_registry"
         )
 
+        global_cfg = self.params.get("global", {}) or {}
+        training_cfg = self.params.get("training", {}) or {}
+
+        self._global_num_classes = int(global_cfg.get("num_classes", 5))
+        self._global_image_size = int(global_cfg.get("image_size", 300))
+
+        phase1_cfg = training_cfg.get("phase1", {}) or {}
+        self._training_dropout = float(
+            phase1_cfg.get("dropout", training_cfg.get("dropout", 0.5))
+        )
+
     def _get_current_production_model_path(self, pipeline: str) -> Optional[Path]:
         """Get current production model path from registry, or fall back to settings paths."""
         try:
@@ -135,18 +146,17 @@ class InferenceService:
                 f"imaging model file is empty: {self.settings.imaging_model_path}"
             )
 
-        p = self.params.dl_training
         model_name = self.params.get("mlflow", {}).get(
             "imaging_run_name", "efficientnet_b4"
         )
         logger.info(
-            f"[IMAGING MODEL] creating {model_name} num_classes={p.num_classes} drop={p.dropout}"
+            f"[IMAGING MODEL] creating {model_name} num_classes={self._global_num_classes} drop={self._training_dropout}"
         )
         model = timm.create_model(
             model_name,
             pretrained=False,
-            num_classes=p.num_classes,
-            drop_rate=p.dropout,
+            num_classes=self._global_num_classes,
+            drop_rate=self._training_dropout,
         )
         try:
             model_path = self._get_current_production_model_path("imaging")
@@ -214,7 +224,7 @@ class InferenceService:
 
     def _build_transform(self):
         norm = self.params.augmentation.normalize
-        image_size = int(self.params.dl_training.image_size)
+        image_size = self._global_image_size
         return transforms.Compose(
             [
                 transforms.Lambda(
@@ -432,7 +442,7 @@ class InferenceService:
 
         logger.info(
             f"[IMAGING] {eye_side} eye: original_size={original_size} "
-            f"→ resize={self.params.dl_training.image_size}x{self.params.dl_training.image_size}"
+            f"→ resize={self._global_image_size}x{self._global_image_size}"
         )
 
         fundus_score = self._validate_fundus(image_bytes, eye_side)

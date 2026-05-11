@@ -1,65 +1,28 @@
-dl_training:
-  epochs: 30
-  batch_size: 8
-  learning_rate: 0.0001
-  weight_decay: 0.001
-  num_workers: 0
-  early_stopping_patience: 8
-  scheduler: cosine
-  num_classes: 5
-  dropout: 0.5
+# ── Global ────────────────────────────────────────────────────────────────────
+
+global:
   seed: 42
-  freeze_blocks: 3
+  num_classes: 5
   image_size: 300
-  label_smoothing: 0.1
-  lr_warmup_epochs: 2
+  device: cuda
 
-phase_based_training:
-  enabled: true
-  phase1_epochs: 15
-  phase2_epochs: 10
-  phase1_lr: 0.00005
-  phase2_lr: 0.00001
-  class_weights: custom
-  custom_class_weights: [1.0, 1.8, 2.5, 3.0, 3.5]
-  early_stopping_metric: macro_f1
-  oversample_clinical: true
-  clinical_oversample_ratio: 5
-  freeze_backbone: true
-  unfreeze_last_blocks: true
-  clinical_ratio: 0.7
-  eyepacs_ratio: 0.3
-  keep_no_dr_ratio: 0.25
-  use_class_weights_in_loss: true
-  weighted_sampling: false
-  focal_loss_gamma: 1.0
+# ── Data ──────────────────────────────────────────────────────────────────────
 
-dl_fine_tuning:
-  epochs: 20
-  batch_size: 16
-  learning_rate: 0.0001
-  weight_decay: 0.0001
-  num_workers: 4
-  early_stopping_patience: 8
-  scheduler: cosine
-  num_classes: 5
-  dropout: 0.3
-  seed: 42
-  freeze_backbone: true
+data:
+  ratios:
+    clinical: 0.7
+    eyepacs: 0.3
+  keep_no_dr_ratio: 0.55
+  oversampling:
+    enabled: true
+    min_samples_per_class:
+      0: 2400
+      1: 600
+      2: 950
+      3: 400
+      4: 400
 
-fda:
-  enabled: false
-  beta: 0.15
-  probability: 0.5
-  inference_beta: 0.1
-  target_images_dir: artifacts/data/processed/imaging/images/samaya
-  cache_path: artifacts/data/processed/imaging/samaya_amplitude_target.pt
-
-tent:
-  enabled: true
-  learning_rate: 0.0001
-  steps: 1
-  momentum: 0.9
+# ── Augmentation ──────────────────────────────────────────────────────────────
 
 augmentation:
   random_horizontal_flip: true
@@ -74,18 +37,91 @@ augmentation:
     mean: [0.485, 0.456, 0.406]
     std: [0.229, 0.224, 0.225]
   mixup:
-    enabled: true
+    enabled: false
     alpha: 0.2
   domain_robustness:
     random_grayscale_prob: 0.1
     random_sharpness: 0.5
     random_affine_translate: [0.05, 0.05]
-    random_affine_scale: [0.95, 1.05]
+    random_affine_scale: [0.90, 1.10]
+
+# ── Training ──────────────────────────────────────────────────────────────────
+
+training:
+  class_weights: [1.0, 6.0, 3.5, 8.0, 10.0]
+  weighted_sampling: true
+  use_class_weights_in_loss: true
+  early_stopping_metric: macro_f1
+  early_stopping_patience: 8
+  label_smoothing: 0.1
+  weight_decay: 0.001
+  scheduler: cosine
+  lr_warmup_epochs: 2
+  batch_size: 8
+  num_workers: 4
+  pin_memory: true
+  gradient_accumulation_steps: 4
+
+  phase1:
+    epochs: 15
+    lr: 0.00005
+    dropout: 0.4
+    freeze_backbone: true
+    freeze_blocks: 3
+    unfreeze_last_blocks: true
+    focal_loss_gamma: 1.5
+    loss: focal_ordinal_weighted
+
+  phase2:
+    epochs: 10
+    lr: 0.000005
+    backbone_lr_ratio: 3
+    dropout: 0.3
+    freeze_backbone: false
+    focal_loss_gamma: 2.0
+    loss: focal_ordinal_weighted
+    early_stopping_patience: 5
+    mixup:
+      enabled: true
+      alpha: 0.2
+    fda:
+      enabled: true
+      beta: 0.05
+      probability: 0.3
+
+  fine_tuning:
+    epochs: 20
+    lr: 0.0001
+    batch_size: 16
+    weight_decay: 0.0001
+    dropout: 0.3
+    freeze_backbone: true
+    num_workers: 4
+    pin_memory: true
+    scheduler: cosine
+
+# ── FDA (Fourier Domain Adaptation) ───────────────────────────────────────────
+
+fda:
+  inference_beta: 0.1
+  target_images_dir: artifacts/data/processed/imaging/images/samaya
+  cache_path: artifacts/data/processed/imaging/samaya_amplitude_target.pt
+
+# ── TENT (Test-Time Entropy Minimization) ─────────────────────────────────────
+
+tent:
+  enabled: true
+  learning_rate: 0.0001
+  steps: 3
+  momentum: 0.9
+
+# ── XGBoost (ML branch) ───────────────────────────────────────────────────────
 
 ml_training:
   model: xgboost
   seed: 42
   test_size: 0.2
+  target: clinical_npdr_grade
   xgboost:
     n_estimators: 300
     max_depth: 6
@@ -113,16 +149,19 @@ ml_training:
       - clinical_edema
       - clinical_erm_status
       - meta_image_quality
-  target: clinical_npdr_grade
+
+# ── Inference ─────────────────────────────────────────────────────────────────
 
 inference:
   confidence_threshold: 0.35
-  apply_fda_inverse: true
+  apply_fda_inverse: false
+
+# ── Evaluation ────────────────────────────────────────────────────────────────
 
 evaluation:
   dl:
     batch_size: 8
-    num_workers: 0
+    num_workers: 4
     metrics:
       - accuracy
       - quadratic_weighted_kappa
@@ -139,13 +178,16 @@ evaluation:
     compute_embedding_mmd: true
     compute_confidence_ece: true
 
+# ── MLflow ────────────────────────────────────────────────────────────────────
+
 mlflow:
   imaging_run_name: efficientnet_b4
   model_log_timeout_seconds: 600
 
+# ── Fundus Classifier ─────────────────────────────────────────────────────────
+
 fundus_classifier:
   model_name: mobilenetv3_small_100
   threshold: 0.3
-  image_size: 300
   num_classes: 2
   dropout: 0.1

@@ -37,32 +37,92 @@ class ImagingModelEvaluation:
         self.config = config
         self.params = read_yaml(PARAMS_FILE_PATH)
         self.schema = read_yaml(SCHEMA_FILE_PATH)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        logger.info(f"evaluation device: {self.device}")
+        if torch.cuda.is_available():
+            try:
+                import gc
+
+                gc.collect()
+                torch.cuda.empty_cache()
+                total_memory = torch.cuda.get_device_properties(0).total_memory
+                allocated = torch.cuda.memory_allocated()
+                free_memory = total_memory - allocated
+
+                MIN_FREE_FOR_CUDA = 500_000_000  # 500MB minimum for evaluation
+                if free_memory > MIN_FREE_FOR_CUDA:
+                    self.device = torch.device("cuda")
+                    logger.info(
+                        f"evaluation device: cuda (total={total_memory / 1e9:.1f}GB, "
+                        f"free={free_memory / 1e9:.1f}GB)"
+                    )
+                else:
+                    self.device = torch.device("cpu")
+                    logger.warning(
+                        f"GPU memory low ({free_memory / 1e9:.1f}GB < 0.5GB required), "
+                        f"using CPU for evaluation. Stop MLOps/LLMOps services to free GPU."
+                    )
+            except Exception as e:
+                self.device = torch.device("cpu")
+                logger.warning(f"GPU check failed, using CPU: {e}")
+        else:
+            self.device = torch.device("cpu")
+            logger.info(f"evaluation device: {self.device}")
+
+        global_cfg = self.params.get("global", {}) or {}
+        training_cfg = self.params.get("training", {}) or {}
+
+        self._global_num_classes = int(global_cfg.get("num_classes", 5))
+        self._global_image_size = int(global_cfg.get("image_size", 300))
+
+        phase1_cfg = training_cfg.get("phase1", {}) or {}
+        self._training_dropout = float(
+            phase1_cfg.get("dropout", training_cfg.get("dropout", 0.5))
+        )
 
     def _load_model(self) -> nn.Module:
-        p = self.params.dl_training
         model_name = getattr(self.config, "model_name", "efficientnet_b4")
+
+        if self.device.type == "cuda":
+            try:
+                model = timm.create_model(
+                    model_name,
+                    pretrained=False,
+                    num_classes=self._global_num_classes,
+                    drop_rate=self._training_dropout,
+                )
+                state_dict = torch.load(
+                    self.config.model_path, map_location=self.device
+                )
+                model.load_state_dict(state_dict)
+                model.to(self.device)
+                model.eval()
+                logger.info(
+                    f"model loaded from: {self.config.model_path} (device={self.device})"
+                )
+                return model
+            except Exception as e:
+                logger.warning(f"Failed to load model on GPU: {e}, falling back to CPU")
+                self.device = torch.device("cpu")
+
         model = timm.create_model(
             model_name,
             pretrained=False,
-            num_classes=p.num_classes,
-            drop_rate=p.dropout,
+            num_classes=self._global_num_classes,
+            drop_rate=self._training_dropout,
         )
-        model.load_state_dict(
-            torch.load(self.config.model_path, map_location=self.device)
-        )
+        state_dict = torch.load(self.config.model_path, map_location="cpu")
+        model.load_state_dict(state_dict)
         model.to(self.device)
         model.eval()
-        logger.info(f"model loaded from: {self.config.model_path}")
+        logger.info(
+            f"model loaded from: {self.config.model_path} (device={self.device})"
+        )
         return model
 
     def _build_transform(self):
         norm = self.params.augmentation.normalize
-        image_size = int(self.params.dl_training.image_size)
         return transforms.Compose(
             [
-                transforms.Resize((image_size, image_size)),
+                transforms.Resize((self._global_image_size, self._global_image_size)),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=norm.mean, std=norm.std),
             ]
@@ -70,7 +130,7 @@ class ImagingModelEvaluation:
 
     def _build_samaya_transform(self, fda_inverse=None):
         norm = self.params.augmentation.normalize
-        image_size = int(self.params.dl_training.image_size)
+        image_size = self._global_image_size
         tf_list: list = [
             transforms.Lambda(
                 lambda img: preprocess_fundus_image(img, image_size=image_size)
@@ -181,6 +241,21 @@ class ImagingModelEvaluation:
             f"[{split_name}] accuracy={accuracy:.4f} qwk={qwk:.4f} auc={auc_str} macro_f1={macro_f1:.4f}"
         )
 
+        report_dict = classification_report(
+            labels, preds, output_dict=True, zero_division=0
+        )  # type: ignore[call-overload]
+        for grade in ["0", "1", "2", "3", "4"]:
+            if grade in report_dict:
+                f1 = report_dict[grade]["f1-score"]
+                prec = report_dict[grade]["precision"]
+                rec = report_dict[grade]["recall"]
+                sup = report_dict[grade]["support"]
+                logger.info(
+                    f"  Grade {grade}: f1={f1:.4f} precision={prec:.4f} recall={rec:.4f} support={sup}"
+                )
+
+        logger.info(f"  Confusion matrix:\n{cm}")
+
         return {
             "split": split_name,
             "accuracy": round(accuracy, 4),
@@ -251,69 +326,103 @@ class ImagingModelEvaluation:
             test_preds, test_labels, test_probs, "eyepacs_test"
         )
 
+        partial_metrics: dict = {
+            "eyepacs_test": test_metrics,
+            "samaya_validation": None,
+        }
+        save_json(self.config.metric_file, partial_metrics)
+        logger.info(f"partial metrics saved after EyePACS: {self.config.metric_file}")
+
         samaya_metrics = None
         domain_shift_metrics: dict = {}
         if self.config.samaya_csv.exists():
             logger.info("--- evaluating on Samaya domain validation set ---")
 
-            samaya_tf = self._build_samaya_transform(fda_inverse=fda_inverse)
-            samaya_dataset = RetinalDataset(self.config.samaya_csv, samaya_tf)
-            samaya_loader = DataLoader(
-                samaya_dataset,
-                batch_size=self.params.evaluation.dl.batch_size,
-                shuffle=False,
-                num_workers=self.params.evaluation.dl.num_workers,
-                pin_memory=True,
-            )
+            if self.device.type == "cuda":
+                import gc
 
-            if tent_enabled and self.device.type == "cuda":
+                gc.collect()
                 torch.cuda.empty_cache()
-                free_memory = (
-                    torch.cuda.get_device_properties(0).total_memory
-                    - torch.cuda.memory_allocated()
+                torch.cuda.synchronize()
+                total_memory = torch.cuda.get_device_properties(0).total_memory
+                allocated = torch.cuda.memory_allocated()
+                free_memory = total_memory - allocated
+                logger.info(
+                    f"GPU memory after cleanup: {allocated / 1e9:.2f}GB / {total_memory / 1e9:.2f}GB, free={free_memory / 1e9:.2f}GB"
                 )
-                if free_memory < 1_000_000_000:
-                    logger.warning(
-                        f"GPU memory low ({free_memory / 1e9:.2f}GB), skipping TENT"
+
+            try:
+                samaya_tf = self._build_samaya_transform(fda_inverse=fda_inverse)
+                samaya_dataset = RetinalDataset(self.config.samaya_csv, samaya_tf)
+                samaya_batch_size = min(4, self.params.evaluation.dl.batch_size)
+                samaya_loader = DataLoader(
+                    samaya_dataset,
+                    batch_size=samaya_batch_size,
+                    shuffle=False,
+                    num_workers=min(2, self.params.evaluation.dl.num_workers),
+                    pin_memory=True,
+                )
+
+                if tent_enabled and self.device.type == "cuda":
+                    import gc
+
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    total_memory = torch.cuda.get_device_properties(0).total_memory
+                    allocated = torch.cuda.memory_allocated()
+                    free_memory = total_memory - allocated
+
+                    if free_memory < 2_000_000_000:
+                        logger.warning(
+                            f"GPU memory too low for TENT ({free_memory / 1e9:.2f}GB < 2GB required), skipping TENT"
+                        )
+                        tent_enabled = False
+
+                if tent_enabled:
+                    logger.info(f"TENT adaptation: lr={tent_lr} steps={tent_steps}")
+                    tent = TENTAdapter(
+                        model, lr=tent_lr, steps=tent_steps, momentum=tent_momentum
                     )
-                    tent_enabled = False
-
-            if tent_enabled:
-                logger.info(f"TENT adaptation: lr={tent_lr} steps={tent_steps}")
-                tent = TENTAdapter(
-                    model, lr=tent_lr, steps=tent_steps, momentum=tent_momentum
-                )
-                tent.adapt(samaya_loader)
-                model.eval()
-
-            samaya_preds, samaya_labels, samaya_probs = self._run_inference(
-                model, self.config.samaya_csv, transform=samaya_tf
-            )
-            samaya_metrics = self._compute_metrics(
-                samaya_preds, samaya_labels, samaya_probs, "samaya_validation"
-            )
-
-            if tent_enabled:
-                tent.restore()
-                model.eval()
-
-            ds_cfg = self.params.get("evaluation", {}).get("domain_shift", {}) or {}
-            if ds_cfg.get("compute_confidence_ece", False):
-                domain_shift_metrics["confidence_ece"] = self._compute_ece(
-                    samaya_labels, samaya_preds, samaya_probs
-                )
-
-            if ds_cfg.get("compute_embedding_mmd", False):
-                try:
-                    mmd_val = self._compute_embedding_mmd(
-                        model,
-                        self.config.test_csv,
-                        self.config.samaya_csv,
-                        samaya_tf,
+                    tent.adapt(samaya_loader)
+                    model.eval()
+                else:
+                    logger.info(
+                        "skipping TENT adaptation (disabled or insufficient memory)"
                     )
-                    domain_shift_metrics["embedding_mmd"] = mmd_val
-                except Exception as e:
-                    logger.warning(f"embedding MMD computation failed: {e}")
+
+                samaya_preds, samaya_labels, samaya_probs = self._run_inference(
+                    model, self.config.samaya_csv, transform=samaya_tf
+                )
+                samaya_metrics = self._compute_metrics(
+                    samaya_preds, samaya_labels, samaya_probs, "samaya_validation"
+                )
+
+                if tent_enabled:
+                    tent.restore()
+                    model.eval()
+
+                ds_cfg = self.params.get("evaluation", {}).get("domain_shift", {}) or {}
+                if ds_cfg.get("compute_confidence_ece", False):
+                    domain_shift_metrics["confidence_ece"] = self._compute_ece(
+                        samaya_labels, samaya_preds, samaya_probs
+                    )
+
+                if ds_cfg.get("compute_embedding_mmd", False):
+                    try:
+                        mmd_val = self._compute_embedding_mmd(
+                            model,
+                            self.config.test_csv,
+                            self.config.samaya_csv,
+                            samaya_tf,
+                        )
+                        domain_shift_metrics["embedding_mmd"] = mmd_val
+                    except Exception as e:
+                        logger.warning(f"embedding MMD computation failed: {e}")
+            except Exception as e:
+                logger.error(f"Samaya evaluation failed (non-fatal): {e}")
+                import traceback
+
+                traceback.print_exc()
         else:
             logger.warning(f"samaya CSV not found, skipping: {self.config.samaya_csv}")
 

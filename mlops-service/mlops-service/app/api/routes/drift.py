@@ -12,7 +12,11 @@ from app.services.monitoring.drift_detection import (
     DriftDetectionService,
     DriftStatus,
 )
-from app.services.monitoring.prometheus_metrics import DRIFT_DETECTED, DRIFT_PSI_SCORE
+from app.services.monitoring.prometheus_metrics import (
+    DRIFT_DETECTED,
+    DRIFT_PSI_SCORE,
+    sanitize_label_value,
+)
 
 
 class DriftCheckRequest(BaseModel):
@@ -85,7 +89,8 @@ async def check_drift(
 
         for feature_result in report.feature_results:
             DRIFT_PSI_SCORE.labels(
-                pipeline=request.pipeline, feature=feature_result.feature_name
+                pipeline=request.pipeline,
+                feature=sanitize_label_value(feature_result.feature_name),
             ).set(feature_result.psi)
 
         return DriftCheckResponse(

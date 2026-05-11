@@ -80,7 +80,7 @@ class ConfigurationManager:
             model_name=cfg.model_name,
             pretrained=cfg.pretrained,
             checkpoint_path=Path(cfg.checkpoint_path),
-            image_size=params.dl_training.image_size,
+            image_size=int(params.get("global", {}).get("image_size", 300)),
         )
 
     def get_imaging_model_evaluation_config(self) -> ImagingModelEvaluationConfig:

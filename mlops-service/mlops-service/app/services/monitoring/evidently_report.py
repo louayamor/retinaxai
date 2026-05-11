@@ -21,14 +21,16 @@ class EvidentlyReportGenerator:
         self, df: pd.DataFrame, keep: list | None = None
     ) -> pd.DataFrame:
         keep = keep or []
-        exclude = {"label", "image_path", "source"}
+        exclude = {"image_path", "source", "level"}
         cols = [
             c
             for c in df.columns
             if c not in exclude
             and (c in keep or df[c].dtype in ["float64", "int64", "float32", "int32"])
         ]
-        return df[cols]
+        if not cols and "label" in df.columns:
+            cols = ["label"]
+        return df[cols] if cols else df
 
     def _extract_drift_values(self, snapshot) -> dict:
         """Parse Evidently snapshot.dict() metrics into flat dict."""
@@ -164,25 +166,57 @@ class EvidentlyReportGenerator:
     def run_drift_and_emit(
         self, pipeline: str, reference_csv: Path, current_csv: Path
     ) -> dict:
-        """Run Evidently drift report and emit metrics to Prometheus."""
-        output_path = self.reports_dir / f"{pipeline}_evidently_drift_report.html"
+        """Run Evidently drift report and emit metrics to Prometheus.
 
-        if pipeline == "imaging":
-            metrics = self.imaging_data_drift(reference_csv, current_csv, output_path)
-        else:
-            metrics = self.clinical_data_drift(reference_csv, current_csv, output_path)
+        Gracefully handles cases where input DataFrames have no analyzable columns
+        (e.g., imaging pipeline with only image_path and label columns).
+        """
+        try:
+            reference_df = pd.read_csv(reference_csv)
+            current_df = pd.read_csv(current_csv)
 
-        dataset_drift = self._safe_float(metrics, "DatasetDriftMetric")
-        drifted_count = self._safe_int(metrics, "DriftedColumnsCount")
+            ref_clean = self._drop_non_numeric_cols(reference_df)
+            curr_clean = self._drop_non_numeric_cols(current_df)
 
-        EVIDENTLY_DRIFT_DATASET_SHIFT.labels(pipeline=pipeline).set(dataset_drift)
-        EVIDENTLY_DRIFT_FEATURES_DRIFTED.labels(pipeline=pipeline).set(drifted_count)
-        self._save_evidently_metrics(pipeline, dataset_drift, drifted_count)
+            if ref_clean.empty or curr_clean.empty or len(ref_clean.columns) == 0:
+                logger.info(
+                    f"No numeric columns for Evidently drift check on {pipeline}; "
+                    f"ref_cols={list(reference_df.columns)}, kept={list(ref_clean.columns)}"
+                )
+                self._save_evidently_metrics(pipeline, 0.0, 0)
+                return {}
 
-        logger.info(
-            f"Evidently drift check complete: {pipeline} - dataset_drift={dataset_drift:.4f}, features_drifted={drifted_count}"
-        )
-        return metrics
+            output_path = self.reports_dir / f"{pipeline}_evidently_drift_report.html"
+
+            if pipeline == "imaging":
+                metrics = self.imaging_data_drift(
+                    reference_csv, current_csv, output_path
+                )
+            else:
+                metrics = self.clinical_data_drift(
+                    reference_csv, current_csv, output_path
+                )
+
+            dataset_drift = self._safe_float(metrics, "DatasetDriftMetric")
+            drifted_count = self._safe_int(metrics, "DriftedColumnsCount")
+
+            EVIDENTLY_DRIFT_DATASET_SHIFT.labels(pipeline=pipeline).set(dataset_drift)
+            EVIDENTLY_DRIFT_FEATURES_DRIFTED.labels(pipeline=pipeline).set(
+                drifted_count
+            )
+            self._save_evidently_metrics(pipeline, dataset_drift, drifted_count)
+
+            logger.info(
+                f"Evidently drift check complete: {pipeline} - "
+                f"dataset_drift={dataset_drift:.4f}, features_drifted={drifted_count}"
+            )
+            return metrics
+        except Exception as e:
+            logger.warning(
+                f"Evidently drift check skipped for {pipeline} (non-fatal): {e}"
+            )
+            self._save_evidently_metrics(pipeline, 0.0, 0)
+            return {}
 
     def run_all(
         self,

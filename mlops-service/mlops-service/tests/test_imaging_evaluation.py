@@ -66,6 +66,40 @@ def evaluator(mock_config: ImagingModelEvaluationConfig, mock_params: dict):
         ),
     ):
         params_mock = MagicMock()
+
+        global_dict = {
+            "num_classes": mock_params["dl_training"]["num_classes"],
+            "image_size": mock_params["dl_training"]["image_size"],
+            "seed": 42,
+        }
+        training_dict = {
+            "dropout": mock_params["dl_training"]["dropout"],
+            "phase1": {
+                "dropout": mock_params["dl_training"]["dropout"],
+                "epochs": 15,
+                "lr": 0.0001,
+            },
+        }
+        dl_training_dict = {
+            "num_classes": mock_params["dl_training"]["num_classes"],
+            "image_size": mock_params["dl_training"]["image_size"],
+            "dropout": mock_params["dl_training"]["dropout"],
+        }
+
+        def mock_get(key, default=None):
+            if key == "global":
+                return global_dict
+            elif key == "training":
+                return training_dict
+            elif key == "dl_training":
+                return dl_training_dict
+            elif key == "augmentation":
+                return mock_params.get("augmentation", {})
+            elif key == "evaluation":
+                return mock_params.get("evaluation", {})
+            return default if default is not None else {}
+
+        params_mock.get.side_effect = mock_get
         params_mock.dl_training.image_size = mock_params["dl_training"]["image_size"]
         params_mock.dl_training.num_classes = mock_params["dl_training"]["num_classes"]
         params_mock.dl_training.dropout = mock_params["dl_training"]["dropout"]
@@ -87,7 +121,6 @@ def evaluator(mock_config: ImagingModelEvaluationConfig, mock_params: dict):
         params_mock.evaluation.domain_shift.compute_embedding_mmd = mock_params[
             "evaluation"
         ]["domain_shift"]["compute_embedding_mmd"]
-        params_mock.get.return_value = {}
         mock_read.return_value = params_mock
 
         yield ImagingModelEvaluation(mock_config)
