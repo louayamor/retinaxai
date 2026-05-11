@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from pathlib import Path
@@ -8,6 +9,21 @@ from pathlib import Path
 import numpy as np
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 from loguru import logger
+
+
+_INVALID_LABEL_RE = re.compile(r"[^a-zA-Z0-9_]")
+
+
+def sanitize_label_value(raw: str) -> str:
+    """Sanitize a string for use as a Prometheus label value.
+
+    Replaces characters outside ``[a-zA-Z0-9_]`` with ``_`` and prepends
+    ``_`` if the result starts with a digit.
+    """
+    sanitized = _INVALID_LABEL_RE.sub("_", raw)
+    if sanitized and sanitized[0].isdigit():
+        sanitized = "_" + sanitized
+    return sanitized or "_empty"
 
 
 TRAINING_RUNS_TOTAL = Counter(
@@ -214,6 +230,12 @@ TRAINING_PER_CLASS_F1 = Gauge(
     ["pipeline", "dr_grade"],
 )
 
+EVALUATION_SCORE = Gauge(
+    "retinaxai_evaluation_score",
+    "Evaluation metrics from last pipeline run (accuracy, roc_auc, F1, precision, recall)",
+    ["pipeline", "split", "metric"],
+)
+
 
 def compute_psi(expected: np.ndarray, actual: np.ndarray, buckets: int = 10) -> float:
     """Compute Population Stability Index between two distributions.
@@ -244,31 +266,44 @@ def compute_psi(expected: np.ndarray, actual: np.ndarray, buckets: int = 10) -> 
     return float(psi)
 
 
+_METRIC_KEYS = [
+    "accuracy",
+    "roc_auc_macro",
+    "macro_f1",
+    "precision_macro",
+    "recall_macro",
+]
+
+
 def init_metrics() -> None:
     """Initialize all Gauges to 0 so Prometheus has data to scrape at startup."""
-    pipelines = ["imaging", "clinical"]
-    for p in pipelines:
-        DRIFT_DETECTED.labels(pipeline=p).set(0)
-        EVIDENTLY_DRIFT_DATASET_SHIFT.labels(pipeline=p).set(0)
-        EVIDENTLY_DRIFT_FEATURES_DRIFTED.labels(pipeline=p).set(0)
-        BEST_VAL_ACCURACY.labels(pipeline=p).set(0)
-        TRAINING_SLOTS_USED.labels(pipeline=p).set(0)
-        MODEL_REGISTRY_VERSIONS.labels(pipeline=p, stage="staging").set(0)
-        MODEL_REGISTRY_VERSIONS.labels(pipeline=p, stage="production").set(0)
-        TRAINING_CURRENT_EPOCH.labels(pipeline=p).set(0)
-        TRAINING_TOTAL_EPOCHS.labels(pipeline=p).set(0)
-        TRAINING_EPOCH_ACCURACY.labels(pipeline=p, split="train").set(0)
-        TRAINING_EPOCH_ACCURACY.labels(pipeline=p, split="val").set(0)
-        TRAINING_EPOCH_F1.labels(pipeline=p, split="train").set(0)
-        TRAINING_EPOCH_F1.labels(pipeline=p, split="val").set(0)
-        TRAINING_LEARNING_RATE.labels(pipeline=p).set(0)
-        TRAINING_EPOCH_DURATION.labels(pipeline=p).set(0)
-        TRAINING_EPOCH_PSI.labels(pipeline=p).set(0)
-        TRAINING_BEST_F1.labels(pipeline=p).set(0)
-        TRAINING_PATIENCE_COUNTER.labels(pipeline=p).set(0)
-        TRAINING_VAL_LOSS.labels(pipeline=p).set(0)
-        for grade in range(5):
-            TRAINING_PER_CLASS_F1.labels(pipeline=p, dr_grade=str(grade)).set(0)
+    p = "imaging"
+    DRIFT_DETECTED.labels(pipeline=p).set(0)
+    EVIDENTLY_DRIFT_DATASET_SHIFT.labels(pipeline=p).set(0)
+    EVIDENTLY_DRIFT_FEATURES_DRIFTED.labels(pipeline=p).set(0)
+    BEST_VAL_ACCURACY.labels(pipeline=p).set(0)
+    TRAINING_SLOTS_USED.labels(pipeline=p).set(0)
+    MODEL_REGISTRY_VERSIONS.labels(pipeline=p, stage="staging").set(0)
+    MODEL_REGISTRY_VERSIONS.labels(pipeline=p, stage="production").set(0)
+    TRAINING_CURRENT_EPOCH.labels(pipeline=p).set(0)
+    TRAINING_TOTAL_EPOCHS.labels(pipeline=p).set(0)
+    TRAINING_EPOCH_ACCURACY.labels(pipeline=p, split="train").set(0)
+    TRAINING_EPOCH_ACCURACY.labels(pipeline=p, split="val").set(0)
+    TRAINING_EPOCH_F1.labels(pipeline=p, split="train").set(0)
+    TRAINING_EPOCH_F1.labels(pipeline=p, split="val").set(0)
+    TRAINING_LEARNING_RATE.labels(pipeline=p).set(0)
+    TRAINING_EPOCH_DURATION.labels(pipeline=p).set(0)
+    TRAINING_EPOCH_PSI.labels(pipeline=p).set(0)
+    TRAINING_BEST_F1.labels(pipeline=p).set(0)
+    TRAINING_PATIENCE_COUNTER.labels(pipeline=p).set(0)
+    TRAINING_VAL_LOSS.labels(pipeline=p).set(0)
+    for grade in range(5):
+        TRAINING_PER_CLASS_F1.labels(pipeline=p, dr_grade=str(grade)).set(0)
+    for split in ("eyepacs_test", "samaya_validation"):
+        for metric in _METRIC_KEYS:
+            EVALUATION_SCORE.labels(pipeline="imaging", split=split, metric=metric).set(
+                0
+            )
     ACTIVE_TRAINING_JOBS.set(0)
     AUTOMATION_SCHEDULER_RUNNING.set(0)
     TRAINING_SLOTS_USED.labels(pipeline="all").set(0)
@@ -287,9 +322,8 @@ def start_metrics_server(port: int = 9101) -> None:
 
 def update_qwk_from_metrics_files(
     imaging_metrics_path: Path,
-    clinical_metrics_path: Path,
 ) -> None:
-    """Read persisted metrics.json files and update QWK gauges.
+    """Read persisted metrics.json file and update QWK gauges.
 
     The evaluation pipeline writes metrics.json to disk, but runs as a
     transient CLI process (python main.py pipeline) that exits before
@@ -313,21 +347,9 @@ def update_qwk_from_metrics_files(
         except Exception as e:
             logger.warning(f"failed to load imaging QWK: {e}")
 
-    if clinical_metrics_path.exists():
-        try:
-            with open(clinical_metrics_path) as f:
-                data = json.load(f)
-            if "quadratic_weighted_kappa" in data:
-                QUADRATIC_WEIGHTED_KAPPA.labels(pipeline="clinical", split="test").set(
-                    data["quadratic_weighted_kappa"]
-                )
-        except Exception as e:
-            logger.warning(f"failed to load clinical QWK: {e}")
-
 
 def start_qwk_background_refresh(
     imaging_metrics_path: Path,
-    clinical_metrics_path: Path,
     interval_seconds: int = 300,
 ) -> None:
     """Start a daemon thread that periodically reloads QWK from metrics files."""
@@ -335,9 +357,7 @@ def start_qwk_background_refresh(
     def _refresh_loop() -> None:
         while True:
             try:
-                update_qwk_from_metrics_files(
-                    imaging_metrics_path, clinical_metrics_path
-                )
+                update_qwk_from_metrics_files(imaging_metrics_path)
             except Exception as e:
                 logger.warning(f"QWK background refresh error: {e}")
             time.sleep(interval_seconds)
@@ -357,7 +377,7 @@ def update_drift_metrics_from_files(
     this bridge makes them visible to Prometheus scrapes in the FastAPI
     process, just like the QWK bridge.
     """
-    pipelines = ["imaging", "clinical"]
+    pipelines = ["imaging"]
 
     # --- PSI drift from drift_history.json ---
     if drift_history_path.exists():
@@ -374,11 +394,21 @@ def update_drift_metrics_from_files(
                     1 if latest.get("drift_detected", False) else 0
                 )
                 overall_psi = latest.get("overall_psi", 0.0)
-                DRIFT_PSI_SCORE.labels(pipeline=pipe).set(overall_psi)
+                DRIFT_PSI_SCORE.labels(pipeline=pipe, feature="_overall").set(
+                    overall_psi
+                )
                 for feature in latest.get("features", []):
-                    DRIFT_PSI_SCORE.labels(
-                        pipeline=pipe, feature=feature["feature_name"]
-                    ).set(feature["psi"])
+                    raw_name = feature.get("feature_name", "")
+                    safe_name = sanitize_label_value(str(raw_name))
+                    try:
+                        DRIFT_PSI_SCORE.labels(pipeline=pipe, feature=safe_name).set(
+                            feature.get("psi", 0.0)
+                        )
+                    except Exception:
+                        logger.debug(
+                            "skipping invalid PSI feature label",
+                            feature=raw_name,
+                        )
         except Exception as e:
             logger.warning(f"failed to load drift PSI from history: {e}")
 
@@ -419,3 +449,45 @@ def start_drift_background_refresh(
     thread = threading.Thread(target=_refresh_loop, daemon=True)
     thread.start()
     logger.info(f"drift background refresh started (interval={interval_seconds}s)")
+
+
+def update_evaluation_metrics_from_files(imaging_metrics_path: Path) -> None:
+    """Read persisted metrics.json and set evaluation score gauges.
+
+    Bridges evaluation metrics (accuracy, ROC-AUC, F1, precision, recall)
+    from the transient CLI pipeline into Prometheus via the same file
+    mechanism as the QWK bridge.
+    """
+    if not imaging_metrics_path.exists():
+        return
+    try:
+        with open(imaging_metrics_path) as f:
+            data = json.load(f)
+        for split in ("eyepacs_test", "samaya_validation"):
+            split_data = data.get(split) or {}
+            for metric in _METRIC_KEYS:
+                if metric in split_data:
+                    EVALUATION_SCORE.labels(
+                        pipeline="imaging", split=split, metric=metric
+                    ).set(split_data[metric])
+    except Exception as e:
+        logger.warning(f"failed to load evaluation metrics: {e}")
+
+
+def start_evaluation_background_refresh(
+    imaging_metrics_path: Path,
+    interval_seconds: int = 300,
+) -> None:
+    """Start a daemon thread that periodically reloads evaluation score gauges."""
+
+    def _refresh_loop() -> None:
+        while True:
+            try:
+                update_evaluation_metrics_from_files(imaging_metrics_path)
+            except Exception as e:
+                logger.warning(f"evaluation background refresh error: {e}")
+            time.sleep(interval_seconds)
+
+    thread = threading.Thread(target=_refresh_loop, daemon=True)
+    thread.start()
+    logger.info(f"evaluation background refresh started (interval={interval_seconds}s)")
