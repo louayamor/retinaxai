@@ -139,7 +139,7 @@ def test_predict_route_emits_failure_event(monkeypatch):
     monkeypatch.setattr(predict_route, "_validate_image_bytes", lambda value: None)
 
     request = MLPredictHttpRequest(
-        model_name="efficientnet_b4",
+        model_name="efficientnet_b3",
         model_version="1.0.0",
         patient_id="patient-1",
         patient_age=70,
@@ -190,7 +190,7 @@ def test_predict_route_includes_embedding(monkeypatch):
     monkeypatch.setattr(predict_route, "_validate_image_bytes", lambda value: None)
 
     request = MLPredictHttpRequest(
-        model_name="efficientnet_b4",
+        model_name="efficientnet_b3",
         model_version="1.0.0",
         patient_id="patient-1",
         patient_age=70,

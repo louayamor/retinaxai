@@ -15,7 +15,7 @@ from app.entity.config_entity import ImagingModelEvaluationConfig
 def mock_config(tmp_path: Path) -> ImagingModelEvaluationConfig:
     return ImagingModelEvaluationConfig(
         root_dir=tmp_path / "eval_artifacts",
-        model_name="efficientnet_b4",
+        model_name="efficientnet_b3",
         test_csv=tmp_path / "test.csv",
         samaya_csv=tmp_path / "samaya.csv",
         model_path=tmp_path / "model.pth",

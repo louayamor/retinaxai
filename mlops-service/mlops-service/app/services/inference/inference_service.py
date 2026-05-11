@@ -147,7 +147,7 @@ class InferenceService:
             )
 
         model_name = self.params.get("mlflow", {}).get(
-            "imaging_run_name", "efficientnet_b4"
+            "imaging_run_name", "efficientnet_b3"
         )
         logger.info(
             f"[IMAGING MODEL] creating {model_name} num_classes={self._global_num_classes} drop={self._training_dropout}"
@@ -283,7 +283,7 @@ class InferenceService:
         return fundus_score
 
     def get_embedding(self, image_tensor: torch.Tensor) -> list[float]:
-        """Extract the 1536-dim EfficientNet-B3 embedding before classification."""
+        """Extract the 1536-dim EfficientNet-B4 embedding before classification."""
         model = self._load_imaging_model()
 
         if hasattr(model, "module"):

@@ -79,7 +79,7 @@ class ImagingModelEvaluation:
         )
 
     def _load_model(self) -> nn.Module:
-        model_name = getattr(self.config, "model_name", "efficientnet_b4")
+        model_name = getattr(self.config, "model_name", "efficientnet_b3")
 
         if self.device.type == "cuda":
             try:

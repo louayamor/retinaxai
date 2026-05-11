@@ -402,7 +402,7 @@ class ImagingModelTrainer:
             mlflow.pytorch.log_model(
                 pytorch_model=model,
                 artifact_path="imaging_model",
-                registered_model_name="efficientnet_b4",
+                registered_model_name="efficientnet_b3",
             )
             logger.info("model logged to mlflow model registry")
         except Exception as e:
@@ -560,7 +560,7 @@ class ImagingModelTrainer:
         run_suffix = f"_{int(time.time()) % 1000:03d}"
         with mlflow.start_run(
             run_name=self.params.get("mlflow", {}).get(
-                "imaging_run_name", "efficientnet_b4"
+                "imaging_run_name", "efficientnet_b3"
             )
             + run_suffix
         ):

@@ -181,7 +181,7 @@ evaluation:
 # ── MLflow ────────────────────────────────────────────────────────────────────
 
 mlflow:
-  imaging_run_name: efficientnet_b4
+  imaging_run_name: efficientnet_b3
   model_log_timeout_seconds: 600
 
 # ── Fundus Classifier ─────────────────────────────────────────────────────────
