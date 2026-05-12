@@ -79,9 +79,9 @@ def run(phase: str = "phase1", checkpoint_path: Path | None = None):
     Run imaging model training.
 
     Default behavior (phase="phase1", checkpoint_path=None):
-        - Run Phase 1 (EyePacs, frozen backbone)
-        - Then run Phase 2 (Samaya+EyePacs mix, unfrozen backbone + FDA/MixUp)
-        - If Phase 2 is skipped/fails, return Phase 1 checkpoint
+        - If checkpoint exists: Skip Phase 1, run Phase 2 (incremental fine-tuning)
+        - If checkpoint missing: Run Phase 1 (EyePacs, frozen backbone) then Phase 2
+        - If Phase 2 is skipped/fails: Return Phase 1 checkpoint
 
     Specific phase:
         - Run only the specified phase
@@ -97,6 +97,28 @@ def run(phase: str = "phase1", checkpoint_path: Path | None = None):
     )
 
     if phase == "phase1" and checkpoint_path is None:
+        existing_checkpoint = cfg.checkpoint_path
+        if existing_checkpoint.exists():
+            logger.info(
+                f">>> Existing checkpoint found: {existing_checkpoint}. "
+                f"Skipping Phase 1, running incremental fine-tuning (Phase 2 only)"
+            )
+            try:
+                final_checkpoint = _run_single_phase(
+                    "phase2", existing_checkpoint, cfg, transformation_cfg
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Phase 2 incremental training failed: {e}. "
+                    f"Returning existing checkpoint: {existing_checkpoint}"
+                )
+                final_checkpoint = existing_checkpoint
+
+            logger.info(
+                f">>> stage 04: imaging model training complete (final checkpoint={final_checkpoint})"
+            )
+            return final_checkpoint
+
         logger.info(">>> Phase 1: Full EyePacs training (frozen backbone)")
         phase1_checkpoint = _run_single_phase("phase1", None, cfg, transformation_cfg)
 
