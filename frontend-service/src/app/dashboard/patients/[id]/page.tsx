@@ -609,46 +609,48 @@ export default function PatientProfilePage() {
                             {xaiData[pred.id]?.gradcam_explanation && (
                               <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {xaiData[pred.id]?.gradcam_explanation?.left_eye_explanation && (
-                                  <div className="border-2 border-blue-200 dark:border-blue-800 rounded-lg p-4 bg-blue-50/50 dark:bg-blue-950/30">
+                                  <div className="rounded-lg border border-[var(--brand-teal)]/30 bg-[var(--brand-teal)]/5 p-4">
                                     <div className="flex items-center justify-between mb-3">
-                                      <h4 className="font-semibold text-blue-900 dark:text-blue-100 flex items-center gap-2">
-                                        <Eye className="h-4 w-4" />
+                                      <h4 className="font-semibold text-foreground flex items-center gap-2">
+                                        <Eye className="h-4 w-4 text-[var(--brand-teal)]" />
                                         Left Eye (OS)
                                       </h4>
-                                      <span className="text-xs text-muted-foreground">
+                                      <span className="text-[10px] font-mono font-bold text-white px-1.5 py-0.5 rounded bg-[var(--brand-teal)]">
                                         {xaiData[pred.id]?.gradcam_explanation?.highlighted_regions?.left_eye?.length || 0} regions
                                       </span>
                                     </div>
-                                    <div className="text-sm text-muted-foreground space-y-2 max-h-48 overflow-y-auto">
-                                      {xaiData[pred.id]?.gradcam_explanation?.left_eye_explanation
-                                        .split(/(?=\d+\.\s|\n)/)
-                                        .filter(Boolean)
-                                        .slice(0, 8)
-                                        .map((paragraph: string, idx: number) => (
-                                          <p key={idx} className="leading-relaxed">{paragraph.trim().replace(/^\d+\.\s*/, '')}</p>
-                                        ))}
+                                    <div className="space-y-3">
+                                      {parseExplanationSections(xaiData[pred.id]?.gradcam_explanation?.left_eye_explanation || '').map((section, idx) => (
+                                        <div key={idx}>
+                                          {section.title && (
+                                            <p className="text-xs font-semibold text-foreground mb-1">{section.title}</p>
+                                          )}
+                                          <p className="text-sm text-muted-foreground leading-relaxed">{section.body}</p>
+                                        </div>
+                                      ))}
                                     </div>
                                   </div>
                                 )}
                                 {xaiData[pred.id]?.gradcam_explanation?.right_eye_explanation && (
-                                  <div className="border-2 border-purple-200 dark:border-purple-800 rounded-lg p-4 bg-purple-50/50 dark:bg-purple-950/30">
+                                  <div className="rounded-lg border border-[var(--brand-gold)]/30 bg-[var(--brand-gold)]/5 p-4">
                                     <div className="flex items-center justify-between mb-3">
-                                      <h4 className="font-semibold text-purple-900 dark:text-purple-100 flex items-center gap-2">
-                                        <Eye className="h-4 w-4" />
+                                      <h4 className="font-semibold text-foreground flex items-center gap-2">
+                                        <Eye className="h-4 w-4 text-[var(--brand-gold)]" />
                                         Right Eye (OD)
                                       </h4>
-                                      <span className="text-xs text-muted-foreground">
+                                      <span className="text-[10px] font-mono font-bold text-white px-1.5 py-0.5 rounded bg-[var(--brand-gold)]">
                                         {xaiData[pred.id]?.gradcam_explanation?.highlighted_regions?.right_eye?.length || 0} regions
                                       </span>
                                     </div>
-                                    <div className="text-sm text-muted-foreground space-y-2 max-h-48 overflow-y-auto">
-                                      {xaiData[pred.id]?.gradcam_explanation?.right_eye_explanation
-                                        .split(/(?=\d+\.\s|\n)/)
-                                        .filter(Boolean)
-                                        .slice(0, 8)
-                                        .map((paragraph: string, idx: number) => (
-                                          <p key={idx} className="leading-relaxed">{paragraph.trim().replace(/^\d+\.\s*/, '')}</p>
-                                        ))}
+                                    <div className="space-y-3">
+                                      {parseExplanationSections(xaiData[pred.id]?.gradcam_explanation?.right_eye_explanation || '').map((section, idx) => (
+                                        <div key={idx}>
+                                          {section.title && (
+                                            <p className="text-xs font-semibold text-foreground mb-1">{section.title}</p>
+                                          )}
+                                          <p className="text-sm text-muted-foreground leading-relaxed">{section.body}</p>
+                                        </div>
+                                      ))}
                                     </div>
                                   </div>
                                 )}
@@ -667,7 +669,7 @@ export default function PatientProfilePage() {
                 {activeTab === 'xai' && (
                   <div className="flex flex-col gap-4">
                     <div className="flex items-center justify-between mt-2">
-                      <SectionHeader icon={Brain} title="AI Explanations" iconColor="text-purple-500" count={successPredictions.length} />
+                      <SectionHeader icon={Brain} title="AI Explanations" iconColor="text-[var(--brand-teal)]" count={successPredictions.length} />
                       {latestPrediction && !xaiData[latestPrediction.id] && (
                         <Button
                           onClick={() => handleGenerateXAI(latestPrediction)}
@@ -758,7 +760,7 @@ export default function PatientProfilePage() {
                                             initial={{ width: 0 }}
                                             animate={{ width: `${Math.min(Math.abs(feature.contribution) * 100, 100)}%` }}
                                             transition={{ delay: i * 0.07, duration: 0.5 }}
-                                            className="h-full bg-emerald-500 rounded-full"
+                                            className="h-full bg-[var(--brand-teal)] rounded-full"
                                           />
                                         </div>
                                         <span className="text-xs font-mono text-muted-foreground w-12 text-right">
@@ -973,6 +975,42 @@ function StatusDot({ status }: { status: string }) {
   return <AlertCircle className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />;
 }
 
+interface ExplanationSection {
+  title: string;
+  body: string;
+}
+
+function parseExplanationSections(text: string): ExplanationSection[] {
+  const sections: ExplanationSection[] = [];
+  const boldHeaderRegex = /\*\*(.+?)\*\*\s*:?\s*/g;
+  const parts = text.split(boldHeaderRegex);
+
+  if (parts.length > 1) {
+    for (let i = 1; i < parts.length; i += 2) {
+      const title = parts[i].trim();
+      const body = (parts[i + 1] || '').trim();
+      if (title) {
+        sections.push({
+          title,
+          body: body.replace(/^\n+/, '').trim(),
+        });
+      }
+    }
+  }
+
+  if (sections.length === 0) {
+    const lines = text.split(/\n{2,}/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.length > 10) {
+        sections.push({ title: '', body: trimmed });
+      }
+    }
+  }
+
+  return sections;
+}
+
 function EmptyState({ icon: Icon, title, description }: { icon: typeof Scan; title: string; description: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-10 rounded-md border border-dashed border-border bg-muted/10">
@@ -984,31 +1022,62 @@ function EmptyState({ icon: Icon, title, description }: { icon: typeof Scan; tit
 }
 
 function EyeImagePanel({ title, src, eye }: { title: string; src?: string; eye: string }) {
+  const isLeft = eye === 'L';
+  const accent = isLeft ? 'var(--brand-teal)' : 'var(--brand-gold)';
+  const accentBg = isLeft ? 'bg-[var(--brand-teal)]/8' : 'bg-[var(--brand-gold)]/8';
+  const accentBorder = isLeft ? 'border-[var(--brand-teal)]/30' : 'border-[var(--brand-gold)]/30';
+  const accentText = isLeft ? 'text-[var(--brand-teal)]' : 'text-[var(--brand-gold)]';
+  const accentBadgeBg = isLeft ? 'bg-[var(--brand-teal)]' : 'bg-[var(--brand-gold)]';
+
   return (
-    <div className="flex flex-col gap-1.5">
-      <p className="text-xs font-medium text-muted-foreground">{title}</p>
-      <div className="relative aspect-square rounded bg-black overflow-hidden">
+    <div className={`rounded-lg border ${accentBorder} ${accentBg} overflow-hidden`}>
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
+        <div className="flex items-center gap-2">
+          <Eye className={`h-3.5 w-3.5 ${accentText}`} />
+          <span className="text-xs font-semibold uppercase tracking-wider text-foreground">{title}</span>
+        </div>
+        <span className={`text-[10px] font-mono font-bold text-white px-1.5 py-0.5 rounded ${accentBadgeBg}`}>
+          {eye === 'L' ? 'OS' : 'OD'}
+        </span>
+      </div>
+      <div className="relative aspect-square bg-black/5">
         {src ? (
           <Image src={src} alt={title} fill className="object-cover" unoptimized />
         ) : (
-          <div className="flex flex-col items-center justify-center h-full gap-1 text-muted-foreground">
-            <ImageIcon className="h-5 w-5 opacity-40" />
-            <span className="text-xs opacity-40">No image</span>
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground/50">
+            <Eye className="h-8 w-8" />
+            <span className="text-xs">No fundus image available</span>
           </div>
         )}
-        <span className="absolute bottom-2 left-2 text-xs font-mono font-bold bg-black/60 text-white px-1.5 py-0.5 rounded">
-          {eye}
-        </span>
+      </div>
+      <div className="px-3 py-1.5 border-t border-border/50 bg-muted/20">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+          {eye === 'L' ? 'Oculus Sinister' : 'Oculus Dexter'} — Fundus Photography
+        </p>
       </div>
     </div>
   );
 }
 
 function GradCAMPanel({ title, gradcamBase64 }: { title: string; gradcamBase64?: string }) {
+  const isLeft = title.includes('OS') || title.includes('Left');
+  const accentBorder = isLeft ? 'border-[var(--brand-teal)]/30' : 'border-[var(--brand-gold)]/30';
+  const accentBg = isLeft ? 'bg-[var(--brand-teal)]/8' : 'bg-[var(--brand-gold)]/8';
+  const accentText = isLeft ? 'text-[var(--brand-teal)]' : 'text-[var(--brand-gold)]';
+  const accentBadgeBg = isLeft ? 'bg-[var(--brand-teal)]' : 'bg-[var(--brand-gold)]';
+
   return (
-    <div className="flex flex-col gap-1.5">
-      <p className="text-xs font-medium text-muted-foreground">{title}</p>
-      <div className="relative aspect-square rounded overflow-hidden bg-black">
+    <div className={`rounded-lg border ${accentBorder} ${accentBg} overflow-hidden`}>
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
+        <div className="flex items-center gap-2">
+          <Eye className={`h-3.5 w-3.5 ${accentText}`} />
+          <span className="text-xs font-semibold uppercase tracking-wider text-foreground">{title}</span>
+        </div>
+        <span className={`text-[10px] font-mono font-bold text-white px-1.5 py-0.5 rounded ${accentBadgeBg}`}>
+          {isLeft ? 'OS' : 'OD'}
+        </span>
+      </div>
+      <div className="relative aspect-square bg-black/5">
         {gradcamBase64 ? (
           <img
             src={`data:image/png;base64,${gradcamBase64}`}
@@ -1016,11 +1085,16 @@ function GradCAMPanel({ title, gradcamBase64 }: { title: string; gradcamBase64?:
             className="w-full h-full object-contain"
           />
         ) : (
-          <div className="flex flex-col items-center justify-center h-full gap-1 text-muted-foreground">
-            <ImageIcon className="h-5 w-5 opacity-40" />
-            <span className="text-xs opacity-40">No GradCAM</span>
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground/50">
+            <ImageIcon className="h-8 w-8" />
+            <span className="text-xs">No GradCAM heatmap available</span>
           </div>
         )}
+      </div>
+      <div className="px-3 py-1.5 border-t border-border/50 bg-muted/20">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+          {isLeft ? 'Oculus Sinister' : 'Oculus Dexter'} — GradCAM Saliency Map
+        </p>
       </div>
     </div>
   );

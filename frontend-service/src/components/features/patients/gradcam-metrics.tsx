@@ -55,15 +55,15 @@ export function GradCAMMetricsBlock({
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
       <GradCAMEyeMetrics
         title="Left Eye Metrics"
-        accentClassName="border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/30"
-        titleClassName="text-blue-900 dark:text-blue-100"
+        accentClassName="border-[var(--brand-teal)]/30 bg-[var(--brand-teal)]/5"
+        titleClassName="text-[var(--brand-teal)]"
         regions={leftRegions}
         hotspots={leftHotspots}
       />
       <GradCAMEyeMetrics
         title="Right Eye Metrics"
-        accentClassName="border-purple-200 bg-purple-50/50 dark:border-purple-800 dark:bg-purple-950/30"
-        titleClassName="text-purple-900 dark:text-purple-100"
+        accentClassName="border-[var(--brand-gold)]/30 bg-[var(--brand-gold)]/5"
+        titleClassName="text-[var(--brand-gold)]"
         regions={rightRegions}
         hotspots={rightHotspots}
       />
@@ -162,7 +162,7 @@ function GradCAMEyeMetrics({
                     {regionList.map((region, idx) => (
                       <Cell
                         key={`${region.name ?? 'region'}-${idx}`}
-                        fill={idx % 2 === 0 ? 'rgba(32, 189, 190, 0.85)' : 'rgba(128, 90, 213, 0.85)'}
+                        fill={idx % 2 === 0 ? 'rgba(32, 189, 190, 0.85)' : 'rgba(200, 169, 81, 0.85)'}
                       />
                     ))}
                   </Bar>
@@ -203,11 +203,11 @@ function GradCAMEyeMetrics({
                       return [value, name];
                     }}
                   />
-                  <Scatter data={regionList} fill="rgba(32, 189, 190, 0.8)">
+<Scatter data={regionList} fill="rgba(32, 189, 190, 0.8)">
                     {regionList.map((region, idx) => (
                       <Cell
                         key={`${region.name ?? 'region'}-${idx}`}
-                        fill={idx % 2 === 0 ? 'rgba(32, 189, 190, 0.85)' : 'rgba(128, 90, 213, 0.85)'}
+                        fill={idx % 2 === 0 ? 'rgba(32, 189, 190, 0.85)' : 'rgba(200, 169, 81, 0.85)'}
                       />
                     ))}
                   </Scatter>

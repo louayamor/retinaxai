@@ -77,119 +77,149 @@ const GRADE_LABELS: Record<string, string> = {
   'Proliferative DR': 'Proliferative DR',
 };
 
-const GRADE_COLORS: Record<string, string> = {
-  '0': 'bg-emerald-500',
-  '1': 'bg-cyan-500',
-  '2': 'bg-amber-500',
-  '3': 'bg-orange-500',
-  '4': 'bg-rose-500',
-  'No DR': 'bg-emerald-500',
-  'Mild': 'bg-cyan-500',
-  'Moderate': 'bg-amber-500',
-  'Severe': 'bg-orange-500',
-  'Proliferative DR': 'bg-rose-500',
+const GRADE_META: Record<string, { color: string; bg: string; border: string }> = {
+  '0': { color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
+  '1': { color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/30' },
+  '2': { color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/30' },
+  '3': { color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/30' },
+  '4': { color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/30' },
+  'No DR': { color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
+  'Mild': { color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/30' },
+  'Moderate': { color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/30' },
+  'Severe': { color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/30' },
+  'Proliferative DR': { color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/30' },
 };
 
-const RISK_COLORS: Record<string, string> = {
-  low: 'bg-emerald-500',
-  moderate: 'bg-amber-500',
-  elevated: 'bg-amber-500',
-  high: 'bg-orange-500',
-  severe: 'bg-red-600',
-  very_high: 'bg-red-600',
+const RISK_META: Record<string, { color: string; bg: string; border: string }> = {
+  low: { color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
+  moderate: { color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/30' },
+  elevated: { color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/30' },
+  high: { color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/30' },
+  severe: { color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/30' },
+  very_high: { color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/30' },
 };
+
+function getGradeKey(grade: string | number | undefined) {
+  if (!grade) return 'N/A';
+  return GRADE_LABELS[String(grade)] || String(grade);
+}
+
+function getGradeMeta(grade: string | number | undefined) {
+  if (!grade) return null;
+  return GRADE_META[String(grade)] ?? GRADE_META['2'];
+}
+
+function getRiskMeta(risk?: string) {
+  if (!risk) return null;
+  const lower = risk.toLowerCase();
+  return RISK_META[lower] ?? RISK_META['moderate'];
+}
+
+interface ExplanationSection {
+  title: string;
+  body: string;
+}
+
+function parseExplanationSections(text: string): ExplanationSection[] {
+  const sections: ExplanationSection[] = [];
+  const boldHeaderRegex = /\*\*(.+?)\*\*\s*:?\s*/g;
+  const parts = text.split(boldHeaderRegex);
+
+  if (parts.length > 1) {
+    for (let i = 1; i < parts.length; i += 2) {
+      const title = parts[i].trim();
+      const body = (parts[i + 1] || '').trim();
+      if (title) {
+        sections.push({
+          title,
+          body: body.replace(/^\n+/, '').trim(),
+        });
+      }
+    }
+  }
+
+  if (sections.length === 0) {
+    const lines = text.split(/\n{2,}/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.length > 10) {
+        sections.push({ title: '', body: trimmed });
+      }
+    }
+  }
+
+  return sections;
+}
 
 export default function XAICard({ predictionId, createdAt, data }: XAICardProps) {
   const { diagnosis, clinical_findings, severity_report, gradcam_explanation, feature_importance, summary } = data;
 
-  const getGradeKey = (grade: string | number | undefined) => {
-    if (!grade) return 'N/A';
-    return GRADE_LABELS[String(grade)] || String(grade);
-  };
-
-  const getGradeColor = (grade: string | number | undefined) => {
-    if (!grade) return 'bg-gray-500';
-    return GRADE_COLORS[String(grade)] || 'bg-gray-500';
-  };
-
-  const getRiskColor = (risk?: string) => {
-    const lowerRisk = risk?.toLowerCase() || '';
-    if (lowerRisk.includes('high') || lowerRisk.includes('severe') || lowerRisk.includes('very')) return 'bg-red-600';
-    if (lowerRisk.includes('moderate') || lowerRisk.includes('elevated')) return 'bg-amber-500';
-    if (lowerRisk.includes('low')) return 'bg-emerald-500';
-    return 'bg-gray-500';
-  };
-
   const drGrade = severity_report?.diagnosis?.dr_grade ?? diagnosis?.overall_grade;
   const riskLevel = severity_report?.diagnosis?.risk_level ?? diagnosis?.risk_level;
+  const gradeMeta = getGradeMeta(drGrade);
+  const riskMeta = getRiskMeta(riskLevel);
 
   return (
-    <Card className="overflow-hidden border-2 border-violet-200 dark:border-violet-800 shadow-lg">
-      <div className="bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 px-6 py-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="bg-white/20 p-3 rounded-xl backdrop-blur-sm">
-              <Brain className="h-7 w-7 text-white" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-white">XAI Diabetic Retinopathy Explanation</h2>
-              <p className="text-violet-100 text-sm flex items-center gap-2">
-                <Activity className="h-4 w-4" />
-                AI Explainable Analysis
-              </p>
-            </div>
+    <Card className="overflow-hidden border border-border bg-card">
+      <div className="bg-[var(--sidebar)] px-5 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="bg-[var(--brand-teal)]/20 p-2 rounded-lg">
+            <Brain className="h-5 w-5 text-[var(--brand-teal)]" />
           </div>
-          <div className="text-right">
-            <div className="flex items-center gap-1 text-violet-100 text-sm">
-              <Calendar className="h-4 w-4" />
-              Generated
-            </div>
-            <p className="font-medium text-white">{new Date(createdAt).toLocaleDateString()}</p>
-            <p className="text-xs text-violet-200">{new Date(createdAt).toLocaleTimeString()}</p>
+          <div>
+            <h2 className="text-sm font-semibold text-sidebar-foreground">XAI Clinical Explanation</h2>
+            <p className="text-xs text-sidebar-foreground/60 flex items-center gap-1.5 mt-0.5">
+              <Activity className="h-3 w-3" />
+              AI Explainable Analysis
+            </p>
           </div>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-sidebar-foreground/60 flex items-center gap-1.5 justify-end">
+            <Calendar className="h-3 w-3" />
+            Generated
+          </p>
+          <p className="text-xs font-medium text-sidebar-foreground">{new Date(createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
         </div>
       </div>
 
-      <CardContent className="p-6 space-y-6">
+      <CardContent className="p-5 space-y-5">
         {diagnosis && (
           <>
-            <Separator />
-            <div className="bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-950/30 dark:to-orange-950/30 rounded-xl p-4 border-2 border-red-200 dark:border-red-800">
-              <div className="flex items-center justify-between mb-4">
+            <div className="rounded-lg border border-border bg-card p-4">
+              <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <Stethoscope className="h-5 w-5 text-red-600" />
-                  <span className="font-semibold text-lg text-red-900 dark:text-red-100">Diagnosis</span>
+                  <Stethoscope className="h-4 w-4 text-[var(--brand-teal)]" />
+                  <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Diagnosis</span>
                 </div>
-                {riskLevel && (
-                  <Badge className={`${getRiskColor(riskLevel)} text-white px-3 py-1`}>
-                    {riskLevel.toUpperCase()} RISK
-                  </Badge>
+                {riskMeta && riskLevel && (
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded border uppercase tracking-wide ${riskMeta.bg} ${riskMeta.border} ${riskMeta.color}`}>
+                    {riskLevel.replace('_', ' ')} Risk
+                  </span>
                 )}
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="p-4 bg-white/70 dark:bg-black/30 rounded-xl border border-red-100 dark:border-red-900/50">
-                  <p className="text-xs text-red-600 dark:text-red-400 mb-1">Condition</p>
-                  <p className="font-bold text-lg text-red-900 dark:text-red-100">
-                    {diagnosis.condition || 'Diabetic Retinopathy'}
-                  </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="rounded-md bg-muted/30 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Condition</p>
+                  <p className="text-sm font-semibold mt-0.5">{diagnosis.condition || 'Diabetic Retinopathy'}</p>
                 </div>
-                <div className="p-4 bg-white/70 dark:bg-black/30 rounded-xl border border-red-100 dark:border-red-900/50">
-                  <p className="text-xs text-red-600 dark:text-red-400 mb-1">Severity</p>
-                  <p className="font-bold text-lg text-red-900 dark:text-red-100">
-                    {diagnosis.severity || severity_report?.diagnosis?.severity_label || 'N/A'}
-                  </p>
+                <div className="rounded-md bg-muted/30 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Severity</p>
+                  <p className="text-sm font-semibold mt-0.5">{diagnosis.severity || severity_report?.diagnosis?.severity_label || '—'}</p>
                 </div>
-                <div className="p-4 bg-white/70 dark:bg-black/30 rounded-xl border border-red-100 dark:border-red-900/50">
-                  <p className="text-xs text-red-600 dark:text-red-400 mb-1">DR Grade</p>
-                  <Badge className={getGradeColor(drGrade)}>
-                    {getGradeKey(drGrade)}
-                  </Badge>
+                <div className="rounded-md bg-muted/30 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">DR Grade</p>
+                  {gradeMeta ? (
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded border mt-0.5 inline-block ${gradeMeta.bg} ${gradeMeta.border} ${gradeMeta.color}`}>
+                      {getGradeKey(drGrade)}
+                    </span>
+                  ) : (
+                    <p className="text-sm font-semibold mt-0.5">{getGradeKey(drGrade)}</p>
+                  )}
                 </div>
-                <div className="p-4 bg-white/70 dark:bg-black/30 rounded-xl border border-red-100 dark:border-red-900/50">
-                  <p className="text-xs text-red-600 dark:text-red-400 mb-1">Confidence</p>
-                  <p className="font-bold text-lg text-red-900 dark:text-red-100">
-                    {diagnosis.confidence ? `${(diagnosis.confidence * 100).toFixed(1)}%` : 'N/A'}
-                  </p>
+                <div className="rounded-md bg-muted/30 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Confidence</p>
+                  <p className="text-sm font-semibold mt-0.5">{diagnosis.confidence ? `${(diagnosis.confidence * 100).toFixed(1)}%` : '—'}</p>
                 </div>
               </div>
             </div>
@@ -198,35 +228,37 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
 
         {(clinical_findings?.left_eye || clinical_findings?.right_eye) && (
           <div>
-            <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-              <Eye className="h-5 w-5 text-purple-600" />
-              Clinical Findings
-            </h3>
-            <div className="grid md:grid-cols-2 gap-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Eye className="h-4 w-4 text-[var(--brand-teal)]" />
+              <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Clinical Findings</span>
+            </div>
+            <div className="grid md:grid-cols-2 gap-3">
               {clinical_findings?.left_eye && (
-                <div className="border-2 border-blue-200 dark:border-blue-800 rounded-lg p-4 bg-blue-50/50 dark:bg-blue-950/30">
+                <div className="rounded-lg border border-[var(--brand-teal)]/30 bg-[var(--brand-teal)]/5 p-4">
                   <div className="flex items-center justify-between mb-3">
-                    <h4 className="font-semibold text-blue-900 dark:text-blue-100 flex items-center gap-2">
-                      <Scan className="h-4 w-4" />
-                      Left Eye (OS)
-                    </h4>
-                    <Badge className={getGradeColor(clinical_findings.left_eye.grade)}>
-                      {getGradeKey(clinical_findings.left_eye.grade)}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Scan className="h-3.5 w-3.5 text-[var(--brand-teal)]" />
+                      <h4 className="text-sm font-semibold text-foreground">Left Eye (OS)</h4>
+                    </div>
+                    {gradeMeta && (
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded border ${gradeMeta.bg} ${gradeMeta.border} ${gradeMeta.color}`}>
+                        {getGradeKey(clinical_findings.left_eye.grade)}
+                      </span>
+                    )}
                   </div>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Severity:</span>
-                      <span className="font-medium capitalize">{clinical_findings.left_eye.severity || 'N/A'}</span>
+                      <span className="font-medium capitalize">{clinical_findings.left_eye.severity || '—'}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Confidence:</span>
                       <span className="font-medium">
-                        {clinical_findings.left_eye.confidence ? `${(clinical_findings.left_eye.confidence * 100).toFixed(1)}%` : 'N/A'}
+                        {clinical_findings.left_eye.confidence ? `${(clinical_findings.left_eye.confidence * 100).toFixed(1)}%` : '—'}
                       </span>
                     </div>
                     {clinical_findings.left_eye.description && (
-                      <p className="text-xs text-muted-foreground mt-2 pt-2 border-t">
+                      <p className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border">
                         {clinical_findings.left_eye.description}
                       </p>
                     )}
@@ -234,29 +266,31 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
                 </div>
               )}
               {clinical_findings?.right_eye && (
-                <div className="border-2 border-purple-200 dark:border-purple-800 rounded-lg p-4 bg-purple-50/50 dark:bg-purple-950/30">
+                <div className="rounded-lg border border-[var(--brand-gold)]/30 bg-[var(--brand-gold)]/5 p-4">
                   <div className="flex items-center justify-between mb-3">
-                    <h4 className="font-semibold text-purple-900 dark:text-purple-100 flex items-center gap-2">
-                      <Scan className="h-4 w-4" />
-                      Right Eye (OD)
-                    </h4>
-                    <Badge className={getGradeColor(clinical_findings.right_eye.grade)}>
-                      {getGradeKey(clinical_findings.right_eye.grade)}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Scan className="h-3.5 w-3.5 text-[var(--brand-gold)]" />
+                      <h4 className="text-sm font-semibold text-foreground">Right Eye (OD)</h4>
+                    </div>
+                    {gradeMeta && (
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded border ${gradeMeta.bg} ${gradeMeta.border} ${gradeMeta.color}`}>
+                        {getGradeKey(clinical_findings.right_eye.grade)}
+                      </span>
+                    )}
                   </div>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Severity:</span>
-                      <span className="font-medium capitalize">{clinical_findings.right_eye.severity || 'N/A'}</span>
+                      <span className="font-medium capitalize">{clinical_findings.right_eye.severity || '—'}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Confidence:</span>
                       <span className="font-medium">
-                        {clinical_findings.right_eye.confidence ? `${(clinical_findings.right_eye.confidence * 100).toFixed(1)}%` : 'N/A'}
+                        {clinical_findings.right_eye.confidence ? `${(clinical_findings.right_eye.confidence * 100).toFixed(1)}%` : '—'}
                       </span>
                     </div>
                     {clinical_findings.right_eye.description && (
-                      <p className="text-xs text-muted-foreground mt-2 pt-2 border-t">
+                      <p className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border">
                         {clinical_findings.right_eye.description}
                       </p>
                     )}
@@ -270,81 +304,73 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
         {(gradcam_explanation?.highlighted_regions?.left_eye?.length || gradcam_explanation?.highlighted_regions?.right_eye?.length) && (
           <>
             <Separator />
-            <Card className="bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-950/30 dark:to-purple-950/30 border-2 border-violet-200 dark:border-violet-800">
-              <CardHeader className="pb-3 border-b border-violet-200 dark:border-violet-800">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="h-5 w-5 text-violet-600" />
-                    <span className="font-semibold text-lg text-violet-900 dark:text-violet-100">Grad-CAM Anatomical Regions</span>
+            <div className="rounded-lg border border-border bg-card p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <TrendingUp className="h-4 w-4 text-[var(--brand-teal)]" />
+                <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">GradCAM Anatomical Regions</span>
+              </div>
+              <div className="grid md:grid-cols-2 gap-3">
+                {gradcam_explanation?.highlighted_regions?.left_eye?.length ? (
+                  <div className="rounded-md border border-[var(--brand-teal)]/20 bg-[var(--brand-teal)]/5 p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Eye className="h-3.5 w-3.5 text-[var(--brand-teal)]" />
+                      <h4 className="text-sm font-semibold text-foreground">Left Eye (OS)</h4>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {gradcam_explanation.highlighted_regions?.left_eye?.map((region: string, idx: number) => (
+                        <Badge key={idx} variant="outline" className="text-xs border-[var(--brand-teal)]/30 text-[var(--brand-teal)]">
+                          {region.replace(/_/g, ' ')}
+                        </Badge>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-4">
-                <div className="grid md:grid-cols-2 gap-4">
-                  {gradcam_explanation?.highlighted_regions?.left_eye?.length ? (
-                    <div className="p-4 bg-white/70 dark:bg-black/30 rounded-xl border border-blue-200 dark:border-blue-800">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Eye className="h-4 w-4 text-blue-600" />
-                        <h4 className="font-semibold text-blue-900 dark:text-blue-100">Left Eye (OS)</h4>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {gradcam_explanation.highlighted_regions?.left_eye?.map((region: string, idx: number) => (
-                          <Badge key={idx} variant="outline" className="bg-blue-100/50 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200">
-                            {region.replace(/_/g, ' ')}
-                          </Badge>
-                        ))}
-                      </div>
+                ) : null}
+                {gradcam_explanation?.highlighted_regions?.right_eye?.length ? (
+                  <div className="rounded-md border border-[var(--brand-gold)]/20 bg-[var(--brand-gold)]/5 p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Eye className="h-3.5 w-3.5 text-[var(--brand-gold)]" />
+                      <h4 className="text-sm font-semibold text-foreground">Right Eye (OD)</h4>
                     </div>
-                  ) : null}
-                  {gradcam_explanation?.highlighted_regions?.right_eye?.length ? (
-                    <div className="p-4 bg-white/70 dark:bg-black/30 rounded-xl border border-purple-200 dark:border-purple-800">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Eye className="h-4 w-4 text-purple-600" />
-                        <h4 className="font-semibold text-purple-900 dark:text-purple-100">Right Eye (OD)</h4>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {gradcam_explanation.highlighted_regions?.right_eye?.map((region: string, idx: number) => (
-                          <Badge key={idx} variant="outline" className="bg-purple-100/50 dark:bg-purple-900/50 text-purple-800 dark:text-purple-200">
-                            {region.replace(/_/g, ' ')}
-                          </Badge>
-                        ))}
-                      </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {gradcam_explanation.highlighted_regions?.right_eye?.map((region: string, idx: number) => (
+                        <Badge key={idx} variant="outline" className="text-xs border-[var(--brand-gold)]/30 text-[var(--brand-gold)]">
+                          {region.replace(/_/g, ' ')}
+                        </Badge>
+                      ))}
                     </div>
-                  ) : null}
-                </div>
-              </CardContent>
-            </Card>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </>
         )}
 
         {severity_report?.recommendations && severity_report.recommendations.length > 0 && (
           <>
             <Separator />
-            <Card className="bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-950/30 dark:to-orange-950/30 border-2 border-red-200 dark:border-red-800">
-              <CardHeader className="pb-3 border-b border-red-200 dark:border-red-800">
-                <div className="flex items-center gap-2">
-                  <Heart className="h-5 w-5 text-red-600" />
-                  <span className="font-semibold text-lg text-red-900 dark:text-red-100">Recommendations</span>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-4 space-y-3">
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Heart className="h-4 w-4 text-amber-500" />
+                <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Recommendations</span>
+              </div>
+              <div className="space-y-2">
                 {severity_report.recommendations.slice(0, 5).map((rec, idx) => (
                   rec?.action && (
-                    <div key={idx} className="flex items-start gap-3 p-3 bg-white/70 dark:bg-black/30 rounded-lg border border-red-100 dark:border-red-900/50">
-                      <div className="bg-red-100 dark:bg-red-900/30 p-2 rounded-full">
-                        <AlertTriangle className="h-4 w-4 text-red-600" />
+                    <div key={idx} className="flex items-start gap-3 p-2.5 rounded-md bg-card border border-border">
+                      <div className="bg-amber-500 text-white w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                        {idx + 1}
                       </div>
-                      <div className="flex-1">
-                        <p className="font-medium text-sm text-red-900 dark:text-red-100">{rec.action}</p>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{rec.action}</p>
                         {rec.timeframe && (
-                          <p className="text-xs text-red-600 dark:text-red-400">{rec.timeframe}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{rec.timeframe}</p>
                         )}
                       </div>
                     </div>
                   )
                 ))}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </>
         )}
 
@@ -352,52 +378,54 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
           <>
             <Separator />
             <div>
-              <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-                <Eye className="h-5 w-5 text-violet-600" />
-                Detailed GradCAM Analysis
-              </h3>
-              <div className="grid md:grid-cols-2 gap-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Eye className="h-4 w-4 text-[var(--brand-teal)]" />
+                <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Detailed GradCAM Analysis</span>
+              </div>
+              <div className="grid md:grid-cols-2 gap-3">
                 {gradcam_explanation?.left_eye_explanation && (
-                  <div className="border-2 border-blue-200 dark:border-blue-800 rounded-lg p-4 bg-blue-50/50 dark:bg-blue-950/30">
+                  <div className="rounded-lg border border-[var(--brand-teal)]/30 bg-[var(--brand-teal)]/5 p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-semibold text-blue-900 dark:text-blue-100 flex items-center gap-2">
-                        <Eye className="h-4 w-4" />
-                        Left Eye (OS)
-                      </h4>
-                      <Badge variant="outline" className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
+                      <div className="flex items-center gap-2">
+                        <Eye className="h-3.5 w-3.5 text-[var(--brand-teal)]" />
+                        <h4 className="text-sm font-semibold text-foreground">Left Eye (OS)</h4>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold text-white px-1.5 py-0.5 rounded bg-[var(--brand-teal)]">
                         {gradcam_explanation.highlighted_regions?.left_eye?.length || 0} regions
-                      </Badge>
+                      </span>
                     </div>
-                    <div className="text-sm text-muted-foreground space-y-2">
-                      {gradcam_explanation.left_eye_explanation
-                        .split(/(?=\d+\.\s|\n)/)
-                        .filter(Boolean)
-                        .slice(0, 10)
-                        .map((paragraph: string, idx: number) => (
-                          <p key={idx} className="leading-relaxed">{paragraph.trim().replace(/^\d+\.\s*/, '')}</p>
-                        ))}
+                    <div className="space-y-3">
+                      {parseExplanationSections(gradcam_explanation.left_eye_explanation).map((section, idx) => (
+                        <div key={idx}>
+                          {section.title && (
+                            <p className="text-xs font-semibold text-foreground mb-1">{section.title}</p>
+                          )}
+                          <p className="text-sm text-muted-foreground leading-relaxed">{section.body}</p>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
                 {gradcam_explanation?.right_eye_explanation && (
-                  <div className="border-2 border-purple-200 dark:border-purple-800 rounded-lg p-4 bg-purple-50/50 dark:bg-purple-950/30">
+                  <div className="rounded-lg border border-[var(--brand-gold)]/30 bg-[var(--brand-gold)]/5 p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-semibold text-purple-900 dark:text-purple-100 flex items-center gap-2">
-                        <Eye className="h-4 w-4" />
-                        Right Eye (OD)
-                      </h4>
-                      <Badge variant="outline" className="bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300">
+                      <div className="flex items-center gap-2">
+                        <Eye className="h-3.5 w-3.5 text-[var(--brand-gold)]" />
+                        <h4 className="text-sm font-semibold text-foreground">Right Eye (OD)</h4>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold text-white px-1.5 py-0.5 rounded bg-[var(--brand-gold)]">
                         {gradcam_explanation.highlighted_regions?.right_eye?.length || 0} regions
-                      </Badge>
+                      </span>
                     </div>
-                    <div className="text-sm text-muted-foreground space-y-2">
-                      {gradcam_explanation.right_eye_explanation
-                        .split(/(?=\d+\.\s|\n)/)
-                        .filter(Boolean)
-                        .slice(0, 10)
-                        .map((paragraph: string, idx: number) => (
-                          <p key={idx} className="leading-relaxed">{paragraph.trim().replace(/^\d+\.\s*/, '')}</p>
-                        ))}
+                    <div className="space-y-3">
+                      {parseExplanationSections(gradcam_explanation.right_eye_explanation).map((section, idx) => (
+                        <div key={idx}>
+                          {section.title && (
+                            <p className="text-xs font-semibold text-foreground mb-1">{section.title}</p>
+                          )}
+                          <p className="text-sm text-muted-foreground leading-relaxed">{section.body}</p>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}

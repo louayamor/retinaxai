@@ -124,6 +124,7 @@ mlops-service/mlops-service/.venv/
 mlops-service/mlops-service/logs/
 llmops-service/.venv/
 llmops-service/llmops-service/.venv/
+.playwright-mcp/
 llmops-service/llmops-service/logs/
 
 # Downloaded binaries
