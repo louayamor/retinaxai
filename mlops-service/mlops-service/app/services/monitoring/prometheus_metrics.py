@@ -236,6 +236,12 @@ EVALUATION_SCORE = Gauge(
     ["pipeline", "split", "metric"],
 )
 
+EVALUATION_THRESHOLD = Gauge(
+    "retinaxai_evaluation_threshold",
+    "Per-class optimal decision threshold maximizing F1",
+    ["pipeline", "split", "grade"],
+)
+
 
 def compute_psi(expected: np.ndarray, actual: np.ndarray, buckets: int = 10) -> float:
     """Compute Population Stability Index between two distributions.
@@ -272,6 +278,11 @@ _METRIC_KEYS = [
     "macro_f1",
     "precision_macro",
     "recall_macro",
+    "brier_score",
+]
+
+_OPT_METRIC_KEYS = [
+    "recall_macro",
 ]
 
 
@@ -304,6 +315,14 @@ def init_metrics() -> None:
             EVALUATION_SCORE.labels(pipeline="imaging", split=split, metric=metric).set(
                 0
             )
+        for metric in _OPT_METRIC_KEYS:
+            EVALUATION_SCORE.labels(
+                pipeline="imaging", split=split, metric=f"optimized_{metric}"
+            ).set(0)
+        for grade in range(5):
+            EVALUATION_THRESHOLD.labels(
+                pipeline="imaging", split=split, grade=str(grade)
+            ).set(0)
     ACTIVE_TRAINING_JOBS.set(0)
     AUTOMATION_SCHEDULER_RUNNING.set(0)
     TRAINING_SLOTS_USED.labels(pipeline="all").set(0)
@@ -454,9 +473,9 @@ def start_drift_background_refresh(
 def update_evaluation_metrics_from_files(imaging_metrics_path: Path) -> None:
     """Read persisted metrics.json and set evaluation score gauges.
 
-    Bridges evaluation metrics (accuracy, ROC-AUC, F1, precision, recall)
-    from the transient CLI pipeline into Prometheus via the same file
-    mechanism as the QWK bridge.
+    Bridges evaluation metrics (accuracy, ROC-AUC, F1, precision, recall,
+    Brier score) plus optimized thresholds from the transient CLI pipeline
+    into Prometheus via the same file mechanism as the QWK bridge.
     """
     if not imaging_metrics_path.exists():
         return
@@ -465,11 +484,29 @@ def update_evaluation_metrics_from_files(imaging_metrics_path: Path) -> None:
             data = json.load(f)
         for split in ("eyepacs_test", "samaya_validation"):
             split_data = data.get(split) or {}
+            if not split_data:
+                continue
             for metric in _METRIC_KEYS:
                 if metric in split_data:
                     EVALUATION_SCORE.labels(
                         pipeline="imaging", split=split, metric=metric
                     ).set(split_data[metric])
+            opt_metrics = split_data.get("optimized_metrics") or {}
+            for metric in _OPT_METRIC_KEYS:
+                if metric in opt_metrics:
+                    EVALUATION_SCORE.labels(
+                        pipeline="imaging", split=split, metric=f"optimized_{metric}"
+                    ).set(opt_metrics[metric])
+            thresholds = split_data.get("optimal_thresholds") or {}
+            for grade, thresh in thresholds.items():
+                try:
+                    EVALUATION_THRESHOLD.labels(
+                        pipeline="imaging", split=split, grade=grade
+                    ).set(float(thresh))
+                except (ValueError, TypeError):
+                    logger.debug(
+                        f"skipping invalid threshold grade={grade} thresh={thresh}"
+                    )
     except Exception as e:
         logger.warning(f"failed to load evaluation metrics: {e}")
 
