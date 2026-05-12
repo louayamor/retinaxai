@@ -441,10 +441,10 @@ class ImagingModelTrainer:
             f"trainable params: {trainable:,} / {total:,} ({trainable_pct:.2f}%)"
         )
 
-        if self.freeze_backbone and not self.unfreeze_last_blocks:
+        if self.freeze_backbone and self._unfreeze_last_count == 0:
             if trainable_pct > 10.0:
                 logger.warning(
-                    f">>> WARNING: freeze_backbone=True, unfreeze_last_blocks=False, "
+                    f">>> WARNING: freeze_backbone=True, unfreeze_last_blocks=0, "
                     f"but {trainable_pct:.2f}% params are trainable! "
                     f"This should be < 5% (classifier only)."
                 )
