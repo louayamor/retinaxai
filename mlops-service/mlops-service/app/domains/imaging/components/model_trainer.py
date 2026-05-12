@@ -301,14 +301,9 @@ class ImagingModelTrainer:
                 transforms.RandomAdjustSharpness(sharpness_factor=sharpness, p=0.3)
             )
 
-        # Gaussian noise
-        noise_std = float(dr.get("gaussian_noise_std", 0.0))
-        if noise_std > 0:
-            train_tf_list.append(
-                transforms.Lambda(lambda t, s=noise_std: t + torch.randn_like(t) * s)
-            )
+        train_tf_list.append(transforms.ToTensor())
 
-        # JPEG compression
+        # JPEG compression (tensor -> PIL -> tensor)
         jpg = dr.get("jpeg_compression", {}) or {}
         if jpg.get("enabled", False):
 
@@ -339,7 +334,8 @@ class ImagingModelTrainer:
                 import random
 
                 gamma = random.uniform(gamma_range[0], gamma_range[1])
-                return tensor ** (1.0 / gamma)
+                out = tensor ** (1.0 / gamma)
+                return torch.clamp(out, 0.0, 1.0)
 
             train_tf_list.append(
                 transforms.Lambda(
@@ -349,7 +345,18 @@ class ImagingModelTrainer:
                 )
             )
 
-        # Random erasing (before normalization)
+        # Gaussian noise (tensor)
+        noise_std = float(dr.get("gaussian_noise_std", 0.0))
+        if noise_std > 0:
+            train_tf_list.append(
+                transforms.Lambda(
+                    lambda t, s=noise_std: torch.clamp(
+                        t + torch.randn_like(t) * s, 0.0, 1.0
+                    )
+                )
+            )
+
+        # Random erasing (tensor, before normalization)
         er = aug.get("random_erasing", {}) or {}
         if er.get("enabled", False):
             train_tf_list.append(
@@ -359,8 +366,6 @@ class ImagingModelTrainer:
                     ratio=(0.3, 3.3),
                 )
             )
-
-        train_tf_list.append(transforms.ToTensor())
 
         if self._fda_augment is not None:
             train_tf_list.append(transforms.Lambda(lambda t: self._fda_augment(t)))  # type: ignore[arg-type]
