@@ -71,12 +71,16 @@ class ImagingDataIngestion:
             )
             return
 
+        if target_size is None and existing_ds is not None:
+            logger.info(
+                f"max_samples=None (ingest all) and existing dataset found ({existing_size} samples), skipping download"
+            )
+            return
+
         start_idx = existing_size if existing_ds is not None else 0
         split_str = self.config.train_split
         if target_size is not None:
             split_str = f"{self.config.train_split}[{start_idx}:{target_size}]"
-        elif start_idx:
-            split_str = f"{self.config.train_split}[{start_idx}:]"
 
         if existing_ds is not None:
             logger.info(

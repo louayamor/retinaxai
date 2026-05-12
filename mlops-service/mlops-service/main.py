@@ -44,6 +44,10 @@ CLINICAL_PIPELINE: dict[str, Callable] = {
 PIPELINE_ORDER = ["ingest", "clean", "transform", "train", "evaluate"]
 
 from app.utils.mlflow_utils import configure_mlflow  # noqa: E402
+from app.services.monitoring.prometheus_metrics import (
+    TRAINING_RUNS_TOTAL,
+    start_metrics_server,
+)  # noqa: E402
 
 
 def run_stage(stage: str, pipeline: dict[str, Callable]) -> None:
@@ -59,6 +63,8 @@ def run_full_pipeline(pipeline: dict[str, Callable]) -> None:
 
 
 def run_pipeline(stage: str, target: str) -> None:
+    start_metrics_server()
+
     if stage in ("train", "evaluate", "all"):
         configure_mlflow()
 
@@ -69,6 +75,7 @@ def run_pipeline(stage: str, target: str) -> None:
         targets.append(("clinical", CLINICAL_PIPELINE))
 
     for name, pipe in targets:
+        TRAINING_RUNS_TOTAL.labels(pipeline=name).inc()
         logger.info(f"Executing {name} pipeline")
 
         if stage == "all":

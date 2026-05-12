@@ -26,7 +26,7 @@ def _run_single_phase(
         data_cfg = params.get("data", {}) or {}
         ratios_cfg = data_cfg.get("ratios", {}) or {}
 
-        oversample_ratio = 5
+        oversample_ratio = data_cfg.get("oversample_ratio", 5)
         clinical_ratio = ratios_cfg.get("clinical", 0.7)
         no_dr_ratio = data_cfg.get("keep_no_dr_ratio", 0.55)
 
