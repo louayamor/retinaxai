@@ -67,7 +67,7 @@ class RetinalDataset(Dataset):
             raise RuntimeError(f"Failed to load image {row['image_path']}: {e}") from e
         if self.transform:
             img = self.transform(img)
-        return img, int(row["label"])
+        return img, int(row["label"]), str(row["image_path"])
 
 
 class ImagingModelTrainer:
@@ -416,6 +416,61 @@ class ImagingModelTrainer:
         except Exception as e:
             logger.warning(f"failed to log model to mlflow registry: {e}")
 
+    def _save_misclassified_from_batch(
+        self,
+        preds: list,
+        labels: list,
+        probs: list,
+        paths: list,
+        phase: str,
+        epoch: int,
+        max_samples: int = 10,
+    ) -> None:
+        """Save misclassified images from a validation batch."""
+        import shutil
+
+        misclassified = []
+        for i, (pred, label, prob) in enumerate(zip(preds, labels, probs)):
+            if pred != label:
+                confidence = float(np.max(prob))
+                misclassified.append(
+                    {
+                        "path": paths[i] if i < len(paths) else f"unknown_{i}",
+                        "true_label": int(label),
+                        "pred_label": int(pred),
+                        "confidence": confidence,
+                    }
+                )
+
+        if not misclassified:
+            logger.info(f"[epoch {epoch}] no misclassified samples")
+            return
+
+        misclassified.sort(key=lambda x: x["confidence"], reverse=True)
+        top_misclassified = misclassified[:max_samples]
+
+        output_dir = (
+            self.config.checkpoint_path.parent
+            / "misclassified"
+            / f"phase{phase[-1]}"
+            / f"epoch{epoch}"
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        for i, sample in enumerate(top_misclassified):
+            src = Path(sample["path"])
+            if not src.exists():
+                continue
+            dst = (
+                output_dir
+                / f"mis_{i:03d}_true{sample['true_label']}_pred{sample['pred_label']}_conf{sample['confidence']:.2f}{src.suffix}"
+            )
+            shutil.copy2(src, dst)
+
+        logger.info(
+            f"[epoch {epoch}] saved {len(top_misclassified)} misclassified images to {output_dir}"
+        )
+
     def train(self) -> Path:
         set_seed(self._global_seed)
         train_tf, val_tf = self._build_transforms()
@@ -529,6 +584,7 @@ class ImagingModelTrainer:
 
         label_smoothing = self._training_label_smoothing
 
+        phase_specific = training_cfg.get(self.phase, {}) or {}
         loss_type = getattr(self, "_loss_type", "ordinal_cross_entropy")
         focal_gamma = getattr(self, "_focal_loss_gamma", None)
         dropout_rate = getattr(self, "_phase_dropout", self._training_dropout)
@@ -679,19 +735,38 @@ class ImagingModelTrainer:
                 model.eval()
                 val_correct, val_total = 0, 0
                 all_preds, all_labels = [], []
+                all_probs, all_paths = [], []
                 with torch.no_grad():
-                    for images, labels in val_loader:
+                    for images, labels, paths in val_loader:
                         images, labels = images.to(self.device), labels.to(self.device)
                         outputs = model(images)
+                        probs = torch.softmax(outputs, dim=1).cpu().numpy()
                         preds = outputs.argmax(1)
                         val_correct += (preds == labels).sum().item()
                         val_total += images.size(0)
                         all_preds.extend(preds.cpu().numpy())
                         all_labels.extend(labels.cpu().numpy())
+                        all_probs.extend(probs)
+                        all_paths.extend(
+                            paths
+                            if isinstance(paths, list)
+                            else [str(p) for p in paths]
+                        )
+
+                # Save misclassified images from validation
+                if epoch == self.phase_epochs - 1 or (epoch + 1) % 5 == 0:
+                    self._save_misclassified_from_batch(
+                        all_preds,
+                        all_labels,
+                        all_probs,
+                        all_paths,
+                        self.phase,
+                        epoch + 1,
+                    )
 
                 clean_train_preds, clean_train_labels = [], []
                 with torch.no_grad():
-                    for images, labels in train_loader:
+                    for images, labels, _ in train_loader:
                         images = images.to(self.device)
                         outputs = model(images)
                         clean_train_preds.extend(outputs.argmax(1).cpu().numpy())

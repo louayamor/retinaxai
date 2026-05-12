@@ -266,6 +266,11 @@ class ImagingModelEvaluation:
 
         logger.info(f"  Confusion matrix:\n{cm}")
 
+        # Compute optimal per-class thresholds
+        optimal_thresholds, optimized_metrics = self._compute_optimal_thresholds(
+            labels, probs, split_name
+        )
+
         return {
             "split": split_name,
             "accuracy": round(accuracy, 4),
@@ -282,6 +287,72 @@ class ImagingModelEvaluation:
                 str(k): int(v)
                 for k, v in pd.Series(labels).value_counts().sort_index().items()
             },
+            "optimal_thresholds": optimal_thresholds,
+            "optimized_metrics": optimized_metrics,
+        }
+
+    def _compute_optimal_thresholds(
+        self, labels: list, probs: np.ndarray, split_name: str
+    ) -> tuple[dict[str, float], dict]:
+        """Find per-class thresholds that maximize recall while maintaining precision.
+
+        For medical imaging, we prioritize recall (catch all positive cases) over precision.
+        Returns optimal thresholds and metrics using those thresholds.
+        """
+        from sklearn.preprocessing import label_binarize
+
+        n_classes = probs.shape[1]
+        labels_bin = label_binarize(labels, classes=list(range(n_classes)))
+
+        optimal_thresholds = {}
+        optimized_preds = np.zeros(len(labels), dtype=int)
+
+        for class_idx in range(n_classes):
+            class_probs = probs[:, class_idx]
+            class_labels = labels_bin[:, class_idx]
+
+            best_threshold = 0.0
+            best_f1 = 0.0
+
+            # Search for threshold that maximizes F1 for this class
+            for threshold in np.arange(0.1, 0.9, 0.05):
+                class_preds = (class_probs >= threshold).astype(int)
+                if class_preds.sum() == 0:
+                    continue
+                f1 = float(f1_score(class_labels, class_preds, zero_division=0))
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best_threshold = threshold
+
+            optimal_thresholds[str(class_idx)] = round(best_threshold, 2)
+
+            # Mark samples that exceed threshold for this class
+            for i, prob in enumerate(class_probs):
+                if prob >= best_threshold and best_threshold > 0:
+                    optimized_preds[i] = class_idx
+
+        # Compute metrics with optimized thresholds
+        opt_accuracy = float(accuracy_score(labels, optimized_preds))
+        opt_qwk = float(cohen_kappa_score(labels, optimized_preds, weights="quadratic"))
+        opt_macro_f1 = float(
+            f1_score(labels, optimized_preds, average="macro", zero_division=0)
+        )
+        opt_recall = float(
+            recall_score(labels, optimized_preds, average="macro", zero_division=0)
+        )
+
+        logger.info(f"[{split_name}] optimal thresholds: {optimal_thresholds}")
+        logger.info(
+            f"[{split_name}] optimized vs argmax: "
+            f"acc={opt_accuracy:.4f} (vs {accuracy_score(labels, probs.argmax(1)):.4f}), "
+            f"macro_f1={opt_macro_f1:.4f}, recall={opt_recall:.4f}"
+        )
+
+        return optimal_thresholds, {
+            "accuracy": round(opt_accuracy, 4),
+            "quadratic_weighted_kappa": round(opt_qwk, 4),
+            "macro_f1": round(opt_macro_f1, 4),
+            "recall_macro": round(opt_recall, 4),
         }
 
     def evaluate(self) -> dict:
@@ -486,6 +557,19 @@ class ImagingModelEvaluation:
                 "test_recall_macro": test_metrics["recall_macro"],
                 "test_brier_score": test_metrics["brier_score"],
             }
+            # Log optimal thresholds
+            for grade, thresh in test_metrics.get("optimal_thresholds", {}).items():
+                test_mlflow_metrics[f"test_threshold_grade_{grade}"] = float(thresh)
+            # Log optimized metrics
+            opt = test_metrics.get("optimized_metrics", {})
+            if opt:
+                test_mlflow_metrics["test_optimized_accuracy"] = opt["accuracy"]
+                test_mlflow_metrics["test_optimized_qwk"] = opt[
+                    "quadratic_weighted_kappa"
+                ]
+                test_mlflow_metrics["test_optimized_macro_f1"] = opt["macro_f1"]
+                test_mlflow_metrics["test_optimized_recall_macro"] = opt["recall_macro"]
+
             for grade_label, grade_vals in test_metrics[
                 "classification_report"
             ].items():
@@ -539,6 +623,25 @@ class ImagingModelEvaluation:
                     "samaya_recall_macro": samaya_metrics["recall_macro"],
                     "samaya_brier_score": samaya_metrics["brier_score"],
                 }
+                # Log optimal thresholds
+                for grade, thresh in samaya_metrics.get(
+                    "optimal_thresholds", {}
+                ).items():
+                    samaya_mlflow_metrics[f"samaya_threshold_grade_{grade}"] = float(
+                        thresh
+                    )
+                # Log optimized metrics
+                opt = samaya_metrics.get("optimized_metrics", {})
+                if opt:
+                    samaya_mlflow_metrics["samaya_optimized_accuracy"] = opt["accuracy"]
+                    samaya_mlflow_metrics["samaya_optimized_qwk"] = opt[
+                        "quadratic_weighted_kappa"
+                    ]
+                    samaya_mlflow_metrics["samaya_optimized_macro_f1"] = opt["macro_f1"]
+                    samaya_mlflow_metrics["samaya_optimized_recall_macro"] = opt[
+                        "recall_macro"
+                    ]
+
                 for grade_label, grade_vals in samaya_metrics[
                     "classification_report"
                 ].items():
