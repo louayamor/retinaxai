@@ -68,6 +68,7 @@ def _run_single_phase(
         phase=phase,
         load_checkpoint=checkpoint_path,
         custom_train_csv=custom_train_csv,
+        register_model=(phase == "phase2"),
     ).train()
 
     logger.info(f">>> {phase} complete (checkpoint={final_checkpoint})")

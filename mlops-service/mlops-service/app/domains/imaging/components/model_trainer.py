@@ -78,6 +78,7 @@ class ImagingModelTrainer:
         phase: str = "phase1",
         load_checkpoint: Path | None = None,
         custom_train_csv: Path | None = None,
+        register_model: bool = True,
     ):
         self.config = config
         self.transformation_config = transformation_config
@@ -117,6 +118,7 @@ class ImagingModelTrainer:
         self.phase = phase
         self.load_checkpoint = load_checkpoint
         self.custom_train_csv = custom_train_csv
+        self.register_model = register_model
 
         training_cfg = self.params.get("training", {}) or {}
         global_cfg = self.params.get("global", {}) or {}
@@ -378,6 +380,12 @@ class ImagingModelTrainer:
     def _log_best_model_to_mlflow(
         self, checkpoint_path: Path, num_classes: int
     ) -> None:
+        if not self.register_model:
+            logger.info(
+                f"model registration disabled for phase={self.phase}, skipping mlflow model log"
+            )
+            return
+
         if not checkpoint_path.exists():
             logger.warning("best checkpoint missing; skipping mlflow model log")
             return
