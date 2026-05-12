@@ -855,10 +855,12 @@ class ImagingModelTrainer:
                     TRAINING_PATIENCE_COUNTER.labels(pipeline="imaging").set(
                         patience_counter
                     )
-                    early_stopping_patience = training_cfg.get(
-                        "early_stopping_patience", 8
+                    # Read phase-specific patience, fall back to global
+                    phase_early_stopping = phase_specific.get(
+                        "early_stopping_patience",
+                        training_cfg.get("early_stopping_patience", 8),
                     )
-                    if patience_counter >= early_stopping_patience:
+                    if patience_counter >= phase_early_stopping:
                         logger.info(f"early stopping at epoch {epoch + 1}")
                         break
 

@@ -45,7 +45,7 @@ training:
   weighted_sampling: true
   use_class_weights_in_loss: true
   early_stopping_metric: macro_f1
-  early_stopping_patience: 8
+  early_stopping_patience: 5
   label_smoothing: 0.1
   weight_decay: 0.001
   scheduler: cosine
@@ -56,7 +56,7 @@ training:
   gradient_accumulation_steps: 4
 
   phase1:
-    epochs: 10
+    epochs: 20
     lr: 0.00005
     dropout: 0.45
     freeze_backbone: true
@@ -66,7 +66,7 @@ training:
     loss: focal_ordinal_weighted
 
   phase2:
-    epochs: 10
+    epochs: 20
     lr: 0.000005
     backbone_lr_ratio: 3
     dropout: 0.3

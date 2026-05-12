@@ -18,6 +18,7 @@ from sklearn.metrics import (
     recall_score,
     confusion_matrix,
     ConfusionMatrixDisplay,
+    brier_score_loss,
 )
 import matplotlib.pyplot as plt
 import numpy as np
@@ -155,11 +156,12 @@ class ImagingModelEvaluation:
         )
 
         all_preds, all_labels, all_probs = [], [], []
+        all_paths = []
         total = len(loader)
         use_amp = self.device.type == "cuda"
 
         with torch.no_grad():
-            for i, (images, labels) in enumerate(loader, 1):
+            for i, (images, labels, paths) in enumerate(loader, 1):
                 images = images.to(self.device)
                 with torch.amp.autocast("cuda", enabled=use_amp):
                     outputs = model(images)
@@ -169,6 +171,9 @@ class ImagingModelEvaluation:
                 all_probs.extend(probs)
                 all_preds.extend(preds)
                 all_labels.extend(labels.tolist())
+                all_paths.extend(
+                    paths if isinstance(paths, list) else [str(p) for p in paths]
+                )
 
                 if i % 10 == 0 or i == total:
                     logger.info(f"inference progress: {i}/{total} batches")
@@ -177,7 +182,7 @@ class ImagingModelEvaluation:
                 if self.device.type == "cuda":
                     torch.cuda.empty_cache()
 
-        return all_preds, all_labels, np.array(all_probs)
+        return all_preds, all_labels, np.array(all_probs), all_paths
 
     def _compute_auc(self, labels: list, probs: np.ndarray) -> float | None:
         present_classes = np.unique(labels)
@@ -236,9 +241,14 @@ class ImagingModelEvaluation:
         )
         cm = confusion_matrix(labels, preds)
 
+        # Brier score: mean squared error between predicted probability and true label
+        # Lower is better (0 = perfect calibration)
+        confidences = np.max(probs, axis=1)
+        brier = float(brier_score_loss(labels, confidences))
+
         auc_str = f"{auc:.4f}" if auc is not None else "N/A"
         logger.info(
-            f"[{split_name}] accuracy={accuracy:.4f} qwk={qwk:.4f} auc={auc_str} macro_f1={macro_f1:.4f}"
+            f"[{split_name}] accuracy={accuracy:.4f} qwk={qwk:.4f} auc={auc_str} macro_f1={macro_f1:.4f} brier={brier:.4f}"
         )
 
         report_dict = classification_report(
@@ -264,6 +274,7 @@ class ImagingModelEvaluation:
             "macro_f1": round(macro_f1, 4),
             "precision_macro": precision_macro,
             "recall_macro": recall_macro,
+            "brier_score": round(brier, 4),
             "confusion_matrix": cm.tolist(),
             "classification_report": report,
             "num_samples": len(labels),
@@ -319,11 +330,20 @@ class ImagingModelEvaluation:
         tent_momentum = float(tent_cfg.get("momentum", 0.9))
 
         logger.info("--- evaluating on EyePACS test set ---")
-        test_preds, test_labels, test_probs = self._run_inference(
+        test_preds, test_labels, test_probs, test_paths = self._run_inference(
             model, self.config.test_csv
         )
         test_metrics = self._compute_metrics(
             test_preds, test_labels, test_probs, "eyepacs_test"
+        )
+        misclassified_dir = self.config.metric_file.parent / "misclassified"
+        self._save_misclassified_images(
+            test_preds,
+            test_labels,
+            test_probs,
+            test_paths,
+            "eyepacs_test",
+            misclassified_dir / "eyepacs_test",
         )
 
         partial_metrics: dict = {
@@ -390,11 +410,21 @@ class ImagingModelEvaluation:
                         "skipping TENT adaptation (disabled or insufficient memory)"
                     )
 
-                samaya_preds, samaya_labels, samaya_probs = self._run_inference(
-                    model, self.config.samaya_csv, transform=samaya_tf
+                samaya_preds, samaya_labels, samaya_probs, samaya_paths = (
+                    self._run_inference(
+                        model, self.config.samaya_csv, transform=samaya_tf
+                    )
                 )
                 samaya_metrics = self._compute_metrics(
                     samaya_preds, samaya_labels, samaya_probs, "samaya_validation"
+                )
+                self._save_misclassified_images(
+                    samaya_preds,
+                    samaya_labels,
+                    samaya_probs,
+                    samaya_paths,
+                    "samaya_validation",
+                    misclassified_dir / "samaya_validation",
                 )
 
                 if tent_enabled:
@@ -454,6 +484,7 @@ class ImagingModelEvaluation:
                 "test_macro_f1": test_metrics["macro_f1"],
                 "test_precision_macro": test_metrics["precision_macro"],
                 "test_recall_macro": test_metrics["recall_macro"],
+                "test_brier_score": test_metrics["brier_score"],
             }
             for grade_label, grade_vals in test_metrics[
                 "classification_report"
@@ -506,6 +537,7 @@ class ImagingModelEvaluation:
                     "samaya_macro_f1": samaya_metrics["macro_f1"],
                     "samaya_precision_macro": samaya_metrics["precision_macro"],
                     "samaya_recall_macro": samaya_metrics["recall_macro"],
+                    "samaya_brier_score": samaya_metrics["brier_score"],
                 }
                 for grade_label, grade_vals in samaya_metrics[
                     "classification_report"
@@ -593,6 +625,55 @@ class ImagingModelEvaluation:
             bin_conf = confidences[in_bin].mean()
             ece += (in_bin.sum() / len(probs)) * abs(bin_acc - bin_conf)
         return float(ece)
+
+    def _save_misclassified_images(
+        self,
+        preds: list,
+        labels: list,
+        probs: np.ndarray,
+        paths: list,
+        split_name: str,
+        output_dir: Path,
+        max_samples: int = 20,
+    ) -> None:
+        """Save misclassified images to artifacts for debugging."""
+        import shutil
+
+        misclassified = []
+        for i, (pred, label, path) in enumerate(zip(preds, labels, paths)):
+            if pred != label:
+                confidence = float(np.max(probs[i]))
+                misclassified.append(
+                    {
+                        "path": path,
+                        "true_label": int(label),
+                        "pred_label": int(pred),
+                        "confidence": confidence,
+                    }
+                )
+
+        if not misclassified:
+            logger.info(f"[{split_name}] no misclassified samples to save")
+            return
+
+        misclassified.sort(key=lambda x: x["confidence"], reverse=True)
+        top_misclassified = misclassified[:max_samples]
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        for i, sample in enumerate(top_misclassified):
+            src = Path(sample["path"])
+            if not src.exists():
+                continue
+            dst = (
+                output_dir
+                / f"{split_name}_mis_{i:03d}_true{sample['true_label']}_pred{sample['pred_label']}_conf{sample['confidence']:.2f}{src.suffix}"
+            )
+            shutil.copy2(src, dst)
+
+        logger.info(
+            f"[{split_name}] saved {len(top_misclassified)} misclassified images to {output_dir}"
+        )
 
     def _compute_embedding_mmd(
         self,
