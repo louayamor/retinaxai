@@ -98,30 +98,16 @@ def run(phase: str = "phase1", checkpoint_path: Path | None = None):
     )
 
     if phase == "phase1" and checkpoint_path is None:
-        existing_checkpoint = cfg.checkpoint_path
-        if existing_checkpoint.exists():
-            logger.info(
-                f">>> Existing checkpoint found: {existing_checkpoint}. "
-                f"Skipping Phase 1, running incremental fine-tuning (Phase 2 only)"
-            )
-            try:
-                final_checkpoint = _run_single_phase(
-                    "phase2", existing_checkpoint, cfg, transformation_cfg
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Phase 2 incremental training failed: {e}. "
-                    f"Returning existing checkpoint: {existing_checkpoint}"
-                )
-                final_checkpoint = existing_checkpoint
+        existing = cfg.checkpoint_path
+        load_from = existing if existing.exists() else None
 
-            logger.info(
-                f">>> stage 04: imaging model training complete (final checkpoint={final_checkpoint})"
-            )
-            return final_checkpoint
-
-        logger.info(">>> Phase 1: Full EyePacs training (frozen backbone)")
-        phase1_checkpoint = _run_single_phase("phase1", None, cfg, transformation_cfg)
+        logger.info(
+            f">>> Phase 1: EyePACS training"
+            f"{' (resuming from checkpoint)' if load_from else ' (from ImageNet)'}"
+        )
+        phase1_checkpoint = _run_single_phase(
+            "phase1", load_from, cfg, transformation_cfg
+        )
 
         logger.info(">>> Phase 2: Clinical fine-tuning with domain adaptation")
         try:
