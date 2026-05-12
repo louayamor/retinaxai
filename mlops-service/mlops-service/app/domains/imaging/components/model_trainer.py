@@ -51,6 +51,14 @@ from app.services.monitoring.prometheus_metrics import (
 )
 
 
+def _parse_unfreeze_last_blocks(raw: bool | int) -> int:
+    if isinstance(raw, bool):
+        return 2 if raw else 0
+    if isinstance(raw, (int, float)):
+        return max(0, int(raw))
+    return 0
+
+
 class RetinalDataset(Dataset):
     def __init__(self, csv_path: Path, transform=None):
         self.df = pd.read_csv(csv_path)
@@ -143,8 +151,8 @@ class ImagingModelTrainer:
 
             self.freeze_backbone = phase_specific.get("freeze_backbone", True)
             self._freeze_blocks = phase_specific.get("freeze_blocks", 3)
-            self.unfreeze_last_blocks = phase_specific.get(
-                "unfreeze_last_blocks", False
+            self._unfreeze_last_count = _parse_unfreeze_last_blocks(
+                phase_specific.get("unfreeze_last_blocks", False)
             )
             self._focal_loss_gamma = phase_specific.get("focal_loss_gamma", 1.5)
             self._loss_type = phase_specific.get("loss", "ordinal_cross_entropy")
@@ -158,7 +166,7 @@ class ImagingModelTrainer:
 
             self.freeze_backbone = False
             self._freeze_blocks = training_cfg.get("freeze_blocks", 3)
-            self.unfreeze_last_blocks = False
+            self._unfreeze_last_count = 0
             self._focal_loss_gamma = None
             self._loss_type = "ordinal_cross_entropy"
 
@@ -168,6 +176,7 @@ class ImagingModelTrainer:
         logger.info(
             f"phase={phase} epochs={self.phase_epochs} lr={self.phase_lr} "
             f"freeze_backbone={self.freeze_backbone} freeze_blocks={self._freeze_blocks} "
+            f"unfreeze_last={self._unfreeze_last_count} "
             f"loss={self._loss_type}"
         )
 
@@ -261,6 +270,17 @@ class ImagingModelTrainer:
             ),
         ]
 
+        # Gaussian blur
+        gb = aug.get("gaussian_blur", {}) or {}
+        if gb.get("enabled", False):
+            train_tf_list.append(
+                transforms.GaussianBlur(
+                    kernel_size=gb.get("kernel_size", 3),
+                    sigma=tuple(gb.get("sigma", [0.1, 1.5])),
+                )
+            )
+
+        # Domain robustness affine
         affine_translate = tuple(dr.get("random_affine_translate", [0.05, 0.05]))
         affine_scale = tuple(dr.get("random_affine_scale", [0.95, 1.05]))
         train_tf_list.append(
@@ -279,6 +299,65 @@ class ImagingModelTrainer:
         if sharpness > 0:
             train_tf_list.append(
                 transforms.RandomAdjustSharpness(sharpness_factor=sharpness, p=0.3)
+            )
+
+        # Gaussian noise
+        noise_std = float(dr.get("gaussian_noise_std", 0.0))
+        if noise_std > 0:
+            train_tf_list.append(
+                transforms.Lambda(lambda t, s=noise_std: t + torch.randn_like(t) * s)
+            )
+
+        # JPEG compression
+        jpg = dr.get("jpeg_compression", {}) or {}
+        if jpg.get("enabled", False):
+
+            def _jpeg_compress(tensor, quality_range):
+                import io
+                import random
+
+                quality = random.randint(quality_range[0], quality_range[1])
+                img = transforms.ToPILImage()(tensor)
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=quality)
+                buf.seek(0)
+                return transforms.ToTensor()(Image.open(buf))
+
+            train_tf_list.append(
+                transforms.Lambda(
+                    lambda t, qr=tuple(jpg.get("quality_range", [60, 100])): (
+                        _jpeg_compress(t, qr)
+                    )
+                )
+            )
+
+        # Illumination shift (gamma)
+        ill = dr.get("illumination_shift", {}) or {}
+        if ill.get("enabled", False):
+
+            def _gamma_correct(tensor, gamma_range):
+                import random
+
+                gamma = random.uniform(gamma_range[0], gamma_range[1])
+                return tensor ** (1.0 / gamma)
+
+            train_tf_list.append(
+                transforms.Lambda(
+                    lambda t, gr=tuple(ill.get("gamma_range", [0.7, 1.5])): (
+                        _gamma_correct(t, gr)
+                    )
+                )
+            )
+
+        # Random erasing (before normalization)
+        er = aug.get("random_erasing", {}) or {}
+        if er.get("enabled", False):
+            train_tf_list.append(
+                transforms.RandomErasing(
+                    p=er.get("probability", 0.15),
+                    scale=(0.02, 0.1),
+                    ratio=(0.3, 3.3),
+                )
             )
 
         train_tf_list.append(transforms.ToTensor())
@@ -321,8 +400,9 @@ class ImagingModelTrainer:
                 for param in model.classifier.parameters():
                     param.requires_grad = True
 
-                if self.unfreeze_last_blocks and num_blocks > 0:
-                    num_unfreeze = min(2, num_blocks)
+                unfreeze_count = self._unfreeze_last_count
+                if unfreeze_count > 0 and num_blocks > 0:
+                    num_unfreeze = min(unfreeze_count, num_blocks)
                     unfreeze_from = num_blocks - num_unfreeze
 
                     for i in range(unfreeze_from, num_blocks):
@@ -585,6 +665,11 @@ class ImagingModelTrainer:
         label_smoothing = self._training_label_smoothing
 
         phase_specific = training_cfg.get(self.phase, {}) or {}
+        gradient_clip_norm = float(training_cfg.get("gradient_clip_norm", 1.0))
+        early_stopping_min_delta = float(
+            training_cfg.get("early_stopping_min_delta", 0.0)
+        )
+        save_misclassified = training_cfg.get("save_misclassified_images", True)
         loss_type = getattr(self, "_loss_type", "ordinal_cross_entropy")
         focal_gamma = getattr(self, "_focal_loss_gamma", None)
         dropout_rate = getattr(self, "_phase_dropout", self._training_dropout)
@@ -649,9 +734,7 @@ class ImagingModelTrainer:
                     ),
                     "freeze_backbone": self.freeze_backbone,
                     "freeze_blocks": getattr(self, "_freeze_blocks", 3),
-                    "unfreeze_last_blocks": getattr(
-                        self, "unfreeze_last_blocks", False
-                    ),
+                    "unfreeze_last_blocks": self._unfreeze_last_count,
                     "device": str(self.device),
                     "phase": self.phase,
                     "mixup_enabled": self._use_mixup,
@@ -688,7 +771,7 @@ class ImagingModelTrainer:
                             scaler.scale(loss).backward()
                             scaler.unscale_(optimizer)
                             torch.nn.utils.clip_grad_norm_(
-                                model.parameters(), max_norm=1.0
+                                model.parameters(), max_norm=gradient_clip_norm
                             )
                             scaler.step(optimizer)
                             scaler.update()
@@ -699,7 +782,7 @@ class ImagingModelTrainer:
                             ) * criterion(outputs, labels_b)
                             loss.backward()
                             torch.nn.utils.clip_grad_norm_(
-                                model.parameters(), max_norm=1.0
+                                model.parameters(), max_norm=gradient_clip_norm
                             )
                             optimizer.step()
 
@@ -714,7 +797,7 @@ class ImagingModelTrainer:
                             scaler.scale(loss).backward()
                             scaler.unscale_(optimizer)
                             torch.nn.utils.clip_grad_norm_(
-                                model.parameters(), max_norm=1.0
+                                model.parameters(), max_norm=gradient_clip_norm
                             )
                             scaler.step(optimizer)
                             scaler.update()
@@ -723,7 +806,7 @@ class ImagingModelTrainer:
                             loss = criterion(outputs, labels)
                             loss.backward()
                             torch.nn.utils.clip_grad_norm_(
-                                model.parameters(), max_norm=1.0
+                                model.parameters(), max_norm=gradient_clip_norm
                             )
                             optimizer.step()
 
@@ -754,7 +837,9 @@ class ImagingModelTrainer:
                         )
 
                 # Save misclassified images from validation
-                if epoch == self.phase_epochs - 1 or (epoch + 1) % 5 == 0:
+                if save_misclassified and (
+                    epoch == self.phase_epochs - 1 or (epoch + 1) % 5 == 0
+                ):
                     self._save_misclassified_from_batch(
                         all_preds,
                         all_labels,
@@ -912,7 +997,7 @@ class ImagingModelTrainer:
                 )
 
                 # Use macro-F1 for checkpointing (not accuracy)
-                if macro_f1 > best_macro_f1:
+                if macro_f1 > best_macro_f1 + early_stopping_min_delta:
                     best_macro_f1 = macro_f1
                     best_val_acc = val_acc
                     patience_counter = 0

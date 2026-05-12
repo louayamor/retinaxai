@@ -519,6 +519,18 @@ class ImagingModelEvaluation:
                         domain_shift_metrics["embedding_mmd"] = mmd_val
                     except Exception as e:
                         logger.warning(f"embedding MMD computation failed: {e}")
+
+                if ds_cfg.get("compute_feature_psi", False):
+                    try:
+                        feature_psi = self._compute_feature_psi(
+                            model,
+                            self.config.test_csv,
+                            self.config.samaya_csv,
+                            samaya_tf,
+                        )
+                        domain_shift_metrics["feature_psi"] = feature_psi
+                    except Exception as e:
+                        logger.warning(f"feature PSI computation failed: {e}")
             except Exception as e:
                 logger.error(f"Samaya evaluation failed (non-fatal): {e}")
                 import traceback
@@ -828,3 +840,69 @@ class ImagingModelEvaluation:
 
         mmd = xx.sum() / (n * n) + yy.sum() / (m * m) - 2 * xy.sum() / (n * m)
         return float(mmd.item())
+
+    def _compute_feature_psi(
+        self,
+        model: nn.Module,
+        eyepacs_csv: Path,
+        samaya_csv: Path,
+        samaya_transform,
+        num_features: int = 100,
+    ) -> float:
+        """Compute PSI over embedding features (not class predictions).
+
+        Uses Random Projection to reduce 1536-dim embeddings to manageable
+        size, then computes per-dimension PSI and returns the mean.
+        """
+        import torch.nn.functional as F
+        from app.services.monitoring.prometheus_metrics import compute_psi
+
+        def _extract_embeddings(csv_path: Path, transform):
+            ds = RetinalDataset(csv_path, transform)
+            loader = DataLoader(
+                ds,
+                batch_size=self.params.evaluation.dl.batch_size,
+                shuffle=False,
+                num_workers=self.params.evaluation.dl.num_workers,
+            )
+            embs = []
+            with torch.no_grad():
+                for batch in loader:
+                    if isinstance(batch, (list, tuple)):
+                        images = batch[0]
+                    else:
+                        images = batch
+                    images = images.to(self.device)
+                    if hasattr(model, "forward_features"):
+                        features = model.forward_features(images)
+                        emb = model.global_pool(features)
+                    else:
+                        emb = model(images)
+                    embs.append(emb.cpu())
+            return torch.cat(embs, dim=0)
+
+        eye_embs = _extract_embeddings(eyepacs_csv, self._build_transform())
+        samaya_embs = _extract_embeddings(samaya_csv, samaya_transform)
+
+        n = min(len(eye_embs), len(samaya_embs))
+        eye_sub = eye_embs[:n].numpy()
+        sam_sub = samaya_embs[:n].numpy()
+
+        # Random projection for efficiency
+        dim = eye_sub.shape[1]
+        rng = np.random.RandomState(42)
+        projection = rng.randn(dim, num_features) / np.sqrt(dim)
+        eye_proj = eye_sub @ projection
+        sam_proj = sam_sub @ projection
+
+        psi_values = []
+        for i in range(num_features):
+            psi = compute_psi(eye_proj[:, i], sam_proj[:, i])
+            psi_values.append(psi)
+
+        mean_psi = float(np.mean(psi_values))
+        logger.info(
+            f"[feature_psi] eye={len(eye_sub)} samaya={len(sam_sub)} "
+            f"mean_psi={mean_psi:.4f} max_psi={max(psi_values):.4f}"
+        )
+        return mean_psi

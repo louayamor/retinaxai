@@ -12,6 +12,7 @@ import torch.nn as nn
 from loguru import logger
 from PIL import Image
 from torchvision import transforms
+from torchvision.transforms.functional import rotate as torchvision_rotate
 
 from app.api.schemas import ClinicalFeatures
 from app.config.settings import Settings
@@ -292,10 +293,48 @@ class InferenceService:
         with torch.inference_mode():
             features = model.forward_features(image_tensor)
             embedding = model.global_pool(features)
-            if embedding.ndim > 2:
-                embedding = embedding.flatten(start_dim=1)
+        return embedding.squeeze().cpu().tolist()
 
-        return embedding.squeeze(0).detach().cpu().numpy().astype(float).tolist()
+    def _apply_tta(
+        self,
+        model: nn.Module,
+        tensor: torch.Tensor,
+        base_probs: np.ndarray,
+        tta_cfg: dict,
+    ) -> np.ndarray:
+        """Apply test-time augmentation and return averaged probabilities."""
+        all_probs = [base_probs]
+
+        # Horizontal flip
+        if tta_cfg.get("horizontal_flip", False):
+            flipped = torch.flip(tensor, dims=[-1])
+            with torch.inference_mode():
+                with torch.amp.autocast("cuda", enabled=self.device.type == "cuda"):
+                    outputs = model(flipped)
+                all_probs.append(torch.softmax(outputs, dim=1).cpu().numpy()[0])
+
+        # Rotation angles
+        for angle in tta_cfg.get("rotation_angles", []):
+            if angle == 0:
+                continue
+            rotated = torchvision_rotate(tensor, angle)
+            with torch.inference_mode():
+                with torch.amp.autocast("cuda", enabled=self.device.type == "cuda"):
+                    outputs = model(rotated)
+                all_probs.append(torch.softmax(outputs, dim=1).cpu().numpy()[0])
+
+        # Brightness shifts
+        for shift in tta_cfg.get("brightness_shift", []):
+            if shift == 1.0:
+                continue
+            shifted = tensor * shift
+            with torch.inference_mode():
+                with torch.amp.autocast("cuda", enabled=self.device.type == "cuda"):
+                    outputs = model(shifted)
+                all_probs.append(torch.softmax(outputs, dim=1).cpu().numpy()[0])
+
+        avg_probs = np.mean(all_probs, axis=0)
+        return avg_probs
 
     def predict_imaging(self, image_bytes: bytes) -> dict:
         start = time.time()
@@ -329,6 +368,20 @@ class InferenceService:
 
         pred_class = int(np.argmax(probs))
         confidence = float(probs[pred_class])
+
+        tta_cfg = self.params.get("inference", {}).get("tta", {}) or {}
+        if tta_cfg.get("enabled", False):
+            probs_tta = self._apply_tta(model, tensor, probs, tta_cfg)
+            pred_class_tta = int(np.argmax(probs_tta))
+            confidence_tta = float(probs_tta[pred_class_tta])
+            if pred_class_tta != pred_class:
+                logger.info(
+                    f"TTA changed prediction: {pred_class}->{pred_class_tta} "
+                    f"(conf: {confidence:.3f}->{confidence_tta:.3f})"
+                )
+            probs = probs_tta
+            pred_class = pred_class_tta
+            confidence = confidence_tta
 
         INFERENCE_LATENCY.labels(model="imaging").observe(time.time() - start)
         _emit_gpu_metrics()
