@@ -668,7 +668,7 @@ class ImagingModelTrainer:
                 model.train()
                 train_loss, train_total = 0.0, 0
 
-                for images, labels in train_loader:
+                for images, labels, _ in train_loader:
                     images, labels = images.to(self.device), labels.to(self.device)
 
                     if self._use_mixup:
