@@ -18,7 +18,6 @@ from sklearn.metrics import (
     recall_score,
     confusion_matrix,
     ConfusionMatrixDisplay,
-    brier_score_loss,
 )
 import matplotlib.pyplot as plt
 import numpy as np
@@ -241,10 +240,11 @@ class ImagingModelEvaluation:
         )
         cm = confusion_matrix(labels, preds)
 
-        # Brier score: mean squared error between predicted probability and true label
+        # Brier score (multiclass): mean squared error between predicted probs and one-hot labels
         # Lower is better (0 = perfect calibration)
-        confidences = np.max(probs, axis=1)
-        brier = float(brier_score_loss(labels, confidences))
+        labels_arr = np.array(labels)
+        one_hot = np.eye(self._global_num_classes)[labels_arr]
+        brier = float(np.mean(np.sum((probs - one_hot) ** 2, axis=1)))
 
         auc_str = f"{auc:.4f}" if auc is not None else "N/A"
         logger.info(
