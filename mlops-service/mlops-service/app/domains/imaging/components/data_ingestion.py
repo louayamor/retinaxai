@@ -32,6 +32,11 @@ class ImagingDataIngestion:
     def run(self) -> None:
         import os
 
+        # Increase HuggingFace timeouts for large dataset downloads
+        os.environ["HF_DATASETS_DOWNLOAD_TIMEOUT"] = "600"
+        os.environ["HF_DATASETS_STREAMING_TIMEOUT"] = "600"
+        os.environ["HF_HUB_TIMEOUT"] = "600"
+
         force_ingest = os.environ.get("FORCE_INGEST", "false").lower() == "true"
         save_path = self.config.root_dir / "huggingface" / "train"
         save_path.parent.mkdir(parents=True, exist_ok=True)
