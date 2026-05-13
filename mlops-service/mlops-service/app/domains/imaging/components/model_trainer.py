@@ -468,8 +468,32 @@ class ImagingModelTrainer:
         if self.load_checkpoint and self.load_checkpoint.exists():
             logger.info(f"loading checkpoint: {self.load_checkpoint}")
             state_dict = torch.load(self.load_checkpoint, map_location=self.device)
-            model.load_state_dict(state_dict)
-            logger.info("checkpoint loaded successfully")
+
+            # Check for classifier dimension mismatch
+            model_state = model.state_dict()
+            classifier_key = "classifier.fc.weight"
+            if classifier_key in state_dict and classifier_key in model_state:
+                if (
+                    state_dict[classifier_key].shape
+                    != model_state[classifier_key].shape
+                ):
+                    logger.warning(
+                        f"classifier dimension mismatch: checkpoint has {state_dict[classifier_key].shape[0]}, "
+                        f"model expects {model_state[classifier_key].shape[0]}. "
+                        "Loading backbone only, re-initializing classifier."
+                    )
+                    # Remove classifier keys from checkpoint
+                    for key in ["classifier.fc.weight", "classifier.fc.bias"]:
+                        state_dict.pop(key, None)
+                    # Load backbone weights only
+                    model.load_state_dict(state_dict, strict=False)
+                    logger.info("backbone loaded, classifier re-initialized")
+                else:
+                    model.load_state_dict(state_dict)
+                    logger.info("checkpoint loaded successfully")
+            else:
+                model.load_state_dict(state_dict)
+                logger.info("checkpoint loaded successfully")
 
         return model.to(self.device)
 
