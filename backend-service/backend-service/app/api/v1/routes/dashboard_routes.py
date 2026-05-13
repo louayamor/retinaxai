@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import CurrentUser
 from app.db.session import get_db
 from app.models.patient import Patient
 from app.models.prediction import Prediction, PredictionStatus
@@ -16,7 +15,6 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/stats")
 async def get_dashboard_stats(
-    _: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Get comprehensive dashboard statistics."""
@@ -24,7 +22,7 @@ async def get_dashboard_stats(
     # Count totals
     total_patients = await db.scalar(select(func.count(Patient.id)))
     total_predictions = await db.scalar(select(func.count(Prediction.id)))
-    
+
     total_reports = await db.scalar(select(func.count(Report.id)))
     total_oct_reports = await db.scalar(
         select(func.count(Report.id)).where(Report.report_type == ReportType.OCT)
@@ -46,7 +44,7 @@ async def get_dashboard_stats(
 
     # Predictions by severity (from output_payload OR reports with report_type=OCT)
     severity_counts = {}
-    
+
     # First try from predictions table
     severity_result = await db.execute(
         select(Prediction.output_payload).where(Prediction.output_payload.isnot(None))
@@ -61,22 +59,23 @@ async def get_dashboard_stats(
                     severity_counts[grade_num] = severity_counts.get(grade_num, 0) + 1
                 except (ValueError, TypeError):
                     pass
-    
+
     # Also get from reports table with report_type=OCT and merge
     oct_dr_grade_result = await db.execute(
         select(Report.dr_grade).where(
-            Report.report_type == ReportType.OCT,
-            Report.dr_grade.isnot(None)
+            Report.report_type == ReportType.OCT, Report.dr_grade.isnot(None)
         )
     )
     for (dr_grade,) in oct_dr_grade_result.all():
         if dr_grade:
             grade_map = {
-                "no dr": 0, "no_dr": 0,
+                "no dr": 0,
+                "no_dr": 0,
                 "mild": 1,
                 "moderate": 2,
                 "severe": 3,
-                "proliferative": 4, "proliferative dr": 4,
+                "proliferative": 4,
+                "proliferative dr": 4,
             }
             grade_num = grade_map.get(str(dr_grade).lower().strip(), 0)
             severity_counts[grade_num] = severity_counts.get(grade_num, 0) + 1

@@ -18,11 +18,11 @@ export const navGroups: NavGroup[] = [
         items: [],
       },
       {
-        title: 'OCT Analytics',
-        url: '/dashboard/visualise',
+        title: 'Analytics',
+        url: '/dashboard/analytics',
         icon: 'chart',
         isActive: false,
-        shortcut: ['v', 'v'],
+        shortcut: ['a', 'a'],
         items: [],
       },
       {

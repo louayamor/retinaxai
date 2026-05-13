@@ -25,6 +25,9 @@ class RagArtifactId(StrEnum):
     CLINICAL_METRICS = "clinical_metrics"
     CLINICAL_FEATURE_IMPORTANCE = "clinical_feature_importance"
     IMAGING_METRICS = "imaging_metrics"
+    CLINICAL_FEATURES = "clinical_features"
+    EVIDENTLY_METRICS = "evidently_metrics"
+    MODEL_REGISTRY_METADATA = "model_registry_metadata"
 
 
 class RagArtifactType(StrEnum):

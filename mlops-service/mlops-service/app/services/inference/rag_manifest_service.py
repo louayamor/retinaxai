@@ -12,7 +12,9 @@ from app.config.settings import Settings
 
 
 def _hash_payload(payload: Any) -> str:
-    encoded = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=True).encode("utf-8")
+    encoded = json.dumps(
+        payload, sort_keys=True, default=str, ensure_ascii=True
+    ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -21,7 +23,9 @@ def _load_json(path: Path) -> Any:
         return json.load(f)
 
 
-def _artifact_from_json(artifact_id: str, path: Path, payload: Any) -> RagArtifactManifest:
+def _artifact_from_json(
+    artifact_id: str, path: Path, payload: Any
+) -> RagArtifactManifest:
     return RagArtifactManifest(
         artifact_id=RagArtifactId(artifact_id),
         artifact_type=RagArtifactType.JSON,
@@ -37,8 +41,14 @@ def build_rag_manifest(settings: Settings) -> RagManifestResponse:
     sources = [
         ("ocr_reports", Path(settings.ocr_output_dir) / "reports.json", "list"),
         ("clinical_metrics", settings.clinical_metrics_path, "json"),
-        ("clinical_feature_importance", settings.clinical_feature_importance_path, "json"),
+        (
+            "clinical_feature_importance",
+            settings.clinical_feature_importance_path,
+            "json",
+        ),
         ("imaging_metrics", settings.imaging_metrics_path, "json"),
+        ("clinical_features", settings.clinical_features_path, "json"),
+        ("evidently_metrics", settings.evidently_metrics_path, "json"),
     ]
 
     artifacts: list[RagArtifactManifest] = []
@@ -53,12 +63,41 @@ def build_rag_manifest(settings: Settings) -> RagManifestResponse:
         artifacts.append(_artifact_from_json(artifact_id, path, payload))
         mtimes.append(path.stat().st_mtime)
 
-    pipeline = RagPipeline.COMBINED if len(artifacts) == 4 else RagPipeline.PARTIAL
-    run_id = hashlib.sha1("|".join(a.content_hash for a in artifacts).encode("utf-8")).hexdigest()[:12] if artifacts else "none"
+    # Aggregate model_registry metadata from per-version JSON files
+    meta_dir = settings.model_registry_dir / "metadata"
+    if meta_dir.is_dir():
+        registry_meta = {}
+        for meta_file in sorted(meta_dir.glob("*.json")):
+            registry_meta[meta_file.stem] = _load_json(meta_file)
+        if registry_meta:
+            artifacts.append(
+                _artifact_from_json("model_registry_metadata", meta_dir, registry_meta)
+            )
+            mtimes.append(max(f.stat().st_mtime for f in meta_dir.glob("*.json")))
+
+    core_ids = {
+        RagArtifactId.OCR_REPORTS,
+        RagArtifactId.CLINICAL_METRICS,
+        RagArtifactId.CLINICAL_FEATURE_IMPORTANCE,
+        RagArtifactId.IMAGING_METRICS,
+    }
+    present_ids = {a.artifact_id for a in artifacts}
+    pipeline = (
+        RagPipeline.COMBINED if core_ids.issubset(present_ids) else RagPipeline.PARTIAL
+    )
+    run_id = (
+        hashlib.sha1(
+            "|".join(a.content_hash for a in artifacts).encode("utf-8")
+        ).hexdigest()[:12]
+        if artifacts
+        else "none"
+    )
     return RagManifestResponse(
         run_id=run_id,
         pipeline=pipeline,
-        generated_at=datetime.fromtimestamp(max(mtimes), tz=UTC) if mtimes else datetime.now(tz=UTC),
+        generated_at=datetime.fromtimestamp(max(mtimes), tz=UTC)
+        if mtimes
+        else datetime.now(tz=UTC),
         artifact_count=len(artifacts),
         artifacts=artifacts,
     )

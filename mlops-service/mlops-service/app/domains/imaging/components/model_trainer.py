@@ -445,7 +445,10 @@ class ImagingModelTrainer:
             self._embedding_model = lambda x: model.global_pool(
                 model.forward_features(x)
             )
-            self._embedding_dim = self._global_num_classes
+            dummy = torch.randn(1, 3, self._global_image_size, self._global_image_size)
+            with torch.no_grad():
+                self._embedding_dim = int(self._embedding_model(dummy).shape[-1])
+            logger.info(f"embedding dim: {self._embedding_dim} (from forward_features)")
         else:
             self._embedding_model = lambda x: model(x)
             self._embedding_dim = self._global_num_classes

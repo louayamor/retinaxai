@@ -17,7 +17,9 @@ from pydantic import BaseModel, Field
 
 from loguru import logger
 
+from app.api.analytics_schemas import AnalyticsQueryRequest, AnalyticsQueryResponse
 from app.core.config import settings
+from app.pipeline.analytics_pipeline import AnalyticsPipeline
 from app.pipeline.indexing_pipeline import IndexingPipeline
 from app.pipeline.inference_pipeline import InferencePipeline, get_inference_pipeline
 from app.pipeline.xai_pipeline import XAIPipeline, get_xai_pipeline
@@ -558,3 +560,30 @@ async def shap_check_bias(
         demographic_column=demographic_column,
         results=results,
     )
+
+
+_analytics_pipeline: AnalyticsPipeline | None = None
+
+
+def _get_analytics_pipeline() -> AnalyticsPipeline:
+    global _analytics_pipeline
+    if _analytics_pipeline is None:
+        _analytics_pipeline = AnalyticsPipeline()
+    return _analytics_pipeline
+
+
+@router.post(
+    "/analytics/query",
+    response_model=AnalyticsQueryResponse,
+    summary="Query analytics",
+    description="Analyze RAG-indexed data with natural language. Returns summary + optional chart spec.",
+)
+async def analytics_query(
+    payload: AnalyticsQueryRequest,
+) -> AnalyticsQueryResponse:
+    try:
+        pipeline = _get_analytics_pipeline()
+        return await pipeline.run(payload)
+    except Exception as exc:
+        logger.error(f"analytics_query_failed: {exc}")
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

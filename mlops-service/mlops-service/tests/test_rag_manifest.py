@@ -12,17 +12,34 @@ class DummySettings:
     def __init__(self, base: Path):
         self.ocr_output_dir = base / "ocr"
         self.clinical_metrics_path = base / "clinical_metrics.json"
-        self.clinical_feature_importance_path = base / "clinical_feature_importance.json"
+        self.clinical_feature_importance_path = (
+            base / "clinical_feature_importance.json"
+        )
         self.imaging_metrics_path = base / "imaging_metrics.json"
+        self.clinical_features_path = base / "clinical_features.json"
+        self.evidently_metrics_path = base / "evidently_metrics.json"
+        self.model_registry_dir = base / "model_registry"
 
 
 def test_rag_manifest_endpoint_returns_indexable_artifacts(tmp_path, monkeypatch):
     ocr_dir = tmp_path / "ocr"
     ocr_dir.mkdir()
-    (ocr_dir / "reports.json").write_text("[{\"source_file\": \"scan.jpg\"}]")
+    (ocr_dir / "reports.json").write_text('[{"source_file": "scan.jpg"}]')
     (tmp_path / "clinical_metrics.json").write_text('{"accuracy": 0.9}')
     (tmp_path / "clinical_feature_importance.json").write_text('{"age": 0.4}')
-    (tmp_path / "imaging_metrics.json").write_text('{"eyepacs_test": {"accuracy": 0.8}}')
+    (tmp_path / "imaging_metrics.json").write_text(
+        '{"eyepacs_test": {"accuracy": 0.8}}'
+    )
+    (tmp_path / "clinical_features.json").write_text('{"numeric_features": ["age"]}')
+    (tmp_path / "evidently_metrics.json").write_text(
+        '{"imaging": {"dataset_drift": 0.1}}'
+    )
+
+    meta_dir = tmp_path / "model_registry" / "metadata"
+    meta_dir.mkdir(parents=True)
+    (meta_dir / "v1.0.0.json").write_text(
+        '{"version": "v1.0.0", "pipeline": "imaging"}'
+    )
 
     app = create_app()
     app.dependency_overrides[get_settings] = lambda: DummySettings(tmp_path)
@@ -32,7 +49,7 @@ def test_rag_manifest_endpoint_returns_indexable_artifacts(tmp_path, monkeypatch
 
     assert response.status_code == 200
     body = response.json()
-    assert body["artifact_count"] == 4
+    assert body["artifact_count"] == 7
     assert body["pipeline"] == "combined"
     assert body["schema_version"] == "1.0"
     assert {artifact["artifact_id"] for artifact in body["artifacts"]} == {
@@ -40,6 +57,9 @@ def test_rag_manifest_endpoint_returns_indexable_artifacts(tmp_path, monkeypatch
         "clinical_metrics",
         "clinical_feature_importance",
         "imaging_metrics",
+        "clinical_features",
+        "evidently_metrics",
+        "model_registry_metadata",
     }
     assert all(artifact["schema_version"] == "1.0" for artifact in body["artifacts"])
     assert all(artifact["artifact_type"] == "json" for artifact in body["artifacts"])
@@ -48,7 +68,7 @@ def test_rag_manifest_endpoint_returns_indexable_artifacts(tmp_path, monkeypatch
 def test_rag_manifest_endpoint_rejects_partial_bundle(tmp_path):
     ocr_dir = tmp_path / "ocr"
     ocr_dir.mkdir()
-    (ocr_dir / "reports.json").write_text("[{\"source_file\": \"scan.jpg\"}]")
+    (ocr_dir / "reports.json").write_text('[{"source_file": "scan.jpg"}]')
 
     app = create_app()
     app.dependency_overrides[get_settings] = lambda: DummySettings(tmp_path)
@@ -60,4 +80,6 @@ def test_rag_manifest_endpoint_rejects_partial_bundle(tmp_path):
     body = response.json()
     assert body["artifact_count"] == 1
     assert body["pipeline"] == "partial"
-    assert {artifact["artifact_id"] for artifact in body["artifacts"]} == {"ocr_reports"}
+    assert {artifact["artifact_id"] for artifact in body["artifacts"]} == {
+        "ocr_reports"
+    }

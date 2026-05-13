@@ -788,6 +788,89 @@ export async function getLLMOpsOperation(): Promise<LLMOpsOperation | null> {
   return llmopsRequest('/api/operation');
 }
 
+// ============ Analytics API ============
+
+export interface AnalyticsChartSpec {
+  type: 'bar' | 'pie' | 'line' | 'area' | 'radar' | 'table';
+  title: string;
+  description: string;
+  data: Array<Record<string, unknown>>;
+  config: Record<string, unknown>;
+}
+
+export interface AnalyticsSourceInfo {
+  artifact_id: string;
+  snippet: string;
+}
+
+export interface AnalyticsQueryResponse {
+  question: string;
+  summary: string;
+  chart: AnalyticsChartSpec | null;
+  sources: AnalyticsSourceInfo[];
+  error: string | null;
+}
+
+export interface AnalyticsSection {
+  key: string;
+  title: string;
+  question: string;
+  response: AnalyticsQueryResponse | null;
+  loading: boolean;
+  error: string | null;
+}
+
+export const MEDICAL_ANALYTIC_QUERIES: Omit<AnalyticsSection, 'response' | 'loading' | 'error'>[] = [
+  {
+    key: 'patient_demographics',
+    title: 'Patient Demographics',
+    question: 'Analyze patient demographics: total patients, gender distribution, age groups. Show counts and proportions.',
+  },
+  {
+    key: 'dr_severity',
+    title: 'DR Severity Distribution',
+    question: 'What is the distribution of diabetic retinopathy severity grades (0-4) across all predictions? Show counts per grade with percentages. Include recent prediction activity.',
+  },
+];
+
+export const MODEL_ANALYTIC_QUERIES: Omit<AnalyticsSection, 'response' | 'loading' | 'error'>[] = [
+  {
+    key: 'imaging_performance',
+    title: 'Imaging Model Performance',
+    question: 'Summarize the imaging model (EfficientNet) evaluation results. Show accuracy, quadratic weighted kappa, AUC, and macro F1 from EyePACS test set. Compare with Samaya validation if available.',
+  },
+  {
+    key: 'clinical_performance',
+    title: 'Clinical Model Performance',
+    question: 'Summarize the clinical model (XGBoost) evaluation metrics: accuracy, quadratic weighted kappa, AUC, macro F1, and number of test samples.',
+  },
+  {
+    key: 'feature_importance',
+    title: 'Clinical Feature Importance',
+    question: 'What are the most important clinical features for DR prediction? List the top 10 features with their importance scores. Include information about available and missing features.',
+  },
+  {
+    key: 'drift_monitoring',
+    title: 'Data Drift & Monitoring',
+    question: 'Analyze data drift metrics from Evidently monitoring. What is the dataset drift and how many features have drifted for both imaging and clinical pipelines?',
+  },
+  {
+    key: 'model_version_history',
+    title: 'Model Version History',
+    question: 'Show model version history from the model registry. What versions exist for imaging and clinical pipelines? What were their performance metrics and lifecycle stages?',
+  },
+];
+
+export async function queryAnalytics(question: string): Promise<AnalyticsQueryResponse> {
+  return llmopsRequest<AnalyticsQueryResponse>('/api/analytics/query', {
+    method: 'POST',
+    body: JSON.stringify({
+      question,
+      top_k: 5,
+    }),
+  });
+}
+
 // ============ System Stats API ============
 
 export interface SystemStats {
