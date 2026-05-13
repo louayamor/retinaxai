@@ -158,3 +158,167 @@ groups:
           summary: "{{ $value }} features showing drift per Evidently ({{ $labels.pipeline }})"
           description: "Number of drifted features exceeds threshold of 3"
           remediation: "Check per-feature drift in Evidently report"
+
+      # Per-class PSI drift (fine-grained)
+      - alert: PerClassDriftDetected
+        expr: retinaxai_training_per_class_psi{dr_grade=~".+"} > 0.25
+        for: 30m
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Per-class drift detected for DR grade {{ $labels.dr_grade }}"
+          description: "PSI score = {{ $value }} (threshold: 0.25)"
+          remediation: "Investigate class-specific data distribution shift"
+
+      # Critical per-class drift
+      - alert: CriticalPerClassDrift
+        expr: retinaxai_training_per_class_psi{dr_grade=~".+"} > 0.5
+        for: 1h
+        labels:
+          severity: critical
+          service: mlops
+        annotations:
+          summary: "Critical per-class drift for DR grade {{ $labels.dr_grade }}"
+          description: "PSI score = {{ $value }} (threshold: 0.5)"
+          remediation: "Urgent: retrain model with balanced class representation"
+
+      # Low per-class F1 (minority class collapse)
+      - alert: LowPerClassF1
+        expr: retinaxai_training_per_class_f1{dr_grade=~"2|3|4"} < 0.3
+        for: 2h
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Low F1 for minority DR grade {{ $labels.dr_grade }}"
+          description: "Per-class F1 = {{ $value }} (threshold: 0.3)"
+          remediation: "Check class weights, consider oversampling minority grades"
+
+      # High Brier score (poor calibration)
+      - alert: PoorModelCalibration
+        expr: retinaxai_evaluation_score{metric="brier_score"} > 0.25
+        for: 1h
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Poor model calibration (high Brier score)"
+          description: "Brier score = {{ $value }} (threshold: 0.25)"
+          remediation: "Consider temperature scaling or isotonic regression"
+
+      # Training loss not decreasing
+      - alert: TrainingLossStagnation
+        expr: |
+          changes(retinaxai_epoch_train_loss[10m]) < 3
+          and
+          retinaxai_epoch_train_loss > 1.5
+        for: 30m
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Training loss stagnating at high value"
+          description: "Loss = {{ $value }} with minimal change over 10m"
+          remediation: "Check learning rate, gradient clipping, data quality"
+
+      # Validation loss increasing (overfitting)
+      - alert: OverfittingDetected
+        expr: |
+          deriv(retinaxai_training_val_loss[15m]) > 0.05
+          and
+          deriv(retinaxai_epoch_train_loss[15m]) < -0.01
+        for: 20m
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Overfitting detected: val loss ↑ while train loss ↓"
+          description: "Validation loss diverging from training loss"
+          remediation: "Increase regularization, early stopping, or data augmentation"
+
+      # GPU memory near capacity
+      - alert: GPUMemoryHigh
+        expr: retinaxai_gpu_memory_used_bytes / (1024 * 1024 * 1024) > 10
+        for: 10m
+        labels:
+          severity: warning
+          service: mlops
+          device: "{{ $labels.device }}"
+        annotations:
+          summary: "GPU memory usage high on device {{ $labels.device }}"
+          description: "GPU memory = {{ $value | humanize1024 }}B"
+          remediation: "Reduce batch size or enable gradient accumulation"
+
+      # GPU underutilization
+      - alert: GPUUnderutilization
+        expr: retinaxai_gpu_utilization_percent < 30
+        for: 30m
+        labels:
+          severity: info
+          service: mlops
+          device: "{{ $labels.device }}"
+        annotations:
+          summary: "GPU underutilized on device {{ $labels.device }}"
+          description: "GPU utilization = {{ $value }}% (threshold: 30%)"
+          remediation: "Increase batch size or enable mixed precision"
+
+      # Early stopping triggered
+      - alert: EarlyStoppingTriggered
+        expr: changes(retinaxai_training_patience_counter[1h]) > 3
+        for: 0m
+        labels:
+          severity: info
+          service: mlops
+        annotations:
+          summary: "Early stopping patience counter resetting frequently"
+          description: "Training may be struggling to improve"
+          remediation: "Review learning rate schedule and model capacity"
+
+      # High gradient norm (instability)
+      - alert: HighGradientNorm
+        expr: rate(retinaxai_training_failures_total{error_type="gradient_explosion"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: mlops
+        annotations:
+          summary: "Gradient explosion detected"
+          description: "Training failed due to gradient instability"
+          remediation: "Reduce learning rate, increase gradient clipping"
+
+      # Inference error spike
+      - alert: InferenceErrorSpike
+        expr: rate(retinaxai_prediction_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Inference error rate spike"
+          description: "Error rate = {{ $value }}/s (threshold: 0.1/s)"
+          remediation: "Check input validation, model loading, GPU health"
+
+      # GradCAM generation failures
+      - alert: GradCAMGenerationFailures
+        expr: increase(retinaxai_gradcam_generation_failures[1h]) > 5
+        for: 0m
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Multiple GradCAM generation failures"
+          description: "{{ $value }} failures in last hour"
+          remediation: "Check model architecture compatibility with GradCAM"
+
+      # No validation data for extended period
+      - alert: ValidationDataStale
+        expr: time() - retinaxai_evaluation_score{metric="accuracy"} > 86400
+        for: 1h
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "No evaluation metrics updated in 24h"
+          description: "Evaluation pipeline may be stuck"
+          remediation: "Check evaluation schedule and data pipeline health"
