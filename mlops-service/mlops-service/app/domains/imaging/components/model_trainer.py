@@ -439,6 +439,16 @@ class ImagingModelTrainer:
         model.set_grad_checkpointing(enable=True)  # type: ignore[attr-defined]
         logger.info(f"gradient checkpointing enabled, dropout={dropout_rate}")
 
+        # Cache embedding model for PSI computation
+        if hasattr(model, "forward_features"):
+            self._embedding_model = lambda x: model.global_pool(
+                model.forward_features(x)
+            )
+            self._embedding_dim = self._global_num_classes
+        else:
+            self._embedding_model = lambda x: model(x)
+            self._embedding_dim = self._global_num_classes
+
         trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
         total = sum(p.numel() for p in model.parameters())
         trainable_pct = 100.0 * trainable / total if total > 0 else 0.0
@@ -555,6 +565,42 @@ class ImagingModelTrainer:
         logger.info(
             f"[epoch {epoch}] saved {len(top_misclassified)} misclassified images to {output_dir}"
         )
+
+    def _compute_embedding_psi(
+        self,
+        train_loader: DataLoader,
+        val_loader: DataLoader,
+        num_features: int = 64,
+    ) -> float:
+        """Compute PSI over embeddings to avoid sampler-induced label drift."""
+        if not hasattr(self, "_embedding_projection"):
+            dim = int(self._embedding_dim)
+            rng = np.random.RandomState(42)
+            self._embedding_projection = rng.randn(dim, num_features) / np.sqrt(dim)
+
+        def _extract_embeddings(loader: DataLoader) -> np.ndarray:
+            embs = []
+            with torch.no_grad():
+                for images, _, _ in loader:
+                    images = images.to(self.device)
+                    outputs = self._embedding_model(images)
+                    embs.append(outputs.cpu().numpy())
+            return np.concatenate(embs, axis=0)
+
+        # Use a small fixed batch to avoid memory spikes
+        train_embs = _extract_embeddings(train_loader)
+        val_embs = _extract_embeddings(val_loader)
+
+        # Project embeddings down
+        train_proj = train_embs @ self._embedding_projection
+        val_proj = val_embs @ self._embedding_projection
+
+        psi_values = []
+        for i in range(train_proj.shape[1]):
+            psi = compute_psi(train_proj[:, i], val_proj[:, i])
+            psi_values.append(psi)
+
+        return float(np.mean(psi_values))
 
     def train(self) -> Path:
         set_seed(self._global_seed)
@@ -896,11 +942,9 @@ class ImagingModelTrainer:
                 avg_loss = train_loss / train_total
                 lr = float(scheduler.get_last_lr()[0])
 
-                train_probs = np.array(clean_train_preds) / max(
-                    self._global_num_classes - 1, 1
-                )
-                val_probs = np.array(all_preds) / max(self._global_num_classes - 1, 1)
-                psi_score = compute_psi(val_probs, train_probs)
+                # NOTE: PSI over class predictions is biased by WeightedRandomSampler.
+                # We now compute PSI over embedding features for a real drift signal.
+                psi_score = self._compute_embedding_psi(train_loader, val_loader)
 
                 # Update Prometheus metrics
                 TRAINING_CURRENT_EPOCH.labels(pipeline="imaging").set(epoch + 1)
