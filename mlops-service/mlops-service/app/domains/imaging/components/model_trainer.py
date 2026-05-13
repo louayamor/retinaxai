@@ -44,6 +44,7 @@ from app.services.monitoring.prometheus_metrics import (
     TRAINING_PATIENCE_COUNTER,
     TRAINING_VAL_LOSS,
     TRAINING_PER_CLASS_F1,
+    TRAINING_PER_CLASS_PSI,
     ACTIVE_TRAINING_JOBS,
     GPU_MEMORY_USED_BYTES,
     GPU_UTILIZATION_PERCENT,
@@ -602,6 +603,53 @@ class ImagingModelTrainer:
 
         return float(np.mean(psi_values))
 
+    def _compute_per_class_psi(
+        self,
+        train_loader: DataLoader,
+        val_loader: DataLoader,
+        num_features: int = 32,
+    ) -> list[float]:
+        """Compute PSI over embeddings per class for fine-grained drift detection."""
+        if not hasattr(self, "_embedding_projection_psi"):
+            dim = int(self._embedding_dim)
+            rng = np.random.RandomState(42)
+            self._embedding_projection_psi = rng.randn(dim, num_features) / np.sqrt(dim)
+
+        def _extract_embeddings_by_class(
+            loader: DataLoader,
+        ) -> dict[int, np.ndarray]:
+            embs_by_class: dict[int, list[np.ndarray]] = {i: [] for i in range(5)}
+            with torch.no_grad():
+                for images, labels, _ in loader:
+                    images = images.to(self.device)
+                    outputs = self._embedding_model(images)
+                    emb_np = outputs.cpu().numpy()
+                    for emb, lbl in zip(emb_np, labels.cpu().numpy()):
+                        embs_by_class[int(lbl)].append(emb)
+            return {
+                cls: np.concatenate(embs) if embs else np.empty((0, emb_np.shape[1]))
+                for cls, embs in embs_by_class.items()
+            }
+
+        train_embs_by_class = _extract_embeddings_by_class(train_loader)
+        val_embs_by_class = _extract_embeddings_by_class(val_loader)
+
+        psi_per_class = []
+        for cls in range(5):
+            train_embs = train_embs_by_class[cls]
+            val_embs = val_embs_by_class[cls]
+            if len(train_embs) < 2 or len(val_embs) < 2:
+                psi_per_class.append(0.0)
+                continue
+            train_proj = train_embs @ self._embedding_projection_psi
+            val_proj = val_embs @ self._embedding_projection_psi
+            psi_values = [
+                compute_psi(train_proj[:, i], val_proj[:, i])
+                for i in range(train_proj.shape[1])
+            ]
+            psi_per_class.append(float(np.mean(psi_values)))
+        return psi_per_class
+
     def train(self) -> Path:
         set_seed(self._global_seed)
         train_tf, val_tf = self._build_transforms()
@@ -945,6 +993,7 @@ class ImagingModelTrainer:
                 # NOTE: PSI over class predictions is biased by WeightedRandomSampler.
                 # We now compute PSI over embedding features for a real drift signal.
                 psi_score = self._compute_embedding_psi(train_loader, val_loader)
+                per_class_psi = self._compute_per_class_psi(train_loader, val_loader)
 
                 # Update Prometheus metrics
                 TRAINING_CURRENT_EPOCH.labels(pipeline="imaging").set(epoch + 1)
@@ -972,6 +1021,12 @@ class ImagingModelTrainer:
                     TRAINING_PER_CLASS_F1.labels(
                         pipeline="imaging", dr_grade=str(cls_idx)
                     ).set(float(cls_f1))
+
+                # Update per-class PSI gauges
+                for cls_idx, cls_psi in enumerate(per_class_psi):
+                    TRAINING_PER_CLASS_PSI.labels(
+                        pipeline="imaging", dr_grade=str(cls_idx)
+                    ).set(float(cls_psi))
 
                 # Update GPU metrics
                 if torch.cuda.is_available():
@@ -1003,6 +1058,12 @@ class ImagingModelTrainer:
                 for cls_idx, cls_f1 in enumerate(per_class_f1):
                     mlflow.log_metric(
                         f"val_f1_class_{cls_idx}", float(cls_f1), step=epoch
+                    )
+
+                # Log per-class PSI
+                for cls_idx, cls_psi in enumerate(per_class_psi):
+                    mlflow.log_metric(
+                        f"psi_class_{cls_idx}", float(cls_psi), step=epoch
                     )
 
                 # Log confusion matrix as MLflow artifact

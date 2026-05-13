@@ -230,6 +230,12 @@ TRAINING_PER_CLASS_F1 = Gauge(
     ["pipeline", "dr_grade"],
 )
 
+TRAINING_PER_CLASS_PSI = Gauge(
+    "retinaxai_training_per_class_psi",
+    "Per-class Population Stability Index during training",
+    ["pipeline", "dr_grade"],
+)
+
 EVALUATION_SCORE = Gauge(
     "retinaxai_evaluation_score",
     "Evaluation metrics from last pipeline run (accuracy, roc_auc, F1, precision, recall)",
@@ -310,6 +316,7 @@ def init_metrics() -> None:
     TRAINING_VAL_LOSS.labels(pipeline=p).set(0)
     for grade in range(5):
         TRAINING_PER_CLASS_F1.labels(pipeline=p, dr_grade=str(grade)).set(0)
+        TRAINING_PER_CLASS_PSI.labels(pipeline=p, dr_grade=str(grade)).set(0)
     for split in ("eyepacs_test", "samaya_validation"):
         for metric in _METRIC_KEYS:
             EVALUATION_SCORE.labels(pipeline="imaging", split=split, metric=metric).set(
