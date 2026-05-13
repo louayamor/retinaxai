@@ -39,16 +39,13 @@ from app.services.monitoring.prometheus_metrics import (
     TRAINING_EPOCH_F1,
     TRAINING_LEARNING_RATE,
     TRAINING_EPOCH_DURATION,
-    TRAINING_EPOCH_PSI,
     TRAINING_BEST_F1,
     TRAINING_PATIENCE_COUNTER,
     TRAINING_VAL_LOSS,
     TRAINING_PER_CLASS_F1,
-    TRAINING_PER_CLASS_PSI,
     ACTIVE_TRAINING_JOBS,
     GPU_MEMORY_USED_BYTES,
     GPU_UTILIZATION_PERCENT,
-    compute_psi,
 )
 
 
@@ -440,19 +437,6 @@ class ImagingModelTrainer:
         model.set_grad_checkpointing(enable=True)  # type: ignore[attr-defined]
         logger.info(f"gradient checkpointing enabled, dropout={dropout_rate}")
 
-        # Cache embedding model for PSI computation
-        if hasattr(model, "forward_features"):
-            self._embedding_model = lambda x: model.global_pool(
-                model.forward_features(x)
-            ).flatten(1)
-            dummy = torch.randn(1, 3, self._global_image_size, self._global_image_size)
-            with torch.no_grad():
-                self._embedding_dim = int(self._embedding_model(dummy).shape[1])
-            logger.info(f"embedding dim: {self._embedding_dim} (from forward_features)")
-        else:
-            self._embedding_model = lambda x: model(x)
-            self._embedding_dim = self._global_num_classes
-
         trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
         total = sum(p.numel() for p in model.parameters())
         trainable_pct = 100.0 * trainable / total if total > 0 else 0.0
@@ -593,89 +577,6 @@ class ImagingModelTrainer:
         logger.info(
             f"[epoch {epoch}] saved {len(top_misclassified)} misclassified images to {output_dir}"
         )
-
-    def _compute_embedding_psi(
-        self,
-        train_loader: DataLoader,
-        val_loader: DataLoader,
-        num_features: int = 64,
-    ) -> float:
-        """Compute PSI over embeddings to avoid sampler-induced label drift."""
-        if not hasattr(self, "_embedding_projection"):
-            dim = int(self._embedding_dim)
-            rng = np.random.RandomState(42)
-            self._embedding_projection = rng.randn(dim, num_features) / np.sqrt(dim)
-
-        def _extract_embeddings(loader: DataLoader) -> np.ndarray:
-            embs = []
-            with torch.no_grad():
-                for images, _, _ in loader:
-                    images = images.to(self.device)
-                    outputs = self._embedding_model(images)
-                    embs.append(outputs.cpu().numpy())
-            return np.concatenate(embs, axis=0)
-
-        # Use a small fixed batch to avoid memory spikes
-        train_embs = _extract_embeddings(train_loader)
-        val_embs = _extract_embeddings(val_loader)
-
-        # Project embeddings down
-        train_proj = train_embs @ self._embedding_projection
-        val_proj = val_embs @ self._embedding_projection
-
-        psi_values = []
-        for i in range(train_proj.shape[1]):
-            psi = compute_psi(train_proj[:, i], val_proj[:, i])
-            psi_values.append(psi)
-
-        return float(np.mean(psi_values))
-
-    def _compute_per_class_psi(
-        self,
-        train_loader: DataLoader,
-        val_loader: DataLoader,
-        num_features: int = 32,
-    ) -> list[float]:
-        """Compute PSI over embeddings per class for fine-grained drift detection."""
-        if not hasattr(self, "_embedding_projection_psi"):
-            dim = int(self._embedding_dim)
-            rng = np.random.RandomState(42)
-            self._embedding_projection_psi = rng.randn(dim, num_features) / np.sqrt(dim)
-
-        def _extract_embeddings_by_class(
-            loader: DataLoader,
-        ) -> dict[int, np.ndarray]:
-            embs_by_class: dict[int, list[np.ndarray]] = {i: [] for i in range(5)}
-            with torch.no_grad():
-                for images, labels, _ in loader:
-                    images = images.to(self.device)
-                    outputs = self._embedding_model(images)
-                    emb_np = outputs.cpu().numpy()
-                    for emb, lbl in zip(emb_np, labels.cpu().numpy()):
-                        embs_by_class[int(lbl)].append(emb)
-            return {
-                cls: np.concatenate(embs) if embs else np.empty((0, emb_np.shape[1]))
-                for cls, embs in embs_by_class.items()
-            }
-
-        train_embs_by_class = _extract_embeddings_by_class(train_loader)
-        val_embs_by_class = _extract_embeddings_by_class(val_loader)
-
-        psi_per_class = []
-        for cls in range(5):
-            train_embs = train_embs_by_class[cls]
-            val_embs = val_embs_by_class[cls]
-            if len(train_embs) < 2 or len(val_embs) < 2:
-                psi_per_class.append(0.0)
-                continue
-            train_proj = train_embs @ self._embedding_projection_psi
-            val_proj = val_embs @ self._embedding_projection_psi
-            psi_values = [
-                compute_psi(train_proj[:, i], val_proj[:, i])
-                for i in range(train_proj.shape[1])
-            ]
-            psi_per_class.append(float(np.mean(psi_values)))
-        return psi_per_class
 
     def train(self) -> Path:
         set_seed(self._global_seed)
@@ -1017,11 +918,6 @@ class ImagingModelTrainer:
                 avg_loss = train_loss / train_total
                 lr = float(scheduler.get_last_lr()[0])
 
-                # NOTE: PSI over class predictions is biased by WeightedRandomSampler.
-                # We now compute PSI over embedding features for a real drift signal.
-                psi_score = self._compute_embedding_psi(train_loader, val_loader)
-                per_class_psi = self._compute_per_class_psi(train_loader, val_loader)
-
                 # Update Prometheus metrics
                 TRAINING_CURRENT_EPOCH.labels(pipeline="imaging").set(epoch + 1)
                 TRAINING_EPOCH_ACCURACY.labels(pipeline="imaging", split="train").set(
@@ -1036,7 +932,6 @@ class ImagingModelTrainer:
                 TRAINING_EPOCH_F1.labels(pipeline="imaging", split="val").set(macro_f1)
                 TRAINING_LEARNING_RATE.labels(pipeline="imaging").set(lr)
                 TRAINING_EPOCH_DURATION.labels(pipeline="imaging").set(epoch_duration)
-                TRAINING_EPOCH_PSI.labels(pipeline="imaging").set(psi_score)
                 TRAINING_PATIENCE_COUNTER.labels(pipeline="imaging").set(
                     patience_counter
                 )
@@ -1048,12 +943,6 @@ class ImagingModelTrainer:
                     TRAINING_PER_CLASS_F1.labels(
                         pipeline="imaging", dr_grade=str(cls_idx)
                     ).set(float(cls_f1))
-
-                # Update per-class PSI gauges
-                for cls_idx, cls_psi in enumerate(per_class_psi):
-                    TRAINING_PER_CLASS_PSI.labels(
-                        pipeline="imaging", dr_grade=str(cls_idx)
-                    ).set(float(cls_psi))
 
                 # Update GPU metrics
                 if torch.cuda.is_available():
@@ -1075,7 +964,6 @@ class ImagingModelTrainer:
                         "val_macro_f1": float(macro_f1),
                         "train_f1": float(train_f1),
                         "lr": float(lr),
-                        "psi_score": float(psi_score),
                         "epoch_duration_s": float(epoch_duration),
                     },
                     step=epoch,
@@ -1085,12 +973,6 @@ class ImagingModelTrainer:
                 for cls_idx, cls_f1 in enumerate(per_class_f1):
                     mlflow.log_metric(
                         f"val_f1_class_{cls_idx}", float(cls_f1), step=epoch
-                    )
-
-                # Log per-class PSI
-                for cls_idx, cls_psi in enumerate(per_class_psi):
-                    mlflow.log_metric(
-                        f"psi_class_{cls_idx}", float(cls_psi), step=epoch
                     )
 
                 # Log confusion matrix as MLflow artifact
@@ -1114,13 +996,6 @@ class ImagingModelTrainer:
                 mlflow.log_artifact(str(cm_path), "confusion_matrices")
                 plt.close(fig)
 
-                drift_status = (
-                    "DRIFT"
-                    if psi_score > 0.25
-                    else "MODERATE"
-                    if psi_score > 0.1
-                    else "STABLE"
-                )
                 logger.info(
                     f"epoch={epoch + 1}/{self.phase_epochs} "
                     f"loss={avg_loss:.4f} "
@@ -1129,7 +1004,6 @@ class ImagingModelTrainer:
                     f"train_f1={train_f1:.4f} "
                     f"val_f1={macro_f1:.4f} "
                     f"lr={lr:.6f} "
-                    f"psi={psi_score:.4f} [{drift_status}] "
                     f"duration={epoch_duration:.1f}s"
                 )
 
