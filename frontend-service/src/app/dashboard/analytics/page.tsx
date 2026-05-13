@@ -10,7 +10,7 @@ import { AIChartRenderer } from '@/components/charts/ai-chart-renderer';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getLLMOpsHealth, queryAnalytics } from '@/lib/api';
 import type { AnalyticsQueryResponse, AnalyticsSection } from '@/lib/api';
-import { MEDICAL_ANALYTIC_QUERIES } from '@/lib/api';
+import { MEDICAL_ANALYTIC_QUERIES, MODEL_ANALYTIC_QUERIES } from '@/lib/api';
 import {
   RefreshCw,
   Sparkles,
@@ -21,11 +21,13 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+const ALL_ANALYTIC_QUERIES = [...MEDICAL_ANALYTIC_QUERIES, ...MODEL_ANALYTIC_QUERIES];
+
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
 export default function AnalyticsPage() {
   const [sections, setSections] = useState<AnalyticsSection[]>(() =>
-    MEDICAL_ANALYTIC_QUERIES.map((q) => ({
+    ALL_ANALYTIC_QUERIES.map((q) => ({
       ...q,
       response: null,
       loading: true,
@@ -77,7 +79,7 @@ export default function AnalyticsPage() {
       | { status: 'fulfilled'; value: { key: string; response: AnalyticsQueryResponse } }
       | { status: 'rejected'; reason: unknown }
     > = [];
-    for (const q of MEDICAL_ANALYTIC_QUERIES) {
+    for (const q of ALL_ANALYTIC_QUERIES) {
       if (abortRef.current?.signal.aborted) break;
       try {
         const response = await queryAnalytics(q.question);
@@ -104,7 +106,7 @@ export default function AnalyticsPage() {
         }
         const rejected = results.find((r) => {
           if (r.status === 'rejected') {
-            return MEDICAL_ANALYTIC_QUERIES.find(
+            return ALL_ANALYTIC_QUERIES.find(
               (q, i) => q.key === section.key && i === results.indexOf(r as never),
             );
           }
@@ -124,8 +126,8 @@ export default function AnalyticsPage() {
 
     if (!silent) {
       const successCount = results.filter((r) => r.status === 'fulfilled').length;
-      if (successCount < MEDICAL_ANALYTIC_QUERIES.length) {
-        toast.warning(`${successCount}/${MEDICAL_ANALYTIC_QUERIES.length} sections loaded`);
+      if (successCount < ALL_ANALYTIC_QUERIES.length) {
+        toast.warning(`${successCount}/${ALL_ANALYTIC_QUERIES.length} sections loaded`);
       }
     }
   }, [checkHealth]);
