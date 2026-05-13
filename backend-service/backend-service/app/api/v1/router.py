@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.routes.auth_routes import router as auth_router
+from app.api.v1.routes.chat_routes import router as chat_router
 from app.api.v1.routes.dashboard_routes import router as dashboard_router
 from app.api.v1.routes.explanation_routes import router as explanation_router
 from app.api.v1.routes.metrics_routes import router as metrics_router
@@ -18,6 +19,7 @@ from app.api.v1.routes.user_routes import router as user_router
 api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(auth_router)
+api_router.include_router(chat_router)
 api_router.include_router(user_router)
 api_router.include_router(patient_router)
 api_router.include_router(mri_scan_router)

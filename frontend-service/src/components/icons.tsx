@@ -14,6 +14,7 @@ import {
   IconLayoutDashboard,
   IconLoader2,
   IconLogin,
+  IconMessage,
   IconProps,
   IconShoppingBag,
   IconMoon,
@@ -89,5 +90,6 @@ export const Icons = {
   cpu: IconCpu,
   server: IconServer,
   activity: IconActivity,
-  database: IconDatabase
+  database: IconDatabase,
+  message: IconMessage,
 };

@@ -895,3 +895,71 @@ export interface SystemStats {
 export async function getSystemStats(): Promise<SystemStats> {
   return request<SystemStats>('/api/v1/stats');
 }
+
+// ============ Chat API ============
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  sources?: Array<{ artifact_id: string; snippet: string }>;
+  chart?: AnalyticsChartSpec;
+  created_at: string;
+}
+
+export interface ChatSessionItem {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface ChatSessionDetail {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  messages: ChatMessage[];
+}
+
+export interface CreateSessionResponse {
+  session_id: string;
+  title: string;
+}
+
+export interface SendMessageResponse {
+  user_message: ChatMessage;
+  assistant_message: ChatMessage;
+}
+
+export async function createChatSession(): Promise<CreateSessionResponse> {
+  return request<CreateSessionResponse>('/api/v1/chat/sessions', { method: 'POST' });
+}
+
+export async function listChatSessions(): Promise<{ sessions: ChatSessionItem[]; total: number }> {
+  return request<{ sessions: ChatSessionItem[]; total: number }>('/api/v1/chat/sessions');
+}
+
+export async function getChatSession(id: string): Promise<ChatSessionDetail> {
+  return request<ChatSessionDetail>(`/api/v1/chat/sessions/${id}`);
+}
+
+export async function updateChatSessionTitle(id: string, title: string): Promise<CreateSessionResponse> {
+  return request<CreateSessionResponse>(`/api/v1/chat/sessions/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function deleteChatSession(id: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/api/v1/chat/sessions/${id}`, { method: 'DELETE' });
+}
+
+export async function sendChatMessage(sessionId: string, content: string): Promise<SendMessageResponse> {
+  return request<SendMessageResponse>(`/api/v1/chat/sessions/${sessionId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
+}

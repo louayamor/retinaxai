@@ -147,8 +147,9 @@ class InferenceService:
                 f"imaging model file is empty: {self.settings.imaging_model_path}"
             )
 
-        model_name = self.params.get("mlflow", {}).get(
-            "imaging_run_name", "efficientnet_b3"
+        model_name = self.params.get("imaging", {}).get(
+            "model_name",
+            self.params.get("mlflow", {}).get("imaging_model_name", "efficientnet_b3"),
         )
         logger.info(
             f"[IMAGING MODEL] creating {model_name} num_classes={self._global_num_classes} drop={self._training_dropout}"

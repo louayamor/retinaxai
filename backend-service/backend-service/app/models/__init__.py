@@ -1,4 +1,5 @@
 from app.models.auth_session import AuthSession
+from app.models.chat import ChatMessage, ChatRole, ChatSession
 from app.models.gradcam_explanation import GradCAMExplanation
 from app.models.mri_scan import MRIScan
 from app.models.notification import Notification
@@ -27,4 +28,7 @@ __all__ = [
     "AuthSession",
     "OCTReport",
     "Notification",
+    "ChatSession",
+    "ChatMessage",
+    "ChatRole",
 ]

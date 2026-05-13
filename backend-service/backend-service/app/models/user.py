@@ -20,3 +20,6 @@ class User(Base, UUIDMixin, TimestampMixin):
     notifications = relationship(
         "Notification", back_populates="user", cascade="all, delete-orphan"
     )
+    chat_sessions = relationship(
+        "ChatSession", back_populates="user", cascade="all, delete-orphan"
+    )

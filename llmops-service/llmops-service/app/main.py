@@ -226,6 +226,7 @@ def create_app() -> FastAPI:
             "/api/jobs/",
             "/api/analytics",
             "/api/analytics/query",
+            "/api/chat",
             "/api/operation/status",
         ],
     )

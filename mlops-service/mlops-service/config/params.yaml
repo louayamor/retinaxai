@@ -14,6 +14,14 @@ data:
     eyepacs: 0.85
     oversample_ratio: 12
   keep_no_dr_ratio: 0.30
+  oversampling:
+    enabled: true
+    min_samples_per_class:
+      0: 2400
+      1: 600
+      2: 950
+      3: 400
+      4: 400
 
 # ── Augmentation ──────────────────────────────────────────────────────────────
 
@@ -21,44 +29,35 @@ augmentation:
   random_horizontal_flip: true
   random_vertical_flip: true
   random_rotation: 20
-
   color_jitter:
     brightness: 0.35
     contrast: 0.35
     saturation: 0.15
     hue: 0.08
-
   gaussian_blur:
     enabled: true
     kernel_size: 3
     sigma: [0.1, 1.5]
-
   clahe:
-    enabled: false   # CLAHE applied in preprocessing (data_transformation.py)
-
+    enabled: false
   random_erasing:
     enabled: true
     probability: 0.15
-
   normalize:
     mean: [0.485, 0.456, 0.406]
     std: [0.229, 0.224, 0.225]
-
   mixup:
     enabled: false
     alpha: 0.2
-
   domain_robustness:
     random_grayscale_prob: 0.15
     random_sharpness: 0.7
     random_affine_translate: [0.08, 0.08]
     random_affine_scale: [0.85, 1.15]
     gaussian_noise_std: 0.02
-
     jpeg_compression:
       enabled: true
       quality_range: [60, 100]
-
     illumination_shift:
       enabled: true
       gamma_range: [0.7, 1.5]
@@ -70,16 +69,16 @@ training:
   weighted_sampling: true
   use_class_weights_in_loss: true
   early_stopping_metric: macro_f1
-  early_stopping_patience: 4
-  early_stopping_min_delta: 0.004
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.001
   label_smoothing: 0.05
-  weight_decay: 0.002
+  weight_decay: 0.001
   scheduler: cosine
   lr_warmup_epochs: 3
-  batch_size: 8
+  batch_size: 16
   num_workers: 4
   pin_memory: true
-  gradient_accumulation_steps: 4
+  gradient_accumulation_steps: 1
   gradient_clip_norm: 1.0
   monitor_per_class_metrics: true
   save_confusion_matrix: true
@@ -87,30 +86,41 @@ training:
 
   phase1:
     epochs: 18
-    lr: 0.00004
+    lr: 0.00005
     dropout: 0.40
     freeze_backbone: true
     freeze_blocks: 3
-    unfreeze_last_blocks: 1
+    unfreeze_last_blocks: 2
     focal_loss_gamma: 2.0
     loss: focal_ordinal_weighted
 
   phase2:
     epochs: 15
-    lr: 0.00001
-    backbone_lr_ratio: 5
+    lr: 0.000005
+    backbone_lr_ratio: 3
     dropout: 0.30
     freeze_backbone: false
     focal_loss_gamma: 2.2
     loss: focal_ordinal_weighted
-    early_stopping_patience: 4
+    early_stopping_patience: 8
     mixup:
       enabled: true
       alpha: 0.25
     fda:
       enabled: true
-      beta: 0.08
-      probability: 0.5
+      beta: 0.05
+      probability: 0.3
+
+  fine_tuning:
+    epochs: 20
+    lr: 0.0001
+    batch_size: 16
+    weight_decay: 0.0001
+    dropout: 0.3
+    freeze_backbone: true
+    num_workers: 4
+    pin_memory: true
+    scheduler: cosine
 
 # ── FDA (Fourier Domain Adaptation) ───────────────────────────────────────────
 
@@ -122,9 +132,9 @@ fda:
 # ── TENT (Test-Time Entropy Minimization) ─────────────────────────────────────
 
 tent:
-  enabled: false
+  enabled: true
   learning_rate: 0.00005
-  steps: 1
+  steps: 3
   momentum: 0.9
 
 # ── XGBoost (ML branch) ───────────────────────────────────────────────────────
@@ -174,6 +184,9 @@ inference:
     horizontal_flip: true
     rotation_angles: [-10, 0, 10]
     brightness_shift: [0.95, 1.05]
+  per_class_thresholds:
+    eyepacs: [0.10, 0.30, 0.35, 0.70, 0.60]
+    samaya:  [0.15, 0.45, 0.10, 0.70, 0.35]
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
 

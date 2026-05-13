@@ -20,6 +20,7 @@ from loguru import logger
 from app.api.analytics_schemas import AnalyticsQueryRequest, AnalyticsQueryResponse
 from app.core.config import settings
 from app.pipeline.analytics_pipeline import AnalyticsPipeline
+from app.pipeline.chat_pipeline import ChatPipeline, ChatRequest
 from app.pipeline.indexing_pipeline import IndexingPipeline
 from app.pipeline.inference_pipeline import InferencePipeline, get_inference_pipeline
 from app.pipeline.xai_pipeline import XAIPipeline, get_xai_pipeline
@@ -586,4 +587,30 @@ async def analytics_query(
         return await pipeline.run(payload)
     except Exception as exc:
         logger.error(f"analytics_query_failed: {exc}")
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+_chat_pipeline: ChatPipeline | None = None
+
+
+def _get_chat_pipeline() -> ChatPipeline:
+    global _chat_pipeline
+    if _chat_pipeline is None:
+        _chat_pipeline = ChatPipeline()
+    return _chat_pipeline
+
+
+@router.post(
+    "/chat",
+    response_model=AnalyticsQueryResponse,
+    summary="Chat with AI",
+)
+async def chat(
+    payload: ChatRequest,
+) -> AnalyticsQueryResponse:
+    try:
+        pipeline = _get_chat_pipeline()
+        return await pipeline.run(payload.messages, payload.question, payload.top_k)
+    except Exception as exc:
+        logger.error(f"chat_failed: {exc}")
         raise HTTPException(status_code=503, detail=str(exc)) from exc

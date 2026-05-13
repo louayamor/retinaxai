@@ -18,6 +18,14 @@ export const navGroups: NavGroup[] = [
         items: [],
       },
       {
+        title: 'Patient Registry',
+        url: '/dashboard/patients',
+        icon: 'user',
+        isActive: false,
+        shortcut: ['p', 'p'],
+        items: [],
+      },
+      {
         title: 'Analytics',
         url: '/dashboard/analytics',
         icon: 'chart',
@@ -25,12 +33,17 @@ export const navGroups: NavGroup[] = [
         shortcut: ['a', 'a'],
         items: [],
       },
+    ],
+  },
+  {
+    title: 'AI Assistant',
+    items: [
       {
-        title: 'Patient Registry',
-        url: '/dashboard/patients',
-        icon: 'user',
+        title: 'AI Chat',
+        url: '/dashboard/chat',
+        icon: 'message',
         isActive: false,
-        shortcut: ['p', 'p'],
+        shortcut: ['c', 'c'],
         items: [],
       },
     ],
