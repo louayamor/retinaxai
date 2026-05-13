@@ -16,7 +16,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
-import { Loader2, Play, RefreshCw, Square, CheckCircle2, WifiOff } from 'lucide-react';
+import { Loader2, Play, RefreshCw, Square, CheckCircle2, WifiOff, AlertTriangle, AlertCircle, Bell } from 'lucide-react';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { TrainingProgress } from '@/components/training-progress';
 import { toast } from 'sonner';
@@ -48,9 +48,27 @@ interface JobStatus {
   error: string | null;
 }
 
+interface Alert {
+  labels: Record<string, string>;
+  annotations: Record<string, string>;
+  startsAt: string;
+  endsAt: string | null;
+  status: string | null;
+  value: string | null;
+  fingerprint?: string;
+}
+
+interface AlertsResponse {
+  alerts: Alert[];
+  total: number;
+  firing: number;
+  pending: number;
+}
+
 export default function ModelsPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
+  const [alerts, setAlerts] = useState<AlertsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [training, setTraining] = useState<string | null>(null);
   const [trainingProgress, setTrainingProgress] = useState<{
@@ -98,6 +116,18 @@ export default function ModelsPage() {
     }
   };
 
+  const fetchAlerts = async () => {
+    try {
+      const res = await fetch(`${MLOPS_BASE}/metrics/alerts`);
+      if (res.ok) {
+        const data = await res.json();
+        setAlerts(data);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch alerts:', err);
+    }
+  };
+
   const fetchStatus = async () => {
     try {
       const res = await fetch(`${MLOPS_BASE}/status`);
@@ -114,7 +144,7 @@ export default function ModelsPage() {
 
   const fetchData = async () => {
     setLoading(true);
-    await Promise.all([fetchMetrics(), fetchStatus()]);
+    await Promise.all([fetchMetrics(), fetchStatus(), fetchAlerts()]);
     setLoading(false);
   };
 
@@ -155,6 +185,7 @@ export default function ModelsPage() {
   useEffect(() => {
     void fetchMetrics();
     void fetchStatus();
+    void fetchAlerts();
   }, []);
 
   const radarData = [
@@ -260,6 +291,88 @@ export default function ModelsPage() {
           <p className='text-sm text-destructive mt-4'>{jobStatus.error}</p>
         )}
       </div>
+
+      <Card className={cn(alerts && alerts.total > 0 ? 'border-destructive/50 bg-destructive/5' : 'border-border')}>
+        <CardHeader>
+          <CardTitle className='flex items-center gap-2'>
+            <Bell className='h-5 w-5' />
+            Active Alerts
+            {alerts && alerts.total > 0 && (
+              <Badge variant={alerts.firing > 0 ? 'destructive' : 'secondary'}>
+                {alerts.total} total
+              </Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <p className='text-muted-foreground'>Loading alerts...</p>
+          ) : !alerts || alerts.total === 0 ? (
+            <div className='flex items-center gap-2 text-green-600'>
+              <CheckCircle2 className='h-5 w-5' />
+              <p className='text-sm'>No active alerts - all systems operational</p>
+            </div>
+          ) : (
+            <div className='space-y-3'>
+              {alerts.alerts.map((alert, idx) => (
+                <div
+                  key={alert.fingerprint || idx}
+                  className={cn(
+                    'p-3 rounded-lg border text-sm',
+                    alert.status === 'firing'
+                      ? 'bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-900'
+                      : 'bg-yellow-50 border-yellow-200 dark:bg-yellow-950/30 dark:border-yellow-900'
+                  )}
+                >
+                  <div className='flex items-start justify-between gap-2'>
+                    <div className='flex items-center gap-2 flex-1'>
+                      {alert.status === 'firing' ? (
+                        <AlertTriangle className='h-4 w-4 text-red-600 flex-shrink-0' />
+                      ) : (
+                        <AlertCircle className='h-4 w-4 text-yellow-600 flex-shrink-0' />
+                      )}
+                      <div className='flex-1 min-w-0'>
+                        <p className='font-medium truncate'>
+                          {alert.labels.alertname || 'Unknown Alert'}
+                        </p>
+                        <p className='text-xs text-muted-foreground truncate'>
+                          {alert.annotations.summary || alert.annotations.description || 'No description'}
+                        </p>
+                      </div>
+                    </div>
+                    <Badge
+                      variant={alert.status === 'firing' ? 'destructive' : 'secondary'}
+                      className='flex-shrink-0 text-xs'
+                    >
+                      {alert.status || 'unknown'}
+                    </Badge>
+                  </div>
+                  <div className='mt-2 flex flex-wrap gap-2 text-xs'>
+                    {alert.labels.severity && (
+                      <Badge variant='outline' className='text-xs'>
+                        Severity: {alert.labels.severity}
+                      </Badge>
+                    )}
+                    {alert.labels.service && (
+                      <Badge variant='outline' className='text-xs'>
+                        {alert.labels.service}
+                      </Badge>
+                    )}
+                    {alert.value && (
+                      <span className='text-muted-foreground'>Value: {alert.value}</span>
+                    )}
+                  </div>
+                  {alert.annotations.remediation && (
+                    <p className='mt-2 text-xs text-muted-foreground'>
+                      💡 {alert.annotations.remediation}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className='grid grid-cols-1 md:grid-cols-2 gap-5'>
         <Card>
