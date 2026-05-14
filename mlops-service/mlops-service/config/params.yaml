@@ -67,20 +67,17 @@ training:
 
   phase2:
     epochs: 15
-    lr: 0.000005
-    backbone_lr_ratio: 3
+    lr: 0.00001
+    backbone_lr_ratio: 10
     dropout: 0.3
     freeze_backbone: false
     focal_loss_gamma: 2.5
     loss: focal_ordinal_weighted
     early_stopping_patience: 8
     mixup:
-      enabled: true
-      alpha: 0.1
+      enabled: false
     fda:
-      enabled: true
-      beta: 0.05
-      probability: 0.15
+      enabled: false
 
 # ── FDA (Fourier Domain Adaptation) ───────────────────────────────────────────
 

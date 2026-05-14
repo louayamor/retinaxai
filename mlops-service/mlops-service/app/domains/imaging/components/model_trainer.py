@@ -426,7 +426,7 @@ class ImagingModelTrainer:
         if use_weighted_sampling:
             labels = train_dataset.df["label"].values
             class_counts = np.bincount(labels, minlength=5)
-            class_weights = 1.0 / (class_counts + 1e-6)
+            class_weights = class_counts.max() / (class_counts + 1e-6)
             sample_weights = class_weights[labels]
             sampler = WeightedRandomSampler(
                 sample_weights, len(sample_weights), replacement=True
