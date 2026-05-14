@@ -96,18 +96,18 @@ training:
 
   phase2:
     epochs: 15
-    lr: 0.000005
-    backbone_lr_ratio: 3
-    dropout: 0.30
+    lr: 0.00002
+    backbone_lr_ratio: 5
+    dropout: 0.25
     freeze_backbone: false
-    focal_loss_gamma: 1.8
+    focal_loss_gamma: 1.5
     loss: focal_ordinal_weighted
     early_stopping_patience: 8
     mixup:
       enabled: true
-      alpha: 0.25
+      alpha: 0.15
     fda:
-      enabled: true
+      enabled: false
       beta: 0.05
       probability: 0.3
 
