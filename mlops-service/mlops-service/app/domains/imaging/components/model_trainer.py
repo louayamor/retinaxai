@@ -39,6 +39,7 @@ from app.services.monitoring.prometheus_metrics import (
     TRAINING_EPOCH_F1,
     TRAINING_LEARNING_RATE,
     TRAINING_EPOCH_DURATION,
+    TRAINING_EPOCH_PSI,
     TRAINING_BEST_F1,
     TRAINING_PATIENCE_COUNTER,
     TRAINING_VAL_LOSS,
@@ -46,15 +47,8 @@ from app.services.monitoring.prometheus_metrics import (
     ACTIVE_TRAINING_JOBS,
     GPU_MEMORY_USED_BYTES,
     GPU_UTILIZATION_PERCENT,
+    compute_psi,
 )
-
-
-def _parse_unfreeze_last_blocks(raw: bool | int) -> int:
-    if isinstance(raw, bool):
-        return 2 if raw else 0
-    if isinstance(raw, (int, float)):
-        return max(0, int(raw))
-    return 0
 
 
 class RetinalDataset(Dataset):
@@ -73,7 +67,7 @@ class RetinalDataset(Dataset):
             raise RuntimeError(f"Failed to load image {row['image_path']}: {e}") from e
         if self.transform:
             img = self.transform(img)
-        return img, int(row["label"]), str(row["image_path"])
+        return img, int(row["label"])
 
 
 class ImagingModelTrainer:
@@ -84,7 +78,6 @@ class ImagingModelTrainer:
         phase: str = "phase1",
         load_checkpoint: Path | None = None,
         custom_train_csv: Path | None = None,
-        register_model: bool = True,
     ):
         self.config = config
         self.transformation_config = transformation_config
@@ -124,7 +117,6 @@ class ImagingModelTrainer:
         self.phase = phase
         self.load_checkpoint = load_checkpoint
         self.custom_train_csv = custom_train_csv
-        self.register_model = register_model
 
         training_cfg = self.params.get("training", {}) or {}
         global_cfg = self.params.get("global", {}) or {}
@@ -149,8 +141,8 @@ class ImagingModelTrainer:
 
             self.freeze_backbone = phase_specific.get("freeze_backbone", True)
             self._freeze_blocks = phase_specific.get("freeze_blocks", 3)
-            self._unfreeze_last_count = _parse_unfreeze_last_blocks(
-                phase_specific.get("unfreeze_last_blocks", False)
+            self.unfreeze_last_blocks = phase_specific.get(
+                "unfreeze_last_blocks", False
             )
             self._focal_loss_gamma = phase_specific.get("focal_loss_gamma", 1.5)
             self._loss_type = phase_specific.get("loss", "ordinal_cross_entropy")
@@ -164,7 +156,7 @@ class ImagingModelTrainer:
 
             self.freeze_backbone = False
             self._freeze_blocks = training_cfg.get("freeze_blocks", 3)
-            self._unfreeze_last_count = 0
+            self.unfreeze_last_blocks = False
             self._focal_loss_gamma = None
             self._loss_type = "ordinal_cross_entropy"
 
@@ -174,7 +166,6 @@ class ImagingModelTrainer:
         logger.info(
             f"phase={phase} epochs={self.phase_epochs} lr={self.phase_lr} "
             f"freeze_backbone={self.freeze_backbone} freeze_blocks={self._freeze_blocks} "
-            f"unfreeze_last={self._unfreeze_last_count} "
             f"loss={self._loss_type}"
         )
 
@@ -268,17 +259,6 @@ class ImagingModelTrainer:
             ),
         ]
 
-        # Gaussian blur
-        gb = aug.get("gaussian_blur", {}) or {}
-        if gb.get("enabled", False):
-            train_tf_list.append(
-                transforms.GaussianBlur(
-                    kernel_size=gb.get("kernel_size", 3),
-                    sigma=tuple(gb.get("sigma", [0.1, 1.5])),
-                )
-            )
-
-        # Domain robustness affine
         affine_translate = tuple(dr.get("random_affine_translate", [0.05, 0.05]))
         affine_scale = tuple(dr.get("random_affine_scale", [0.95, 1.05]))
         train_tf_list.append(
@@ -300,70 +280,6 @@ class ImagingModelTrainer:
             )
 
         train_tf_list.append(transforms.ToTensor())
-
-        # JPEG compression (tensor -> PIL -> tensor)
-        jpg = dr.get("jpeg_compression", {}) or {}
-        if jpg.get("enabled", False):
-
-            def _jpeg_compress(tensor, quality_range):
-                import io
-                import random
-
-                quality = random.randint(quality_range[0], quality_range[1])
-                img = transforms.ToPILImage()(tensor)
-                buf = io.BytesIO()
-                img.save(buf, format="JPEG", quality=quality)
-                buf.seek(0)
-                return transforms.ToTensor()(Image.open(buf))
-
-            train_tf_list.append(
-                transforms.Lambda(
-                    lambda t, qr=tuple(jpg.get("quality_range", [60, 100])): (
-                        _jpeg_compress(t, qr)
-                    )
-                )
-            )
-
-        # Illumination shift (gamma)
-        ill = dr.get("illumination_shift", {}) or {}
-        if ill.get("enabled", False):
-
-            def _gamma_correct(tensor, gamma_range):
-                import random
-
-                gamma = random.uniform(gamma_range[0], gamma_range[1])
-                out = tensor ** (1.0 / gamma)
-                return torch.clamp(out, 0.0, 1.0)
-
-            train_tf_list.append(
-                transforms.Lambda(
-                    lambda t, gr=tuple(ill.get("gamma_range", [0.7, 1.5])): (
-                        _gamma_correct(t, gr)
-                    )
-                )
-            )
-
-        # Gaussian noise (tensor)
-        noise_std = float(dr.get("gaussian_noise_std", 0.0))
-        if noise_std > 0:
-            train_tf_list.append(
-                transforms.Lambda(
-                    lambda t, s=noise_std: torch.clamp(
-                        t + torch.randn_like(t) * s, 0.0, 1.0
-                    )
-                )
-            )
-
-        # Random erasing (tensor, before normalization)
-        er = aug.get("random_erasing", {}) or {}
-        if er.get("enabled", False):
-            train_tf_list.append(
-                transforms.RandomErasing(
-                    p=er.get("probability", 0.15),
-                    scale=(0.02, 0.1),
-                    ratio=(0.3, 3.3),
-                )
-            )
 
         if self._fda_augment is not None:
             train_tf_list.append(transforms.Lambda(lambda t: self._fda_augment(t)))  # type: ignore[arg-type]
@@ -403,9 +319,8 @@ class ImagingModelTrainer:
                 for param in model.classifier.parameters():
                     param.requires_grad = True
 
-                unfreeze_count = self._unfreeze_last_count
-                if unfreeze_count > 0 and num_blocks > 0:
-                    num_unfreeze = min(unfreeze_count, num_blocks)
+                if self.unfreeze_last_blocks and num_blocks > 0:
+                    num_unfreeze = min(2, num_blocks)
                     unfreeze_from = num_blocks - num_unfreeze
 
                     for i in range(unfreeze_from, num_blocks):
@@ -444,10 +359,10 @@ class ImagingModelTrainer:
             f"trainable params: {trainable:,} / {total:,} ({trainable_pct:.2f}%)"
         )
 
-        if self.freeze_backbone and self._unfreeze_last_count == 0:
+        if self.freeze_backbone and not self.unfreeze_last_blocks:
             if trainable_pct > 10.0:
                 logger.warning(
-                    f">>> WARNING: freeze_backbone=True, unfreeze_last_blocks=0, "
+                    f">>> WARNING: freeze_backbone=True, unfreeze_last_blocks=False, "
                     f"but {trainable_pct:.2f}% params are trainable! "
                     f"This should be < 5% (classifier only)."
                 )
@@ -455,44 +370,14 @@ class ImagingModelTrainer:
         if self.load_checkpoint and self.load_checkpoint.exists():
             logger.info(f"loading checkpoint: {self.load_checkpoint}")
             state_dict = torch.load(self.load_checkpoint, map_location=self.device)
-
-            # Check for classifier dimension mismatch
-            model_state = model.state_dict()
-            classifier_key = "classifier.fc.weight"
-            if classifier_key in state_dict and classifier_key in model_state:
-                if (
-                    state_dict[classifier_key].shape
-                    != model_state[classifier_key].shape
-                ):
-                    logger.warning(
-                        f"classifier dimension mismatch: checkpoint has {state_dict[classifier_key].shape[0]}, "
-                        f"model expects {model_state[classifier_key].shape[0]}. "
-                        "Loading backbone only, re-initializing classifier."
-                    )
-                    # Remove classifier keys from checkpoint
-                    for key in ["classifier.fc.weight", "classifier.fc.bias"]:
-                        state_dict.pop(key, None)
-                    # Load backbone weights only
-                    model.load_state_dict(state_dict, strict=False)
-                    logger.info("backbone loaded, classifier re-initialized")
-                else:
-                    model.load_state_dict(state_dict)
-                    logger.info("checkpoint loaded successfully")
-            else:
-                model.load_state_dict(state_dict)
-                logger.info("checkpoint loaded successfully")
+            model.load_state_dict(state_dict)
+            logger.info("checkpoint loaded successfully")
 
         return model.to(self.device)
 
     def _log_best_model_to_mlflow(
         self, checkpoint_path: Path, num_classes: int
     ) -> None:
-        if not self.register_model:
-            logger.info(
-                f"model registration disabled for phase={self.phase}, skipping mlflow model log"
-            )
-            return
-
         if not checkpoint_path.exists():
             logger.warning("best checkpoint missing; skipping mlflow model log")
             return
@@ -522,61 +407,6 @@ class ImagingModelTrainer:
             logger.info("model logged to mlflow model registry")
         except Exception as e:
             logger.warning(f"failed to log model to mlflow registry: {e}")
-
-    def _save_misclassified_from_batch(
-        self,
-        preds: list,
-        labels: list,
-        probs: list,
-        paths: list,
-        phase: str,
-        epoch: int,
-        max_samples: int = 10,
-    ) -> None:
-        """Save misclassified images from a validation batch."""
-        import shutil
-
-        misclassified = []
-        for i, (pred, label, prob) in enumerate(zip(preds, labels, probs)):
-            if pred != label:
-                confidence = float(np.max(prob))
-                misclassified.append(
-                    {
-                        "path": paths[i] if i < len(paths) else f"unknown_{i}",
-                        "true_label": int(label),
-                        "pred_label": int(pred),
-                        "confidence": confidence,
-                    }
-                )
-
-        if not misclassified:
-            logger.info(f"[epoch {epoch}] no misclassified samples")
-            return
-
-        misclassified.sort(key=lambda x: x["confidence"], reverse=True)
-        top_misclassified = misclassified[:max_samples]
-
-        output_dir = (
-            self.config.checkpoint_path.parent
-            / "misclassified"
-            / f"phase{phase[-1]}"
-            / f"epoch{epoch}"
-        )
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        for i, sample in enumerate(top_misclassified):
-            src = Path(sample["path"])
-            if not src.exists():
-                continue
-            dst = (
-                output_dir
-                / f"mis_{i:03d}_true{sample['true_label']}_pred{sample['pred_label']}_conf{sample['confidence']:.2f}{src.suffix}"
-            )
-            shutil.copy2(src, dst)
-
-        logger.info(
-            f"[epoch {epoch}] saved {len(top_misclassified)} misclassified images to {output_dir}"
-        )
 
     def train(self) -> Path:
         set_seed(self._global_seed)
@@ -691,12 +521,6 @@ class ImagingModelTrainer:
 
         label_smoothing = self._training_label_smoothing
 
-        phase_specific = training_cfg.get(self.phase, {}) or {}
-        gradient_clip_norm = float(training_cfg.get("gradient_clip_norm", 1.0))
-        early_stopping_min_delta = float(
-            training_cfg.get("early_stopping_min_delta", 0.0)
-        )
-        save_misclassified = training_cfg.get("save_misclassified_images", True)
         loss_type = getattr(self, "_loss_type", "ordinal_cross_entropy")
         focal_gamma = getattr(self, "_focal_loss_gamma", None)
         dropout_rate = getattr(self, "_phase_dropout", self._training_dropout)
@@ -761,7 +585,9 @@ class ImagingModelTrainer:
                     ),
                     "freeze_backbone": self.freeze_backbone,
                     "freeze_blocks": getattr(self, "_freeze_blocks", 3),
-                    "unfreeze_last_blocks": self._unfreeze_last_count,
+                    "unfreeze_last_blocks": getattr(
+                        self, "unfreeze_last_blocks", False
+                    ),
                     "device": str(self.device),
                     "phase": self.phase,
                     "mixup_enabled": self._use_mixup,
@@ -778,7 +604,7 @@ class ImagingModelTrainer:
                 model.train()
                 train_loss, train_total = 0.0, 0
 
-                for images, labels, _ in train_loader:
+                for images, labels in train_loader:
                     images, labels = images.to(self.device), labels.to(self.device)
 
                     if self._use_mixup:
@@ -798,7 +624,7 @@ class ImagingModelTrainer:
                             scaler.scale(loss).backward()
                             scaler.unscale_(optimizer)
                             torch.nn.utils.clip_grad_norm_(
-                                model.parameters(), max_norm=gradient_clip_norm
+                                model.parameters(), max_norm=1.0
                             )
                             scaler.step(optimizer)
                             scaler.update()
@@ -809,7 +635,7 @@ class ImagingModelTrainer:
                             ) * criterion(outputs, labels_b)
                             loss.backward()
                             torch.nn.utils.clip_grad_norm_(
-                                model.parameters(), max_norm=gradient_clip_norm
+                                model.parameters(), max_norm=1.0
                             )
                             optimizer.step()
 
@@ -824,7 +650,7 @@ class ImagingModelTrainer:
                             scaler.scale(loss).backward()
                             scaler.unscale_(optimizer)
                             torch.nn.utils.clip_grad_norm_(
-                                model.parameters(), max_norm=gradient_clip_norm
+                                model.parameters(), max_norm=1.0
                             )
                             scaler.step(optimizer)
                             scaler.update()
@@ -833,7 +659,7 @@ class ImagingModelTrainer:
                             loss = criterion(outputs, labels)
                             loss.backward()
                             torch.nn.utils.clip_grad_norm_(
-                                model.parameters(), max_norm=gradient_clip_norm
+                                model.parameters(), max_norm=1.0
                             )
                             optimizer.step()
 
@@ -845,40 +671,19 @@ class ImagingModelTrainer:
                 model.eval()
                 val_correct, val_total = 0, 0
                 all_preds, all_labels = [], []
-                all_probs, all_paths = [], []
                 with torch.no_grad():
-                    for images, labels, paths in val_loader:
+                    for images, labels in val_loader:
                         images, labels = images.to(self.device), labels.to(self.device)
                         outputs = model(images)
-                        probs = torch.softmax(outputs, dim=1).cpu().numpy()
                         preds = outputs.argmax(1)
                         val_correct += (preds == labels).sum().item()
                         val_total += images.size(0)
                         all_preds.extend(preds.cpu().numpy())
                         all_labels.extend(labels.cpu().numpy())
-                        all_probs.extend(probs)
-                        all_paths.extend(
-                            paths
-                            if isinstance(paths, list)
-                            else [str(p) for p in paths]
-                        )
-
-                # Save misclassified images from validation
-                if save_misclassified and (
-                    epoch == self.phase_epochs - 1 or (epoch + 1) % 5 == 0
-                ):
-                    self._save_misclassified_from_batch(
-                        all_preds,
-                        all_labels,
-                        all_probs,
-                        all_paths,
-                        self.phase,
-                        epoch + 1,
-                    )
 
                 clean_train_preds, clean_train_labels = [], []
                 with torch.no_grad():
-                    for images, labels, _ in train_loader:
+                    for images, labels in train_loader:
                         images = images.to(self.device)
                         outputs = model(images)
                         clean_train_preds.extend(outputs.argmax(1).cpu().numpy())
@@ -918,6 +723,12 @@ class ImagingModelTrainer:
                 avg_loss = train_loss / train_total
                 lr = float(scheduler.get_last_lr()[0])
 
+                train_probs = np.array(clean_train_preds) / max(
+                    self._global_num_classes - 1, 1
+                )
+                val_probs = np.array(all_preds) / max(self._global_num_classes - 1, 1)
+                psi_score = compute_psi(val_probs, train_probs)
+
                 # Update Prometheus metrics
                 TRAINING_CURRENT_EPOCH.labels(pipeline="imaging").set(epoch + 1)
                 TRAINING_EPOCH_ACCURACY.labels(pipeline="imaging", split="train").set(
@@ -932,6 +743,7 @@ class ImagingModelTrainer:
                 TRAINING_EPOCH_F1.labels(pipeline="imaging", split="val").set(macro_f1)
                 TRAINING_LEARNING_RATE.labels(pipeline="imaging").set(lr)
                 TRAINING_EPOCH_DURATION.labels(pipeline="imaging").set(epoch_duration)
+                TRAINING_EPOCH_PSI.labels(pipeline="imaging").set(psi_score)
                 TRAINING_PATIENCE_COUNTER.labels(pipeline="imaging").set(
                     patience_counter
                 )
@@ -964,6 +776,7 @@ class ImagingModelTrainer:
                         "val_macro_f1": float(macro_f1),
                         "train_f1": float(train_f1),
                         "lr": float(lr),
+                        "psi_score": float(psi_score),
                         "epoch_duration_s": float(epoch_duration),
                     },
                     step=epoch,
@@ -996,6 +809,13 @@ class ImagingModelTrainer:
                 mlflow.log_artifact(str(cm_path), "confusion_matrices")
                 plt.close(fig)
 
+                drift_status = (
+                    "DRIFT"
+                    if psi_score > 0.25
+                    else "MODERATE"
+                    if psi_score > 0.1
+                    else "STABLE"
+                )
                 logger.info(
                     f"epoch={epoch + 1}/{self.phase_epochs} "
                     f"loss={avg_loss:.4f} "
@@ -1004,11 +824,12 @@ class ImagingModelTrainer:
                     f"train_f1={train_f1:.4f} "
                     f"val_f1={macro_f1:.4f} "
                     f"lr={lr:.6f} "
+                    f"psi={psi_score:.4f} [{drift_status}] "
                     f"duration={epoch_duration:.1f}s"
                 )
 
                 # Use macro-F1 for checkpointing (not accuracy)
-                if macro_f1 > best_macro_f1 + early_stopping_min_delta:
+                if macro_f1 > best_macro_f1:
                     best_macro_f1 = macro_f1
                     best_val_acc = val_acc
                     patience_counter = 0
@@ -1026,12 +847,10 @@ class ImagingModelTrainer:
                     TRAINING_PATIENCE_COUNTER.labels(pipeline="imaging").set(
                         patience_counter
                     )
-                    # Read phase-specific patience, fall back to global
-                    phase_early_stopping = phase_specific.get(
-                        "early_stopping_patience",
-                        training_cfg.get("early_stopping_patience", 8),
+                    early_stopping_patience = training_cfg.get(
+                        "early_stopping_patience", 8
                     )
-                    if patience_counter >= phase_early_stopping:
+                    if patience_counter >= early_stopping_patience:
                         logger.info(f"early stopping at epoch {epoch + 1}")
                         break
 

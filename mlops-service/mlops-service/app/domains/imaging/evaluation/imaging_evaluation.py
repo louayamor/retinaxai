@@ -155,12 +155,11 @@ class ImagingModelEvaluation:
         )
 
         all_preds, all_labels, all_probs = [], [], []
-        all_paths = []
         total = len(loader)
         use_amp = self.device.type == "cuda"
 
         with torch.no_grad():
-            for i, (images, labels, paths) in enumerate(loader, 1):
+            for i, (images, labels) in enumerate(loader, 1):
                 images = images.to(self.device)
                 with torch.amp.autocast("cuda", enabled=use_amp):
                     outputs = model(images)
@@ -170,9 +169,6 @@ class ImagingModelEvaluation:
                 all_probs.extend(probs)
                 all_preds.extend(preds)
                 all_labels.extend(labels.tolist())
-                all_paths.extend(
-                    paths if isinstance(paths, list) else [str(p) for p in paths]
-                )
 
                 if i % 10 == 0 or i == total:
                     logger.info(f"inference progress: {i}/{total} batches")
@@ -181,7 +177,7 @@ class ImagingModelEvaluation:
                 if self.device.type == "cuda":
                     torch.cuda.empty_cache()
 
-        return all_preds, all_labels, np.array(all_probs), all_paths
+        return all_preds, all_labels, np.array(all_probs)
 
     def _compute_auc(self, labels: list, probs: np.ndarray) -> float | None:
         present_classes = np.unique(labels)
@@ -240,15 +236,9 @@ class ImagingModelEvaluation:
         )
         cm = confusion_matrix(labels, preds)
 
-        # Brier score (multiclass): mean squared error between predicted probs and one-hot labels
-        # Lower is better (0 = perfect calibration)
-        labels_arr = np.array(labels)
-        one_hot = np.eye(self._global_num_classes)[labels_arr]
-        brier = float(np.mean(np.sum((probs - one_hot) ** 2, axis=1)))
-
         auc_str = f"{auc:.4f}" if auc is not None else "N/A"
         logger.info(
-            f"[{split_name}] accuracy={accuracy:.4f} qwk={qwk:.4f} auc={auc_str} macro_f1={macro_f1:.4f} brier={brier:.4f}"
+            f"[{split_name}] accuracy={accuracy:.4f} qwk={qwk:.4f} auc={auc_str} macro_f1={macro_f1:.4f}"
         )
 
         report_dict = classification_report(
@@ -266,11 +256,6 @@ class ImagingModelEvaluation:
 
         logger.info(f"  Confusion matrix:\n{cm}")
 
-        # Compute optimal per-class thresholds
-        optimal_thresholds, optimized_metrics = self._compute_optimal_thresholds(
-            labels, probs, split_name
-        )
-
         return {
             "split": split_name,
             "accuracy": round(accuracy, 4),
@@ -279,7 +264,6 @@ class ImagingModelEvaluation:
             "macro_f1": round(macro_f1, 4),
             "precision_macro": precision_macro,
             "recall_macro": recall_macro,
-            "brier_score": round(brier, 4),
             "confusion_matrix": cm.tolist(),
             "classification_report": report,
             "num_samples": len(labels),
@@ -287,72 +271,6 @@ class ImagingModelEvaluation:
                 str(k): int(v)
                 for k, v in pd.Series(labels).value_counts().sort_index().items()
             },
-            "optimal_thresholds": optimal_thresholds,
-            "optimized_metrics": optimized_metrics,
-        }
-
-    def _compute_optimal_thresholds(
-        self, labels: list, probs: np.ndarray, split_name: str
-    ) -> tuple[dict[str, float], dict]:
-        """Find per-class thresholds that maximize recall while maintaining precision.
-
-        For medical imaging, we prioritize recall (catch all positive cases) over precision.
-        Returns optimal thresholds and metrics using those thresholds.
-        """
-        from sklearn.preprocessing import label_binarize
-
-        n_classes = probs.shape[1]
-        labels_bin = label_binarize(labels, classes=list(range(n_classes)))
-
-        optimal_thresholds = {}
-        optimized_preds = np.zeros(len(labels), dtype=int)
-
-        for class_idx in range(n_classes):
-            class_probs = probs[:, class_idx]
-            class_labels = labels_bin[:, class_idx]
-
-            best_threshold = 0.0
-            best_f1 = 0.0
-
-            # Search for threshold that maximizes F1 for this class
-            for threshold in np.arange(0.1, 0.9, 0.05):
-                class_preds = (class_probs >= threshold).astype(int)
-                if class_preds.sum() == 0:
-                    continue
-                f1 = float(f1_score(class_labels, class_preds, zero_division=0))
-                if f1 > best_f1:
-                    best_f1 = f1
-                    best_threshold = threshold
-
-            optimal_thresholds[str(class_idx)] = round(best_threshold, 2)
-
-            # Mark samples that exceed threshold for this class
-            for i, prob in enumerate(class_probs):
-                if prob >= best_threshold and best_threshold > 0:
-                    optimized_preds[i] = class_idx
-
-        # Compute metrics with optimized thresholds
-        opt_accuracy = float(accuracy_score(labels, optimized_preds))
-        opt_qwk = float(cohen_kappa_score(labels, optimized_preds, weights="quadratic"))
-        opt_macro_f1 = float(
-            f1_score(labels, optimized_preds, average="macro", zero_division=0)
-        )
-        opt_recall = float(
-            recall_score(labels, optimized_preds, average="macro", zero_division=0)
-        )
-
-        logger.info(f"[{split_name}] optimal thresholds: {optimal_thresholds}")
-        logger.info(
-            f"[{split_name}] optimized vs argmax: "
-            f"acc={opt_accuracy:.4f} (vs {accuracy_score(labels, probs.argmax(1)):.4f}), "
-            f"macro_f1={opt_macro_f1:.4f}, recall={opt_recall:.4f}"
-        )
-
-        return optimal_thresholds, {
-            "accuracy": round(opt_accuracy, 4),
-            "quadratic_weighted_kappa": round(opt_qwk, 4),
-            "macro_f1": round(opt_macro_f1, 4),
-            "recall_macro": round(opt_recall, 4),
         }
 
     def evaluate(self) -> dict:
@@ -401,20 +319,11 @@ class ImagingModelEvaluation:
         tent_momentum = float(tent_cfg.get("momentum", 0.9))
 
         logger.info("--- evaluating on EyePACS test set ---")
-        test_preds, test_labels, test_probs, test_paths = self._run_inference(
+        test_preds, test_labels, test_probs = self._run_inference(
             model, self.config.test_csv
         )
         test_metrics = self._compute_metrics(
             test_preds, test_labels, test_probs, "eyepacs_test"
-        )
-        misclassified_dir = self.config.metric_file.parent / "misclassified"
-        self._save_misclassified_images(
-            test_preds,
-            test_labels,
-            test_probs,
-            test_paths,
-            "eyepacs_test",
-            misclassified_dir / "eyepacs_test",
         )
 
         partial_metrics: dict = {
@@ -481,21 +390,11 @@ class ImagingModelEvaluation:
                         "skipping TENT adaptation (disabled or insufficient memory)"
                     )
 
-                samaya_preds, samaya_labels, samaya_probs, samaya_paths = (
-                    self._run_inference(
-                        model, self.config.samaya_csv, transform=samaya_tf
-                    )
+                samaya_preds, samaya_labels, samaya_probs = self._run_inference(
+                    model, self.config.samaya_csv, transform=samaya_tf
                 )
                 samaya_metrics = self._compute_metrics(
                     samaya_preds, samaya_labels, samaya_probs, "samaya_validation"
-                )
-                self._save_misclassified_images(
-                    samaya_preds,
-                    samaya_labels,
-                    samaya_probs,
-                    samaya_paths,
-                    "samaya_validation",
-                    misclassified_dir / "samaya_validation",
                 )
 
                 if tent_enabled:
@@ -519,18 +418,6 @@ class ImagingModelEvaluation:
                         domain_shift_metrics["embedding_mmd"] = mmd_val
                     except Exception as e:
                         logger.warning(f"embedding MMD computation failed: {e}")
-
-                if ds_cfg.get("compute_feature_psi", False):
-                    try:
-                        feature_psi = self._compute_feature_psi(
-                            model,
-                            self.config.test_csv,
-                            self.config.samaya_csv,
-                            samaya_tf,
-                        )
-                        domain_shift_metrics["feature_psi"] = feature_psi
-                    except Exception as e:
-                        logger.warning(f"feature PSI computation failed: {e}")
             except Exception as e:
                 logger.error(f"Samaya evaluation failed (non-fatal): {e}")
                 import traceback
@@ -567,21 +454,7 @@ class ImagingModelEvaluation:
                 "test_macro_f1": test_metrics["macro_f1"],
                 "test_precision_macro": test_metrics["precision_macro"],
                 "test_recall_macro": test_metrics["recall_macro"],
-                "test_brier_score": test_metrics["brier_score"],
             }
-            # Log optimal thresholds
-            for grade, thresh in test_metrics.get("optimal_thresholds", {}).items():
-                test_mlflow_metrics[f"test_threshold_grade_{grade}"] = float(thresh)
-            # Log optimized metrics
-            opt = test_metrics.get("optimized_metrics", {})
-            if opt:
-                test_mlflow_metrics["test_optimized_accuracy"] = opt["accuracy"]
-                test_mlflow_metrics["test_optimized_qwk"] = opt[
-                    "quadratic_weighted_kappa"
-                ]
-                test_mlflow_metrics["test_optimized_macro_f1"] = opt["macro_f1"]
-                test_mlflow_metrics["test_optimized_recall_macro"] = opt["recall_macro"]
-
             for grade_label, grade_vals in test_metrics[
                 "classification_report"
             ].items():
@@ -633,27 +506,7 @@ class ImagingModelEvaluation:
                     "samaya_macro_f1": samaya_metrics["macro_f1"],
                     "samaya_precision_macro": samaya_metrics["precision_macro"],
                     "samaya_recall_macro": samaya_metrics["recall_macro"],
-                    "samaya_brier_score": samaya_metrics["brier_score"],
                 }
-                # Log optimal thresholds
-                for grade, thresh in samaya_metrics.get(
-                    "optimal_thresholds", {}
-                ).items():
-                    samaya_mlflow_metrics[f"samaya_threshold_grade_{grade}"] = float(
-                        thresh
-                    )
-                # Log optimized metrics
-                opt = samaya_metrics.get("optimized_metrics", {})
-                if opt:
-                    samaya_mlflow_metrics["samaya_optimized_accuracy"] = opt["accuracy"]
-                    samaya_mlflow_metrics["samaya_optimized_qwk"] = opt[
-                        "quadratic_weighted_kappa"
-                    ]
-                    samaya_mlflow_metrics["samaya_optimized_macro_f1"] = opt["macro_f1"]
-                    samaya_mlflow_metrics["samaya_optimized_recall_macro"] = opt[
-                        "recall_macro"
-                    ]
-
                 for grade_label, grade_vals in samaya_metrics[
                     "classification_report"
                 ].items():
@@ -741,55 +594,6 @@ class ImagingModelEvaluation:
             ece += (in_bin.sum() / len(probs)) * abs(bin_acc - bin_conf)
         return float(ece)
 
-    def _save_misclassified_images(
-        self,
-        preds: list,
-        labels: list,
-        probs: np.ndarray,
-        paths: list,
-        split_name: str,
-        output_dir: Path,
-        max_samples: int = 20,
-    ) -> None:
-        """Save misclassified images to artifacts for debugging."""
-        import shutil
-
-        misclassified = []
-        for i, (pred, label, path) in enumerate(zip(preds, labels, paths)):
-            if pred != label:
-                confidence = float(np.max(probs[i]))
-                misclassified.append(
-                    {
-                        "path": path,
-                        "true_label": int(label),
-                        "pred_label": int(pred),
-                        "confidence": confidence,
-                    }
-                )
-
-        if not misclassified:
-            logger.info(f"[{split_name}] no misclassified samples to save")
-            return
-
-        misclassified.sort(key=lambda x: x["confidence"], reverse=True)
-        top_misclassified = misclassified[:max_samples]
-
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        for i, sample in enumerate(top_misclassified):
-            src = Path(sample["path"])
-            if not src.exists():
-                continue
-            dst = (
-                output_dir
-                / f"{split_name}_mis_{i:03d}_true{sample['true_label']}_pred{sample['pred_label']}_conf{sample['confidence']:.2f}{src.suffix}"
-            )
-            shutil.copy2(src, dst)
-
-        logger.info(
-            f"[{split_name}] saved {len(top_misclassified)} misclassified images to {output_dir}"
-        )
-
     def _compute_embedding_mmd(
         self,
         model: nn.Module,
@@ -840,69 +644,3 @@ class ImagingModelEvaluation:
 
         mmd = xx.sum() / (n * n) + yy.sum() / (m * m) - 2 * xy.sum() / (n * m)
         return float(mmd.item())
-
-    def _compute_feature_psi(
-        self,
-        model: nn.Module,
-        eyepacs_csv: Path,
-        samaya_csv: Path,
-        samaya_transform,
-        num_features: int = 100,
-    ) -> float:
-        """Compute PSI over embedding features (not class predictions).
-
-        Uses Random Projection to reduce 1536-dim embeddings to manageable
-        size, then computes per-dimension PSI and returns the mean.
-        """
-        import torch.nn.functional as F
-        from app.services.monitoring.prometheus_metrics import compute_psi
-
-        def _extract_embeddings(csv_path: Path, transform):
-            ds = RetinalDataset(csv_path, transform)
-            loader = DataLoader(
-                ds,
-                batch_size=self.params.evaluation.dl.batch_size,
-                shuffle=False,
-                num_workers=self.params.evaluation.dl.num_workers,
-            )
-            embs = []
-            with torch.no_grad():
-                for batch in loader:
-                    if isinstance(batch, (list, tuple)):
-                        images = batch[0]
-                    else:
-                        images = batch
-                    images = images.to(self.device)
-                    if hasattr(model, "forward_features"):
-                        features = model.forward_features(images)
-                        emb = model.global_pool(features)
-                    else:
-                        emb = model(images)
-                    embs.append(emb.cpu())
-            return torch.cat(embs, dim=0)
-
-        eye_embs = _extract_embeddings(eyepacs_csv, self._build_transform())
-        samaya_embs = _extract_embeddings(samaya_csv, samaya_transform)
-
-        n = min(len(eye_embs), len(samaya_embs))
-        eye_sub = eye_embs[:n].numpy()
-        sam_sub = samaya_embs[:n].numpy()
-
-        # Random projection for efficiency
-        dim = eye_sub.shape[1]
-        rng = np.random.RandomState(42)
-        projection = rng.randn(dim, num_features) / np.sqrt(dim)
-        eye_proj = eye_sub @ projection
-        sam_proj = sam_sub @ projection
-
-        psi_values = []
-        for i in range(num_features):
-            psi = compute_psi(eye_proj[:, i], sam_proj[:, i])
-            psi_values.append(psi)
-
-        mean_psi = float(np.mean(psi_values))
-        logger.info(
-            f"[feature_psi] eye={len(eye_sub)} samaya={len(sam_sub)} "
-            f"mean_psi={mean_psi:.4f} max_psi={max(psi_values):.4f}"
-        )
-        return mean_psi

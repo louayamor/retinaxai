@@ -24,24 +24,6 @@ class PrometheusMetricsResponse(BaseModel):
     gpu_utilization: float | None
 
 
-class Alert(BaseModel):
-    labels: dict[str, str]
-    annotations: dict[str, str]
-    startsAt: str
-    endsAt: str | None = None
-    generatorURL: str | None = None
-    fingerprint: str | None = None
-    status: str | None = None
-    value: str | None = None
-
-
-class AlertsResponse(BaseModel):
-    alerts: list[Alert]
-    total: int
-    firing: int
-    pending: int
-
-
 @router.get("/prometheus", response_model=PrometheusMetricsResponse)
 async def get_prometheus_metrics():
     """Proxy Prometheus metrics for frontend consumption."""
@@ -87,58 +69,3 @@ async def get_prometheus_metrics():
 
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Prometheus unreachable: {e}")
-
-
-@router.get("/alerts", response_model=AlertsResponse)
-async def get_prometheus_alerts():
-    """Fetch active alerts from Prometheus rule evaluation."""
-    settings = get_settings()
-    prometheus_url = settings.prometheus_url
-
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{prometheus_url}/api/v1/alerts")
-            data = resp.json()
-
-            if data.get("status") != "success":
-                return AlertsResponse(alerts=[], total=0, firing=0, pending=0)
-
-            raw_alerts = data.get("data", {}).get("alerts", [])
-            alerts: list[Alert] = []
-            firing_count = 0
-            pending_count = 0
-
-            for raw in raw_alerts:
-                labels = raw.get("labels", {})
-                annotations = raw.get("annotations", {})
-                state = raw.get("state", "unknown")
-
-                if state == "firing":
-                    firing_count += 1
-                elif state == "pending":
-                    pending_count += 1
-
-                alerts.append(
-                    Alert(
-                        labels=labels,
-                        annotations=annotations,
-                        startsAt=raw.get("startsAt", ""),
-                        endsAt=raw.get("endsAt"),
-                        generatorURL=raw.get("generatorURL"),
-                        fingerprint=raw.get("fingerprint"),
-                        status=state,
-                        value=raw.get("value"),
-                    )
-                )
-
-            return AlertsResponse(
-                alerts=alerts,
-                total=len(alerts),
-                firing=firing_count,
-                pending=pending_count,
-            )
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=502, detail=f"Prometheus alerts unreachable: {e}"
-        )

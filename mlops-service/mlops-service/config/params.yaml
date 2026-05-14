@@ -3,46 +3,29 @@
 global:
   seed: 42
   num_classes: 5
-  image_size: 224
+  image_size: 300
   device: cuda
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 
 data:
   ratios:
-    clinical: 0.15
-    eyepacs: 0.85
-    oversample_ratio: 12
-  keep_no_dr_ratio: 0.30
-  oversampling:
-    enabled: true
-    min_samples_per_class:
-      0: 2400
-      1: 600
-      2: 950
-      3: 400
-      4: 400
+    clinical: 0.12   # achievable: 90 Samaya × 10 oversample = 900 samples
+    eyepacs: 0.88
+    oversample_ratio: 10
+  keep_no_dr_ratio: 0.35   # G0:DR ratio drops 3.4:1→1.5:1
 
 # ── Augmentation ──────────────────────────────────────────────────────────────
 
 augmentation:
   random_horizontal_flip: true
-  random_vertical_flip: false
-  random_rotation: 20
+  random_vertical_flip: true
+  random_rotation: 15
   color_jitter:
-    brightness: 0.15
-    contrast: 0.15
-    saturation: 0.10
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.1
     hue: 0.05
-  gaussian_blur:
-    enabled: true
-    kernel_size: 3
-    sigma: [0.1, 1.5]
-  clahe:
-    enabled: false
-  random_erasing:
-    enabled: true
-    probability: 0.08
   normalize:
     mean: [0.485, 0.456, 0.406]
     std: [0.229, 0.224, 0.225]
@@ -50,82 +33,59 @@ augmentation:
     enabled: false
     alpha: 0.2
   domain_robustness:
-    random_grayscale_prob: 0.15
-    random_sharpness: 0.7
-    random_affine_translate: [0.08, 0.08]
-    random_affine_scale: [0.85, 1.15]
-    gaussian_noise_std: 0.01
-    jpeg_compression:
-      enabled: true
-      quality_range: [75, 100]
-    illumination_shift:
-      enabled: false
-      gamma_range: [0.7, 1.5]
+    random_grayscale_prob: 0.1
+    random_sharpness: 0.5
+    random_affine_translate: [0.05, 0.05]
+    random_affine_scale: [0.90, 1.10]
 
 # ── Training ──────────────────────────────────────────────────────────────────
 
 training:
-  class_weights: [1.0, 4.0, 2.0, 5.0, 7.0]
+  class_weights: [1.0, 7.0, 3.5, 9.0, 11.0]   # G0=73.5%→1.0  G1=6.9%→7.0  G2=15.1%→3.5  G3=2.5%→9.0  G4=2.0%→11.0
   weighted_sampling: true
   use_class_weights_in_loss: true
   early_stopping_metric: macro_f1
-  early_stopping_patience: 6
-  early_stopping_min_delta: 0.003
-  label_smoothing: 0.05
-  weight_decay: 0.005
+  early_stopping_patience: 8
+  label_smoothing: 0.1
+  weight_decay: 0.001
   scheduler: cosine
-  lr_warmup_epochs: 3
+  lr_warmup_epochs: 2
   batch_size: 8
   num_workers: 4
   pin_memory: true
   gradient_accumulation_steps: 4
-  gradient_clip_norm: 1.0
-  monitor_per_class_metrics: true
-  save_confusion_matrix: true
-  save_misclassified_images: true
 
   phase1:
-    epochs: 18
-    lr: 0.00003
+    epochs: 10
+    lr: 0.00005
     dropout: 0.45
     freeze_backbone: true
     freeze_blocks: 3
-    unfreeze_last_blocks: 2
-    focal_loss_gamma: 1.5
+    unfreeze_last_blocks: true
+    focal_loss_gamma: 2.0
     loss: focal_ordinal_weighted
 
   phase2:
-    epochs: 15
-    lr: 0.00002
-    backbone_lr_ratio: 5
-    dropout: 0.25
+    epochs: 10
+    lr: 0.000005
+    backbone_lr_ratio: 3
+    dropout: 0.3
     freeze_backbone: false
-    focal_loss_gamma: 1.5
+    focal_loss_gamma: 2.5
     loss: focal_ordinal_weighted
-    early_stopping_patience: 8
+    early_stopping_patience: 5
     mixup:
       enabled: true
-      alpha: 0.15
+      alpha: 0.2
     fda:
-      enabled: false
-      beta: 0.05
+      enabled: true
+      beta: 0.10   # G0 domain gap 47pp (73.5%→25.6%)
       probability: 0.3
-
-  fine_tuning:
-    epochs: 20
-    lr: 0.0001
-    batch_size: 16
-    weight_decay: 0.0001
-    dropout: 0.3
-    freeze_backbone: true
-    num_workers: 4
-    pin_memory: true
-    scheduler: cosine
 
 # ── FDA (Fourier Domain Adaptation) ───────────────────────────────────────────
 
 fda:
-  inference_beta: 0.08
+  inference_beta: 0.1
   target_images_dir: artifacts/data/processed/imaging/images/samaya
   cache_path: artifacts/data/processed/imaging/samaya_amplitude_target.pt
 
@@ -133,7 +93,7 @@ fda:
 
 tent:
   enabled: true
-  learning_rate: 0.00005
+  learning_rate: 0.0001
   steps: 3
   momentum: 0.9
 
@@ -145,13 +105,11 @@ ml_training:
   test_size: 0.2
   target: clinical_npdr_grade
   xgboost:
-    n_estimators: 400
-    max_depth: 5
-    learning_rate: 0.03
+    n_estimators: 300
+    max_depth: 6
+    learning_rate: 0.05
     subsample: 0.8
     colsample_bytree: 0.8
-    reg_alpha: 0.5
-    reg_lambda: 2.0
     eval_metric: mlogloss
   features:
     numeric:
@@ -177,16 +135,8 @@ ml_training:
 # ── Inference ─────────────────────────────────────────────────────────────────
 
 inference:
-  confidence_threshold: 0.40
+  confidence_threshold: 0.35
   apply_fda_inverse: false
-  tta:
-    enabled: true
-    horizontal_flip: true
-    rotation_angles: [-10, 0, 10]
-    brightness_shift: [0.95, 1.05]
-  per_class_thresholds:
-    eyepacs: [0.10, 0.30, 0.35, 0.70, 0.60]
-    samaya:  [0.15, 0.45, 0.10, 0.70, 0.35]
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
 
@@ -196,15 +146,9 @@ evaluation:
     num_workers: 4
     metrics:
       - accuracy
-      - macro_f1
-      - precision_macro
-      - recall_macro
       - quadratic_weighted_kappa
       - roc_auc
       - classification_report
-      - confusion_matrix
-      - per_class_recall
-      - per_class_precision
   ml:
     metrics:
       - accuracy
@@ -215,16 +159,12 @@ evaluation:
   domain_shift:
     compute_embedding_mmd: true
     compute_confidence_ece: true
-    compute_feature_psi: true
 
 # ── MLflow ────────────────────────────────────────────────────────────────────
 
 mlflow:
-  imaging_run_name: efficientnet_b3_domain_robust
+  imaging_run_name: efficientnet_b3
   model_log_timeout_seconds: 600
-  log_confusion_matrix: true
-  log_misclassified_samples: true
-  log_per_class_metrics: true
 
 # ── Fundus Classifier ─────────────────────────────────────────────────────────
 
@@ -232,4 +172,4 @@ fundus_classifier:
   model_name: mobilenetv3_small_100
   threshold: 0.3
   num_classes: 2
-  dropout: 0.15
+  dropout: 0.1

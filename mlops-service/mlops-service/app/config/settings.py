@@ -107,14 +107,6 @@ class Settings(BaseSettings):
         return self.clinical_artifacts_dir / "feature_importance.json"
 
     @property
-    def clinical_features_path(self) -> Path:
-        return self.clinical_data_dir / "features.json"
-
-    @property
-    def evidently_metrics_path(self) -> Path:
-        return self.monitoring_dir / "evidently_metrics.json"
-
-    @property
     def imaging_metrics_path(self) -> Path:
         return self.imaging_artifacts_dir / "metrics.json"
 
