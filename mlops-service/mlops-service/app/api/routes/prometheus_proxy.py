@@ -1,12 +1,33 @@
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.dependencies import get_settings
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
+
+
+class AlertItemResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    labels: dict[str, str]
+    annotations: dict[str, str]
+    starts_at: str = Field(alias="startsAt")
+    ends_at: str | None = Field(default=None, alias="endsAt")
+    status: str
+    value: str | None = None
+    fingerprint: str | None = None
+
+
+class AlertsResponse(BaseModel):
+    alerts: list[AlertItemResponse]
+    total: int
+    firing: int
+    pending: int
 
 
 class PrometheusMetricsResponse(BaseModel):
@@ -67,5 +88,65 @@ async def get_prometheus_metrics():
 
             return PrometheusMetricsResponse(**results)
 
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Prometheus unreachable: {e}")
+
+
+@router.get("/alerts", response_model=AlertsResponse)
+async def get_alerts():
+    settings = get_settings()
+    prometheus_url = settings.prometheus_url
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{prometheus_url}/api/v1/alerts")
+            data: dict[str, Any] = resp.json()
+
+            if data.get("status") != "success":
+                raise HTTPException(
+                    status_code=502,
+                    detail="Prometheus alerts API returned non-success status",
+                )
+
+            raw_alerts: list[dict[str, Any]] = data.get("data", {}).get("alerts", [])
+
+            mapped: list[AlertItemResponse] = []
+            firing = 0
+            pending = 0
+
+            for raw in raw_alerts:
+                state = raw.get("state", "inactive")
+                value_str: str | None = raw.get("value")
+                if value_str is not None:
+                    value_str = str(value_str)
+
+                alert_item = AlertItemResponse(
+                    labels=raw.get("labels", {}),
+                    annotations=raw.get("annotations", {}),
+                    starts_at=raw.get("activeAt", ""),
+                    ends_at=None,
+                    status=state,
+                    value=value_str,
+                    fingerprint=raw.get("fingerprint"),
+                )
+
+                if state == "firing":
+                    firing += 1
+                elif state == "pending":
+                    pending += 1
+
+                mapped.append(alert_item)
+
+            mapped.sort(key=lambda a: a.starts_at, reverse=True)
+
+            return AlertsResponse(
+                alerts=mapped,
+                total=len(mapped),
+                firing=firing,
+                pending=pending,
+            )
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Prometheus unreachable: {e}")
