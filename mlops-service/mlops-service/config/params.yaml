@@ -76,11 +76,11 @@ training:
     early_stopping_patience: 5
     mixup:
       enabled: true
-      alpha: 0.2
+      alpha: 0.1
     fda:
       enabled: true
-      beta: 0.10   # G0 domain gap 47pp (73.5%→25.6%)
-      probability: 0.3
+      beta: 0.05
+      probability: 0.15
 
 # ── FDA (Fourier Domain Adaptation) ───────────────────────────────────────────
 

@@ -12,7 +12,7 @@ from torchvision import transforms
 import pandas as pd
 from PIL import Image
 import numpy as np
-from sklearn.metrics import f1_score, confusion_matrix
+from sklearn.metrics import f1_score, recall_score, confusion_matrix, cohen_kappa_score
 import matplotlib
 
 matplotlib.use("Agg")
@@ -44,6 +44,9 @@ from app.services.monitoring.prometheus_metrics import (
     TRAINING_PATIENCE_COUNTER,
     TRAINING_VAL_LOSS,
     TRAINING_PER_CLASS_F1,
+    TRAINING_PER_CLASS_RECALL,
+    TRAINING_VAL_MAE,
+    TRAINING_EPOCH_QWK,
     ACTIVE_TRAINING_JOBS,
     GPU_MEMORY_USED_BYTES,
     GPU_UTILIZATION_PERCENT,
@@ -703,6 +706,14 @@ class ImagingModelTrainer:
                 )
                 cm = confusion_matrix(all_labels, all_preds)
 
+                per_class_recall = recall_score(
+                    all_labels, all_preds, average=None, zero_division=0
+                )
+                mae = float(np.mean(np.abs(np.array(all_preds) - np.array(all_labels))))
+                qwk = float(
+                    cohen_kappa_score(all_labels, all_preds, weights="quadratic")
+                )
+
                 train_acc = float(
                     sum(
                         1
@@ -748,6 +759,8 @@ class ImagingModelTrainer:
                     patience_counter
                 )
                 TRAINING_VAL_LOSS.labels(pipeline="imaging").set(avg_loss)
+                TRAINING_VAL_MAE.labels(pipeline="imaging").set(mae)
+                TRAINING_EPOCH_QWK.labels(pipeline="imaging").set(qwk)
                 EPOCH_TRAIN_LOSS.labels(pipeline="imaging").observe(avg_loss)
 
                 # Update per-class F1 gauges
@@ -755,6 +768,11 @@ class ImagingModelTrainer:
                     TRAINING_PER_CLASS_F1.labels(
                         pipeline="imaging", dr_grade=str(cls_idx)
                     ).set(float(cls_f1))
+
+                for cls_idx, cls_recall in enumerate(per_class_recall):
+                    TRAINING_PER_CLASS_RECALL.labels(
+                        pipeline="imaging", dr_grade=str(cls_idx)
+                    ).set(float(cls_recall))
 
                 # Update GPU metrics
                 if torch.cuda.is_available():
@@ -778,14 +796,20 @@ class ImagingModelTrainer:
                         "lr": float(lr),
                         "psi_score": float(psi_score),
                         "epoch_duration_s": float(epoch_duration),
+                        "val_mae": float(mae),
+                        "val_qwk": float(qwk),
                     },
                     step=epoch,
                 )
 
-                # Log per-class F1
                 for cls_idx, cls_f1 in enumerate(per_class_f1):
                     mlflow.log_metric(
                         f"val_f1_class_{cls_idx}", float(cls_f1), step=epoch
+                    )
+
+                for cls_idx, cls_recall in enumerate(per_class_recall):
+                    mlflow.log_metric(
+                        f"val_recall_class_{cls_idx}", float(cls_recall), step=epoch
                     )
 
                 # Log confusion matrix as MLflow artifact
@@ -823,6 +847,9 @@ class ImagingModelTrainer:
                     f"val_acc={val_acc:.4f} "
                     f"train_f1={train_f1:.4f} "
                     f"val_f1={macro_f1:.4f} "
+                    f"qwk={qwk:.4f} "
+                    f"mae={mae:.4f} "
+                    f"recall=[{', '.join(f'{r:.3f}' for r in per_class_recall)}] "
                     f"lr={lr:.6f} "
                     f"psi={psi_score:.4f} [{drift_status}] "
                     f"duration={epoch_duration:.1f}s"
@@ -857,7 +884,10 @@ class ImagingModelTrainer:
             ACTIVE_TRAINING_JOBS.dec()
             mlflow.log_metric("best_val_acc", float(best_val_acc))
             mlflow.log_metric("best_macro_f1", float(best_macro_f1))
-            self._log_best_model_to_mlflow(checkpoint_path, self._global_num_classes)
+            if self.phase != "phase1":
+                self._log_best_model_to_mlflow(
+                    checkpoint_path, self._global_num_classes
+                )
 
         logger.info(f"training complete. best_val_acc={best_val_acc:.4f}")
         logger.info(f"model saved: {checkpoint_path}")

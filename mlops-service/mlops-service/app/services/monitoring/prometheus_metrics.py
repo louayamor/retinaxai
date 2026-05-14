@@ -230,6 +230,24 @@ TRAINING_PER_CLASS_F1 = Gauge(
     ["pipeline", "dr_grade"],
 )
 
+TRAINING_PER_CLASS_RECALL = Gauge(
+    "retinaxai_training_per_class_recall",
+    "Per-class recall during training",
+    ["pipeline", "dr_grade"],
+)
+
+TRAINING_VAL_MAE = Gauge(
+    "retinaxai_training_val_mae",
+    "Validation MAE (Mean Absolute Error) per epoch for ordinal DR grading",
+    ["pipeline"],
+)
+
+TRAINING_EPOCH_QWK = Gauge(
+    "retinaxai_training_epoch_qwk",
+    "Quadratic Weighted Kappa per epoch on validation set",
+    ["pipeline"],
+)
+
 EVALUATION_SCORE = Gauge(
     "retinaxai_evaluation_score",
     "Evaluation metrics from last pipeline run (accuracy, roc_auc, F1, precision, recall)",
@@ -297,8 +315,11 @@ def init_metrics() -> None:
     TRAINING_BEST_F1.labels(pipeline=p).set(0)
     TRAINING_PATIENCE_COUNTER.labels(pipeline=p).set(0)
     TRAINING_VAL_LOSS.labels(pipeline=p).set(0)
+    TRAINING_VAL_MAE.labels(pipeline=p).set(0)
+    TRAINING_EPOCH_QWK.labels(pipeline=p).set(0)
     for grade in range(5):
         TRAINING_PER_CLASS_F1.labels(pipeline=p, dr_grade=str(grade)).set(0)
+        TRAINING_PER_CLASS_RECALL.labels(pipeline=p, dr_grade=str(grade)).set(0)
     for split in ("eyepacs_test", "samaya_validation"):
         for metric in _METRIC_KEYS:
             EVALUATION_SCORE.labels(pipeline="imaging", split=split, metric=metric).set(
