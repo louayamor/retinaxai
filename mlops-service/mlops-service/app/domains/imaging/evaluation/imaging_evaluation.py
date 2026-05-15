@@ -271,6 +271,21 @@ class ImagingModelEvaluation:
                 str(k): int(v)
                 for k, v in pd.Series(labels).value_counts().sort_index().items()
             },
+            **{
+                f"class_{grade}_recall": round(report[grade]["recall"], 4)
+                for grade in ["0", "1", "2", "3", "4"]
+                if grade in report
+            },
+            **{
+                f"class_{grade}_f1": round(report[grade]["f1-score"], 4)
+                for grade in ["0", "1", "2", "3", "4"]
+                if grade in report
+            },
+            **{
+                f"class_{grade}_precision": round(report[grade]["precision"], 4)
+                for grade in ["0", "1", "2", "3", "4"]
+                if grade in report
+            },
         }
 
     def evaluate(self) -> dict:
@@ -441,6 +456,26 @@ class ImagingModelEvaluation:
             QUADRATIC_WEIGHTED_KAPPA.labels(
                 pipeline="imaging", split="samaya_validation"
             ).set(samaya_metrics["quadratic_weighted_kappa"])
+
+        training_summary_path = None
+        if hasattr(self.config, "checkpoint_path") and self.config.checkpoint_path:
+            training_summary_path = (
+                self.config.checkpoint_path.parent / "training_summary.json"
+            )
+        if training_summary_path and training_summary_path.exists():
+            try:
+                import json
+
+                with open(training_summary_path) as f:
+                    training_summary = json.load(f)
+                full_metrics["training_summary"] = training_summary
+                logger.info(
+                    f"merged training_summary into metrics.json "
+                    f"(phase={training_summary.get('phase')}, "
+                    f"best_epoch={training_summary.get('best_epoch')})"
+                )
+            except Exception as e:
+                logger.warning(f"failed to merge training_summary: {e}")
 
         save_json(self.config.metric_file, full_metrics)
         logger.info(f"metrics saved: {self.config.metric_file}")

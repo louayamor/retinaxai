@@ -146,6 +146,21 @@ class TestComputeMetrics:
             "classification_report",
             "num_samples",
             "label_distribution",
+            "class_0_recall",
+            "class_0_f1",
+            "class_0_precision",
+            "class_1_recall",
+            "class_1_f1",
+            "class_1_precision",
+            "class_2_recall",
+            "class_2_f1",
+            "class_2_precision",
+            "class_3_recall",
+            "class_3_f1",
+            "class_3_precision",
+            "class_4_recall",
+            "class_4_f1",
+            "class_4_precision",
         }
         assert set(metrics.keys()) == expected_keys
 

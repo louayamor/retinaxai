@@ -17,6 +17,7 @@ class RagPipeline(StrEnum):
     OCR = "ocr"
     COMBINED = "combined"
     PARTIAL = "partial"
+    DB = "db"
 
 
 class RagArtifactId(StrEnum):
@@ -24,6 +25,12 @@ class RagArtifactId(StrEnum):
     CLINICAL_METRICS = "clinical_metrics"
     CLINICAL_FEATURE_IMPORTANCE = "clinical_feature_importance"
     IMAGING_METRICS = "imaging_metrics"
+    CLINICAL_FEATURES = "clinical_features"
+    EVIDENTLY_METRICS = "evidently_metrics"
+    MODEL_REGISTRY_METADATA = "model_registry_metadata"
+    DB_PREDICTIONS = "db_predictions"
+    DB_EXPLANATIONS = "db_explanations"
+    DB_PATIENTS = "db_patients"
 
 
 class RagArtifactType(StrEnum):

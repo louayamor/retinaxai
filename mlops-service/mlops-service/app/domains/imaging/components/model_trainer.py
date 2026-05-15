@@ -1,6 +1,8 @@
+import json
 import mlflow
 import mlflow.pytorch
 import time
+from datetime import datetime, timezone
 import timm
 import torch
 import torch.nn as nn
@@ -12,7 +14,13 @@ from torchvision import transforms
 import pandas as pd
 from PIL import Image
 import numpy as np
-from sklearn.metrics import f1_score, recall_score, confusion_matrix, cohen_kappa_score
+from sklearn.metrics import (
+    f1_score,
+    recall_score,
+    confusion_matrix,
+    cohen_kappa_score,
+    precision_score,
+)
 import matplotlib
 
 matplotlib.use("Agg")
@@ -23,7 +31,7 @@ from app.entity.config_entity import (
     ImagingModelTrainerConfig,
     ImagingTransformationConfig,
 )
-from app.utils.common import read_yaml, set_seed
+from app.utils.common import read_yaml, set_seed, save_json
 from app.domains.imaging.components.ordinal_loss import (
     OrdinalCrossEntropyLoss,
     FocalOrdinalLoss,
@@ -39,7 +47,6 @@ from app.services.monitoring.prometheus_metrics import (
     TRAINING_EPOCH_F1,
     TRAINING_LEARNING_RATE,
     TRAINING_EPOCH_DURATION,
-    TRAINING_EPOCH_PSI,
     TRAINING_BEST_F1,
     TRAINING_PATIENCE_COUNTER,
     TRAINING_VAL_LOSS,
@@ -50,7 +57,6 @@ from app.services.monitoring.prometheus_metrics import (
     ACTIVE_TRAINING_JOBS,
     GPU_MEMORY_USED_BYTES,
     GPU_UTILIZATION_PERCENT,
-    compute_psi,
 )
 
 
@@ -152,6 +158,9 @@ class ImagingModelTrainer:
 
             self._training_dropout = float(phase_specific.get("dropout", 0.5))
             self._phase_dropout = self._training_dropout
+            self._backbone_lr_ratio = float(
+                phase_specific.get("backbone_lr_ratio", 1.0)
+            )
         else:
             phase_specific = training_cfg.get("phase1", {}) or {}
             self.phase_epochs = int(phase_specific.get("epochs", 15))
@@ -453,9 +462,13 @@ class ImagingModelTrainer:
         )
 
         model = self._build_model()
-        # Differential learning rate for Phase 2 (backbone 0.1x head LR)
-        # Note: EfficientNet doesn't have backbone attribute, so this falls back to regular optimizer
-        if self.phase == "phase2":
+
+        backbone_lr_ratio = getattr(self, "_backbone_lr_ratio", 1.0)
+        apply_diff_lr = backbone_lr_ratio < 1.0 and any(
+            p.requires_grad for p in model.parameters()
+        )
+
+        if apply_diff_lr:
             blocks = list(model.blocks.children()) if hasattr(model, "blocks") else []
             unfreeze_from = max(0, len(blocks) - 2)
             backbone_param_ids = set()
@@ -475,13 +488,16 @@ class ImagingModelTrainer:
             ]
             optimizer = torch.optim.AdamW(
                 [
-                    {"params": backbone_params, "lr": self.phase_lr * 0.1},
+                    {
+                        "params": backbone_params,
+                        "lr": self.phase_lr * backbone_lr_ratio,
+                    },
                     {"params": head_params, "lr": self.phase_lr},
                 ],
                 weight_decay=self._training_weight_decay,
             )
             logger.info(
-                f"Phase 2 differential LR: backbone={self.phase_lr * 0.1}, head={self.phase_lr}"
+                f"Differential LR: backbone={self.phase_lr * backbone_lr_ratio}, head={self.phase_lr}"
             )
         else:
             optimizer = torch.optim.AdamW(
@@ -554,11 +570,14 @@ class ImagingModelTrainer:
                 f"for ordinal DR grading (preserves grade ordering)"
             )
 
-        best_macro_f1 = 0.0
+        best_val_qwk = -1.0
         best_val_acc = 0.0
+        best_epoch_idx = -1
         patience_counter = 0
         checkpoint_path = self.config.checkpoint_path
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+
+        epoch_log: list[dict] = []
 
         run_suffix = f"_{int(time.time()) % 1000:03d}"
         with mlflow.start_run(
@@ -696,6 +715,14 @@ class ImagingModelTrainer:
 
                 epoch_duration = time.perf_counter() - epoch_start
 
+                clean_train_mae = float(
+                    np.mean(
+                        np.abs(
+                            np.array(clean_train_preds) - np.array(clean_train_labels)
+                        )
+                    )
+                )
+
                 macro_f1 = float(
                     f1_score(
                         all_labels, all_preds, average="macro", zero_division="warn"
@@ -734,12 +761,6 @@ class ImagingModelTrainer:
                 avg_loss = train_loss / train_total
                 lr = float(scheduler.get_last_lr()[0])
 
-                train_probs = np.array(clean_train_preds) / max(
-                    self._global_num_classes - 1, 1
-                )
-                val_probs = np.array(all_preds) / max(self._global_num_classes - 1, 1)
-                psi_score = compute_psi(val_probs, train_probs)
-
                 # Update Prometheus metrics
                 TRAINING_CURRENT_EPOCH.labels(pipeline="imaging").set(epoch + 1)
                 TRAINING_EPOCH_ACCURACY.labels(pipeline="imaging", split="train").set(
@@ -754,7 +775,6 @@ class ImagingModelTrainer:
                 TRAINING_EPOCH_F1.labels(pipeline="imaging", split="val").set(macro_f1)
                 TRAINING_LEARNING_RATE.labels(pipeline="imaging").set(lr)
                 TRAINING_EPOCH_DURATION.labels(pipeline="imaging").set(epoch_duration)
-                TRAINING_EPOCH_PSI.labels(pipeline="imaging").set(psi_score)
                 TRAINING_PATIENCE_COUNTER.labels(pipeline="imaging").set(
                     patience_counter
                 )
@@ -794,7 +814,6 @@ class ImagingModelTrainer:
                         "val_macro_f1": float(macro_f1),
                         "train_f1": float(train_f1),
                         "lr": float(lr),
-                        "psi_score": float(psi_score),
                         "epoch_duration_s": float(epoch_duration),
                         "val_mae": float(mae),
                         "val_qwk": float(qwk),
@@ -833,12 +852,34 @@ class ImagingModelTrainer:
                 mlflow.log_artifact(str(cm_path), "confusion_matrices")
                 plt.close(fig)
 
-                drift_status = (
-                    "DRIFT"
-                    if psi_score > 0.25
-                    else "MODERATE"
-                    if psi_score > 0.1
-                    else "STABLE"
+                epoch_log.append(
+                    {
+                        "epoch": epoch + 1,
+                        "phase": self.phase,
+                        "loss": float(avg_loss),
+                        "train_acc": float(train_acc),
+                        "val_acc": float(val_acc),
+                        "train_f1": float(train_f1),
+                        "val_f1": float(macro_f1),
+                        "val_qwk": float(qwk),
+                        "val_mae": float(mae),
+                        "train_mae": float(clean_train_mae),
+                        "lr": float(lr),
+                        "duration_s": float(epoch_duration),
+                        "class_recall": [float(r) for r in per_class_recall],
+                        "class_f1": [float(f) for f in per_class_f1],
+                        "class_precision": [
+                            float(
+                                precision_score(
+                                    all_labels,
+                                    all_preds,
+                                    average=None,
+                                    zero_division=0,
+                                )[i]
+                            )
+                            for i in range(self._global_num_classes)
+                        ],
+                    }
                 )
                 logger.info(
                     f"epoch={epoch + 1}/{self.phase_epochs} "
@@ -851,14 +892,14 @@ class ImagingModelTrainer:
                     f"mae={mae:.4f} "
                     f"recall=[{', '.join(f'{r:.3f}' for r in per_class_recall)}] "
                     f"lr={lr:.6f} "
-                    f"psi={psi_score:.4f} [{drift_status}] "
                     f"duration={epoch_duration:.1f}s"
                 )
 
-                # Use macro-F1 for checkpointing (not accuracy)
-                if macro_f1 > best_macro_f1:
-                    best_macro_f1 = macro_f1
+                # Use QWK for checkpointing (ordinal agreement — clinically meaningful)
+                if qwk > best_val_qwk:
+                    best_val_qwk = qwk
                     best_val_acc = val_acc
+                    best_epoch_idx = epoch
                     patience_counter = 0
                     try:
                         torch.save(model.state_dict(), checkpoint_path)
@@ -867,8 +908,8 @@ class ImagingModelTrainer:
                             f"Failed to save model checkpoint: {e}"
                         ) from e
                     BEST_VAL_ACCURACY.labels(pipeline="imaging").set(best_val_acc)
-                    TRAINING_BEST_F1.labels(pipeline="imaging").set(best_macro_f1)
-                    logger.info(f"checkpoint saved: macro_f1={macro_f1:.4f}")
+                    TRAINING_BEST_F1.labels(pipeline="imaging").set(macro_f1)
+                    logger.info(f"checkpoint saved: qwk={qwk:.4f} f1={macro_f1:.4f}")
                 else:
                     patience_counter += 1
                     TRAINING_PATIENCE_COUNTER.labels(pipeline="imaging").set(
@@ -883,7 +924,49 @@ class ImagingModelTrainer:
 
             ACTIVE_TRAINING_JOBS.dec()
             mlflow.log_metric("best_val_acc", float(best_val_acc))
-            mlflow.log_metric("best_macro_f1", float(best_macro_f1))
+            mlflow.log_metric("best_val_qwk", float(best_val_qwk))
+            mlflow.log_metric("best_val_macro_f1", float(macro_f1))
+
+            summary_path = self.config.checkpoint_path.parent / "training_summary.json"
+            summary = {
+                "phase": self.phase,
+                "total_epochs": self.phase_epochs,
+                "best_epoch": best_epoch_idx + 1,
+                "best_val_acc": float(best_val_acc),
+                "best_val_qwk": float(best_val_qwk),
+                "best_val_f1": float(
+                    epoch_log[best_epoch_idx]["val_f1"] if best_epoch_idx >= 0 else 0.0
+                ),
+                "best_val_mae": float(
+                    epoch_log[best_epoch_idx]["val_mae"] if best_epoch_idx >= 0 else 0.0
+                ),
+                "epoch_log": epoch_log,
+            }
+            save_json(summary_path, summary)
+
+            history_path = self.config.checkpoint_path.parent / "training_history.jsonl"
+            mlflow_run_id = (
+                mlflow.active_run().info.run_id if mlflow.active_run() else "no-run"
+            )
+            history_entry = {
+                "run_id": mlflow_run_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "phase": self.phase,
+                "best_epoch": best_epoch_idx + 1,
+                "total_epochs_trained": epoch + 1,
+                "best_val_qwk": float(best_val_qwk),
+                "best_val_acc": float(best_val_acc),
+                "best_val_f1": float(
+                    epoch_log[best_epoch_idx]["val_f1"] if best_epoch_idx >= 0 else 0.0
+                ),
+                "best_val_mae": float(
+                    epoch_log[best_epoch_idx]["val_mae"] if best_epoch_idx >= 0 else 0.0
+                ),
+            }
+            with open(history_path, "a") as f:
+                f.write(json.dumps(history_entry) + "\n")
+            logger.info(f"training history appended: {history_path}")
+
             if self.phase != "phase1":
                 self._log_best_model_to_mlflow(
                     checkpoint_path, self._global_num_classes
