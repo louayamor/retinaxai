@@ -107,7 +107,7 @@ async def generate_report_handler(job: Job) -> dict:
     return {
         "content": result.get("content", ""),
         "summary": result.get("summary", ""),
-        "model_used": result.get("model_used", settings.llm_model),
+        "model_used": result.get("model_used", settings.resolved_model),
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "job_id": job.id,

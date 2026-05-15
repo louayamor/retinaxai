@@ -7,6 +7,7 @@ from loguru import logger
 
 from app.core.config import settings
 from app.llm.client import get_llm_client
+from app.llm.fallback import generate_with_fallback
 from app.prompts.templates import REPORT_SYSTEM_PROMPT, REPORT_USER_PROMPT
 from app.services.operation_state import get_operation_state_manager
 from app.utils.helpers import dump_compact
@@ -22,29 +23,23 @@ class InferencePipeline:
             if hasattr(settings.llm_provider, "value")
             else str(settings.llm_provider)
         )
-        token = settings.github_token if provider == "github" else settings.llm_api_key
-        base_url = (
-            settings.github_endpoint if provider == "github" else settings.llm_base_url
-        )
-
-        timeout = settings.timeout_seconds
-        max_tokens = settings.max_tokens
 
         client_kwargs: dict[str, str | int] = {
-            "model": settings.llm_model,
-            "timeout_seconds": timeout,
-            "max_tokens": max_tokens,
+            "model": settings.resolved_model,
+            "timeout_seconds": 60,
+            "max_tokens": min(settings.max_tokens, 1024),
         }
         if provider == "github":
-            client_kwargs["token"] = token if token is not None else ""
-            client_kwargs["endpoint"] = base_url if base_url is not None else ""
+            client_kwargs["token"] = settings.github_token or ""
+            client_kwargs["endpoint"] = settings.github_endpoint
+        elif provider == "nvidia":
+            client_kwargs["api_key"] = settings.nvidia_api_key or ""
+            client_kwargs["base_url"] = settings.nvidia_base_url
         elif provider == "ollama":
-            client_kwargs["base_url"] = (
-                base_url if base_url is not None else settings.ollama_base_url
-            )
+            client_kwargs["base_url"] = settings.ollama_base_url
         else:
-            client_kwargs["token"] = token if token is not None else ""
-            client_kwargs["base_url"] = base_url if base_url is not None else ""
+            client_kwargs["token"] = settings.llm_api_key or ""
+            client_kwargs["base_url"] = settings.llm_base_url or ""
 
         self.client = get_llm_client(provider, **client_kwargs)
         self.store = ChromaStore(
@@ -116,7 +111,7 @@ class InferencePipeline:
             raise
 
     async def _generate_report_internal(self, payload: dict) -> dict[str, str]:
-        model_name = str(payload.get("model") or settings.llm_model)
+        model_name = str(payload.get("model") or settings.resolved_model)
 
         logger.info("Building retrieval context...")
         op_manager = get_operation_state_manager()
@@ -137,11 +132,10 @@ class InferencePipeline:
             retrieved_context=retrieved_context,
         )
 
-        content = await self.client.generate(
-            user_prompt,
-            REPORT_SYSTEM_PROMPT,
-            model=model_name,
+        result = await generate_with_fallback(
+            self.client, user_prompt, system_prompt=REPORT_SYSTEM_PROMPT
         )
+        content = result.content
         generation_time = time.time() - start_time
         logger.info(f"Generation complete ({generation_time:.2f}s)")
 

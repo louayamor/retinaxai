@@ -15,6 +15,7 @@ from app.api.analytics_schemas import (
 )
 from app.core.config import settings
 from app.llm.client import get_llm_client
+from app.llm.fallback import generate_with_fallback
 from app.prompts.chat import CHAT_SYSTEM_PROMPT, CHAT_USER_PROMPT
 from app.vectorstore.chroma_store import ChromaStore
 
@@ -39,25 +40,23 @@ class ChatPipeline:
             if hasattr(settings.llm_provider, "value")
             else str(settings.llm_provider)
         )
-        token = settings.github_token if provider == "github" else settings.llm_api_key
-        base_url = (
-            settings.github_endpoint if provider == "github" else settings.llm_base_url
-        )
+
         client_kwargs: dict[str, str | int] = {
-            "model": settings.llm_model,
+            "model": settings.resolved_model,
             "timeout_seconds": 60,
             "max_tokens": min(settings.max_tokens, 1024),
         }
         if provider == "github":
-            client_kwargs["token"] = token if token is not None else ""
-            client_kwargs["endpoint"] = base_url if base_url is not None else ""
+            client_kwargs["token"] = settings.github_token or ""
+            client_kwargs["endpoint"] = settings.github_endpoint
+        elif provider == "nvidia":
+            client_kwargs["api_key"] = settings.nvidia_api_key or ""
+            client_kwargs["base_url"] = settings.nvidia_base_url
         elif provider == "ollama":
-            client_kwargs["base_url"] = (
-                base_url if base_url is not None else settings.ollama_base_url
-            )
+            client_kwargs["base_url"] = settings.ollama_base_url
         else:
-            client_kwargs["token"] = token if token is not None else ""
-            client_kwargs["base_url"] = base_url if base_url is not None else ""
+            client_kwargs["token"] = settings.llm_api_key or ""
+            client_kwargs["base_url"] = settings.llm_base_url or ""
 
         self.client = get_llm_client(provider, **client_kwargs)
 
@@ -82,25 +81,98 @@ class ChatPipeline:
 
         try:
             async with self._semaphore:
-                raw = await self.client.generate(
-                    prompt, system_prompt=CHAT_SYSTEM_PROMPT
+                result = await generate_with_fallback(
+                    self.client, prompt, system_prompt=CHAT_SYSTEM_PROMPT
                 )
+                raw = result.content
         except Exception as e:
             logger.error(f"chat_generation_failed: {e}")
             return AnalyticsQueryResponse(
                 question=question,
-                summary="I'm unable to process your question right now. The AI service may be temporarily unavailable.",
+                summary="Sorry, inference unavailable. All AI providers are currently unreachable. Please try again later.",
                 sources=sources,
                 error=str(e)[:500],
             )
 
         return self._parse_response(question, raw, sources)
 
+    def _artifact_filter_for_question(self, question: str) -> dict | None:
+        q = question.lower()
+        metrics_keywords = {
+            "accuracy",
+            "qwk",
+            "auc",
+            "f1",
+            "performance",
+            "metric",
+            "kappa",
+            "roc",
+            "precision",
+            "recall",
+        }
+        feature_keywords = {
+            "feature importance",
+            "important feature",
+            "what matters",
+            "key factor",
+            "top feature",
+        }
+        prediction_keywords = {
+            "prediction",
+            "predict",
+            "dr grade",
+            "grade distribution",
+            "severity",
+            "stage",
+        }
+        explanation_keywords = {
+            "explain",
+            "explanation",
+            "xai",
+            "why",
+            "shap",
+            "gradcam",
+            "reason",
+            "attribution",
+        }
+        patient_keywords = {"patient", "demographic", "age", "gender", "population"}
+        ocr_keywords = {
+            "ocr",
+            "report",
+            "scan",
+            "oct",
+            "fundus",
+            "clinical finding",
+            "edema",
+            "thickness",
+        }
+
+        matched: list[str] = []
+        if any(kw in q for kw in metrics_keywords):
+            matched.extend(["clinical_metrics", "imaging_metrics"])
+        if any(kw in q for kw in feature_keywords):
+            matched.append("clinical_feature_importance")
+        if any(kw in q for kw in prediction_keywords):
+            matched.append("db_predictions")
+        if any(kw in q for kw in explanation_keywords):
+            matched.append("db_explanations")
+        if any(kw in q for kw in patient_keywords):
+            matched.append("db_patients")
+        if any(kw in q for kw in ocr_keywords):
+            matched.append("ocr_reports")
+
+        if matched:
+            return {"artifact_id": {"$in": matched}}
+        return None
+
     def _retrieve_context(
         self, question: str, top_k: int
     ) -> tuple[str, list[SourceInfo]]:
         try:
-            results = self.store.query(question, top_k=top_k)
+            metadata_filter = self._artifact_filter_for_question(question)
+            results = self.store.query(
+                question, top_k=top_k, metadata_filter=metadata_filter
+            )
         except Exception as e:
             logger.warning(f"chat_retrieval_failed: {e}")
             return "", []
@@ -110,13 +182,13 @@ class ChatPipeline:
 
         snippets: list[str] = []
         sources: list[SourceInfo] = []
-        for doc, _score in results:
+        for doc, score in results:
             text = getattr(doc, "page_content", str(doc)).strip()
             if not text:
                 continue
             metadata = getattr(doc, "metadata", {}) or {}
             artifact_id = str(metadata.get("artifact_id", "unknown"))
-            snippets.append(f"[source: {artifact_id}]\n{text}")
+            snippets.append((score, f"[source: {artifact_id}]\n{text}"))
             sources.append(
                 SourceInfo(
                     artifact_id=artifact_id,
@@ -124,8 +196,9 @@ class ChatPipeline:
                 )
             )
 
-        context = "\n\n---\n\n".join(snippets)
-        max_chars = 3000
+        snippets.sort(key=lambda x: x[0])
+        context = "\n\n---\n\n".join(text for _, text in snippets)
+        max_chars = 6000
         if len(context) > max_chars:
             context = context[:max_chars]
         return context, sources[:4]

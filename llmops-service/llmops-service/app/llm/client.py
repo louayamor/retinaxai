@@ -178,10 +178,77 @@ class MockLLMClient(LLMClient):
         return f"[Mock response for: {prompt[:50]}...]"
 
 
+class OpenAICompatibleLLMClient(LLMClient):
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        base_url: str,
+        timeout_seconds: int = 60,
+        max_tokens: int = 1024,
+        **kwargs,
+    ):
+        self.api_key = api_key
+        self.model = model
+        self.base_url = base_url
+        self.timeout_seconds = timeout_seconds
+        self.max_tokens = max_tokens
+        self._client = None
+
+    def _get_client(self):
+        if self._client is None:
+            from openai import OpenAI
+
+            self._client = OpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                timeout=self.timeout_seconds,
+            )
+        return self._client
+
+    async def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> str:
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        logger.info(
+            f"Calling LLM {model or self.model} ({self.base_url}) "
+            f"with prompt length: {len(prompt)} chars"
+        )
+
+        def _call() -> str:
+            response = self._get_client().chat.completions.create(
+                model=model or self.model,
+                messages=messages,
+                temperature=0.3,
+                top_p=0.9,
+                max_tokens=self.max_tokens,
+            )
+            return response.choices[0].message.content or ""
+
+        try:
+            return await asyncio.wait_for(
+                anyio.to_thread.run_sync(_call, limiter=_LLM_IO_LIMITER),
+                timeout=self.timeout_seconds,
+            )
+        except TimeoutError:
+            raise Exception(f"LLM generation timed out after {self.timeout_seconds}s")
+        except Exception as e:
+            raise Exception(f"LLM API error: {e}") from e
+
+
 def get_llm_client(provider: str, **kwargs) -> LLMClient:
     providers = {
         "github": GitHubLLMClient,
         "ollama": OllamaLLMClient,
+        "nvidia": OpenAICompatibleLLMClient,
+        "openai": OpenAICompatibleLLMClient,
         "mock": MockLLMClient,
     }
 

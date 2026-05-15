@@ -186,7 +186,7 @@ groups:
       # Low per-class F1 (minority class collapse)
       - alert: LowPerClassF1
         expr: retinaxai_training_per_class_f1{dr_grade=~"2|3|4"} < 0.3
-        for: 2h
+        for: 10m
         labels:
           severity: warning
           service: mlops
@@ -198,7 +198,7 @@ groups:
       # High Brier score (poor calibration)
       - alert: PoorModelCalibration
         expr: retinaxai_evaluation_score{metric="brier_score"} > 0.25
-        for: 1h
+        for: 10m
         labels:
           severity: warning
           service: mlops
@@ -210,10 +210,10 @@ groups:
       # Training loss not decreasing
       - alert: TrainingLossStagnation
         expr: |
-          changes(retinaxai_epoch_train_loss[10m]) < 3
+          changes(retinaxai_training_val_loss[10m]) < 3
           and
-          retinaxai_epoch_train_loss > 1.5
-        for: 30m
+          retinaxai_training_val_loss > 1.5
+        for: 10m
         labels:
           severity: warning
           service: mlops
@@ -225,10 +225,12 @@ groups:
       # Validation loss increasing (overfitting)
       - alert: OverfittingDetected
         expr: |
-          deriv(retinaxai_training_val_loss[15m]) > 0.05
+          (retinaxai_training_val_loss
+          - retinaxai_training_val_loss offset 15m) > 0.05
           and
-          deriv(retinaxai_epoch_train_loss[15m]) < -0.01
-        for: 20m
+          (retinaxai_epoch_train_loss_sum offset 15m
+          - retinaxai_epoch_train_loss_sum) > 0.02
+        for: 10m
         labels:
           severity: warning
           service: mlops
@@ -262,6 +264,154 @@ groups:
           summary: "GPU underutilized on device {{ $labels.device }}"
           description: "GPU utilization = {{ $value }}% (threshold: 30%)"
           remediation: "Increase batch size or enable mixed precision"
+
+      # ── Overfitting: train/val accuracy gap ──────────────────────────────
+      - alert: AccuracyOverfitGap
+        expr: |
+          (retinaxai_training_epoch_accuracy{split="train"}
+          - retinaxai_training_epoch_accuracy{split="val"}) > 0.20
+        for: 10m
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Overfitting: large train/val accuracy gap in {{ $labels.pipeline }}"
+          description: "Accuracy gap = {{ $value | humanize }} (threshold: 0.20)"
+          remediation: "Increase dropout, weight decay, or data augmentation"
+
+      # ── Overfitting: train/val F1 gap ────────────────────────────────────
+      - alert: F1OverfitGap
+        expr: |
+          (retinaxai_training_epoch_f1{split="train"}
+          - retinaxai_training_epoch_f1{split="val"}) > 0.25
+        for: 10m
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Overfitting: large train/val F1 gap in {{ $labels.pipeline }}"
+          description: "F1 gap = {{ $value | humanize }} (threshold: 0.25)"
+          remediation: "Increase regularization, reduce model capacity, enable MixUp"
+
+      # ── Low per-class recall (minority grade collapse) ────────────────────
+      - alert: LowPerClassRecall
+        expr: retinaxai_training_per_class_recall{dr_grade=~"2|3|4"} < 0.25
+        for: 10m
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Low recall for DR grade {{ $labels.dr_grade }}"
+          description: "Per-class recall = {{ $value }} (threshold: 0.25)"
+          remediation: "Check class weights, oversample minority grades, adjust focal gamma"
+
+      # ── Low overall validation F1 ────────────────────────────────────────
+      - alert: LowOverallValF1
+        expr: retinaxai_training_epoch_f1{split="val"} < 0.35
+        for: 10m
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Low validation F1 in {{ $labels.pipeline }} pipeline"
+          description: "Val F1 = {{ $value }} (threshold: 0.35)"
+          remediation: "Check data quality, label distribution, hyperparameter tuning"
+
+      # ── High MAE (poor ordinal accuracy) ─────────────────────────────────
+      - alert: HighMAE
+        expr: retinaxai_training_val_mae > 1.5
+        for: 10m
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "High MAE in {{ $labels.pipeline }} pipeline"
+          description: "MAE = {{ $value }} grade-levels (threshold: 1.5)"
+          remediation: "MAE > 1.5 means model consistently off by >1 grade; check ordinal loss, class balance"
+
+      # ── Critical MAE (severely miscalibrated) ────────────────────────────
+      - alert: CriticalMAE
+        expr: retinaxai_training_val_mae > 2.5
+        for: 10m
+        labels:
+          severity: critical
+          service: mlops
+        annotations:
+          summary: "Critical MAE in {{ $labels.pipeline }} pipeline"
+          description: "MAE = {{ $value }} grade-levels (threshold: 2.5)"
+          remediation: "Model is off by 2+ grades on average; retrain from scratch, verify labels"
+
+      # ── Training loss exploding ──────────────────────────────────────────
+      - alert: LossExploding
+        expr: retinaxai_training_val_loss > 5.0
+        for: 5m
+        labels:
+          severity: critical
+          service: mlops
+        annotations:
+          summary: "Training loss exploded in {{ $labels.pipeline }}"
+          description: "Loss = {{ $value }} (threshold: 5.0)"
+          remediation: "Reduce learning rate, check for NaN gradients, verify data pipeline"
+
+      # ── High epoch PSI (severe train/val distribution shift) ─────────────
+      - alert: HighEpochPSI
+        expr: retinaxai_training_epoch_psi > 0.50
+        for: 10m
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Severe train/val distribution shift in {{ $labels.pipeline }}"
+          description: "PSI = {{ $value }} (threshold: 0.50)"
+          remediation: "High PSI suggests significant data shift; review train/val split, check leakage"
+
+      # ── High learning rate (training instability risk) ───────────────────
+      - alert: LearningRateTooHigh
+        expr: retinaxai_training_learning_rate > 0.001
+        for: 5m
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Learning rate possibly too high in {{ $labels.pipeline }}"
+          description: "LR = {{ $value }} (threshold: 0.001)"
+          remediation: "High LR may cause oscillations; consider LR warmup or cosine schedule"
+
+      # ── Low QWK (poor ordinal performance) ──────────────────────────────
+      - alert: LowQWK
+        expr: retinaxai_training_epoch_qwk < 0.40
+        for: 10m
+        labels:
+          severity: warning
+          service: mlops
+        annotations:
+          summary: "Low QWK in {{ $labels.pipeline }} pipeline"
+          description: "QWK = {{ $value }} (threshold: 0.40)"
+          remediation: "Check ordinal loss, class weights, augmentation aggressiveness"
+
+      # ── Model collapse (essentially chance-level QWK) ────────────────────
+      - alert: ModelCollapse
+        expr: retinaxai_training_epoch_qwk < 0.20
+        for: 5m
+        labels:
+          severity: critical
+          service: mlops
+        annotations:
+          summary: "Model collapse: near-chance QWK in {{ $labels.pipeline }}"
+          description: "QWK = {{ $value }} (threshold: 0.20)"
+          remediation: "Retrain from scratch; check label corruption, data pipeline, FDA/MixUp aggressiveness"
+
+      # ── No training activity for extended period ─────────────────────────
+      - alert: TrainingDataStale
+        expr: time() - max_over_time(retinaxai_training_current_epoch[4h]) < 60 and changes(retinaxai_training_current_epoch[4h]) == 0
+        for: 0m
+        labels:
+          severity: info
+          service: mlops
+        annotations:
+          summary: "No training epochs recorded in 4 hours"
+          description: "Training pipeline may be stalled"
+          remediation: "Check training service health, GPU availability, pipeline schedule"
 
       # Early stopping triggered
       - alert: EarlyStoppingTriggered

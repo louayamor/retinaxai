@@ -164,8 +164,14 @@ class ChromaStore:
         # After writing directly, clear cache so next read sees updates
         self._clear_client()
 
-    def query(self, text: str, top_k: int = 4) -> list[tuple[Any, float]]:
+    def query(
+        self, text: str, top_k: int = 4, metadata_filter: dict | None = None
+    ) -> list[tuple[Any, float]]:
         vectorstore = self._get_client()
+        if metadata_filter:
+            return vectorstore.similarity_search_with_score(
+                text, k=top_k, filter=metadata_filter
+            )
         return vectorstore.similarity_search_with_score(text, k=top_k)
 
     def rebuild_collection_atomically(

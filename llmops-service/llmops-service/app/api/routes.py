@@ -72,7 +72,7 @@ def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
         llm_provider=settings.llm_provider.value,
-        model=settings.llm_model,
+        model=settings.resolved_model,
     )
 
 

@@ -245,11 +245,14 @@ export default function ChatPage() {
               </p>
             ) : (
               sessions.map((s) => (
-                <button
+                <div
                   key={s.id}
                   onClick={() => { void loadSession(s.id); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void loadSession(s.id); } }}
+                  role="button"
+                  tabIndex={0}
                   className={cn(
-                    'w-full text-left p-2 rounded-md text-sm transition-colors group',
+                    'w-full text-left p-2 rounded-md text-sm transition-colors group cursor-pointer',
                     activeSessionId === s.id
                       ? 'bg-accent text-accent-foreground'
                       : 'hover:bg-muted',
@@ -268,7 +271,7 @@ export default function ChatPage() {
                   <span className="text-[10px] text-muted-foreground">
                     {s.message_count} msgs
                   </span>
-                </button>
+                </div>
               ))
             )}
           </div>

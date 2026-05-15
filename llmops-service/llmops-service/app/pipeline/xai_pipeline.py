@@ -9,6 +9,7 @@ from loguru import logger
 from app.core.config import settings
 from app.vectorstore.chroma_store import ChromaStore
 from app.llm.client import get_llm_client
+from app.llm.fallback import generate_with_fallback
 from app.prompts.templates import (
     GRADCAM_SYSTEM_PROMPT,
     GRADCAM_USER_PROMPT,
@@ -117,29 +118,23 @@ class XAIPipeline:
             if hasattr(settings.llm_provider, "value")
             else str(settings.llm_provider)
         )
-        token = settings.github_token if provider == "github" else settings.llm_api_key
-        base_url = (
-            settings.github_endpoint if provider == "github" else settings.llm_base_url
-        )
-
-        timeout = settings.timeout_seconds
-        max_tokens = settings.max_tokens
 
         client_kwargs: dict[str, str | int] = {
-            "model": settings.llm_model,
-            "timeout_seconds": timeout,
-            "max_tokens": max_tokens,
+            "model": settings.resolved_model,
+            "timeout_seconds": 60,
+            "max_tokens": min(settings.max_tokens, 1024),
         }
         if provider == "github":
-            client_kwargs["token"] = token if token is not None else ""
-            client_kwargs["endpoint"] = base_url if base_url is not None else ""
+            client_kwargs["token"] = settings.github_token or ""
+            client_kwargs["endpoint"] = settings.github_endpoint
+        elif provider == "nvidia":
+            client_kwargs["api_key"] = settings.nvidia_api_key or ""
+            client_kwargs["base_url"] = settings.nvidia_base_url
         elif provider == "ollama":
-            client_kwargs["base_url"] = (
-                base_url if base_url is not None else settings.ollama_base_url
-            )
+            client_kwargs["base_url"] = settings.ollama_base_url
         else:
-            client_kwargs["token"] = token if token is not None else ""
-            client_kwargs["base_url"] = base_url if base_url is not None else ""
+            client_kwargs["token"] = settings.llm_api_key or ""
+            client_kwargs["base_url"] = settings.llm_base_url or ""
 
         self.client = get_llm_client(provider, **client_kwargs)
         logger.info("XAI Pipeline initialized")
@@ -263,7 +258,8 @@ class XAIPipeline:
                     shap_values,
                 )
             logger.info(f"Starting LLM generation for prediction {prediction_id}")
-            response = await self.client.generate(prompt)
+            result = await generate_with_fallback(self.client, prompt)
+            response = result.content
             logger.info(f"LLM generation completed for prediction {prediction_id}")
 
             XAI_PREDICTION_LATENCY.observe(time.time() - start_time)
@@ -306,7 +302,7 @@ class XAIPipeline:
             return {
                 "content": response,
                 "summary": response[:500],
-                "model_used": settings.llm_model,
+                "model_used": settings.resolved_model,
                 "status": "completed",
                 "shap_values": shap_values,
                 "explanation_type": "gradcam_regions"
@@ -830,9 +826,10 @@ For EACH highlighted region, cover:
 Use precise clinical terminology. Write as a retinal specialist documenting 
 findings. Output complete clinical narrative only."""
 
-            response = await self.client.generate(
-                prompt, system_prompt=GRADCAM_SYSTEM_PROMPT
+            result = await generate_with_fallback(
+                self.client, prompt, system_prompt=GRADCAM_SYSTEM_PROMPT
             )
+            response = result.content
 
             XAI_GRADCAM_LATENCY.observe(time.time() - start_time)
             XAI_GRADCAM_REQUESTS_TOTAL.labels(status="completed").inc()
@@ -921,7 +918,7 @@ findings. Output complete clinical narrative only."""
                 "highlighted_regions": highlighted_region_names,
                 "dr_grade": grade_label,
                 "confidence": conf,
-                "model_used": settings.llm_model,
+                "model_used": settings.resolved_model,
             }
         except Exception as e:
             XAI_GRADCAM_REQUESTS_TOTAL.labels(status="failed").inc()
@@ -955,7 +952,8 @@ findings. Output complete clinical narrative only."""
 
         try:
             prompt = self._build_severity_prompt(patient_data, dr_grade, risk_factors)
-            response = await self.client.generate(prompt)
+            result = await generate_with_fallback(self.client, prompt)
+            response = result.content
 
             risk_level = self._determine_risk_level(dr_grade)
             recommendations = self._generate_recommendations(dr_grade, risk_factors)
@@ -990,7 +988,7 @@ findings. Output complete clinical narrative only."""
                 "summary": response[:500],
                 "risk_level": risk_level,
                 "recommendations": recommendations,
-                "model_used": settings.llm_model,
+                "model_used": settings.resolved_model,
             }
         except Exception as e:
             await send_xai_event(

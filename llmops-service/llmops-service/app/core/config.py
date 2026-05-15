@@ -19,6 +19,7 @@ class LLMProvider(StrEnum):
     ANTHROPIC = "anthropic"
     OLLAMA = "ollama"
     GITHUB = "github"
+    NVIDIA = "nvidia"
     MOCK = "mock"
 
 
@@ -52,6 +53,15 @@ class Settings(BaseSettings):
     llm_api_key: Optional[str] = Field(default=None, validation_alias="OPENAI_API_KEY")
     llm_base_url: Optional[str] = None
 
+    _PROVIDER_MODELS: dict[str, str] = {
+        "github": "gpt-4o",
+        "nvidia": "meta/llama-3.1-8b-instruct",
+    }
+
+    @property
+    def resolved_model(self) -> str:
+        return self._PROVIDER_MODELS.get(self.llm_provider.value, self.llm_model)
+
     github_token: Optional[str] = Field(
         default=None, validation_alias="GITHUB_ACCESS_TOKEN"
     )
@@ -71,6 +81,12 @@ class Settings(BaseSettings):
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama2"
+    ollama_fallback_model: str = "qwen2.5:3b"
+
+    nvidia_api_key: Optional[str] = Field(
+        default=None, validation_alias="NVIDIA_API_KEY"
+    )
+    nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
 
     prometheus_metrics_port: int = 9092
 

@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func, TypeDecorator
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -12,6 +14,22 @@ from app.db.base import Base, TimestampMixin, UUIDMixin
 class ChatRole(str, enum.Enum):
     USER = "user"
     ASSISTANT = "assistant"
+
+
+class ChatRoleType(TypeDecorator):
+    impl = Enum("user", "assistant", name="chatrole", create_type=False)
+
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if isinstance(value, ChatRole):
+            return value.value
+        return value
+
+    def process_result_value(self, value, dialect):
+        if isinstance(value, str):
+            return ChatRole(value)
+        return value
 
 
 class ChatSession(Base, UUIDMixin, TimestampMixin):
@@ -40,7 +58,7 @@ class ChatMessage(Base, UUIDMixin):
         nullable=False,
         index=True,
     )
-    role: Mapped[ChatRole] = mapped_column(Enum(ChatRole), nullable=False)
+    role: Mapped[ChatRole] = mapped_column(ChatRoleType, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     sources: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     chart: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

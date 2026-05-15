@@ -72,6 +72,16 @@ def _stop_local_redis():
     pass
 
 
+def _cors_headers(request: Request) -> dict[str, str]:
+    origin = request.headers.get("origin")
+    if origin in settings.CORS_ORIGINS:
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+        }
+    return {}
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.APP_NAME,
@@ -104,6 +114,7 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail, "error_code": exc.error_code},
+            headers=_cors_headers(request),
         )
 
     @app.exception_handler(Exception)
@@ -114,6 +125,7 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal server error", "error_code": "INTERNAL_ERROR"},
+            headers=_cors_headers(request),
         )
 
     @app.get("/health", tags=["health"])

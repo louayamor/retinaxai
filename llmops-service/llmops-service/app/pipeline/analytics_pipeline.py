@@ -17,6 +17,7 @@ from app.api.analytics_schemas import (
 )
 from app.core.config import settings
 from app.llm.client import get_llm_client
+from app.llm.fallback import generate_with_fallback
 from app.prompts.analytics import ANALYTICS_SYSTEM_PROMPT, ANALYTICS_USER_PROMPT
 from app.vectorstore.chroma_store import ChromaStore
 
@@ -41,26 +42,23 @@ class AnalyticsPipeline:
             if hasattr(settings.llm_provider, "value")
             else str(settings.llm_provider)
         )
-        token = settings.github_token if provider == "github" else settings.llm_api_key
-        base_url = (
-            settings.github_endpoint if provider == "github" else settings.llm_base_url
-        )
 
         client_kwargs: dict[str, str | int] = {
-            "model": settings.llm_model,
+            "model": settings.resolved_model,
             "timeout_seconds": 60,
             "max_tokens": min(settings.max_tokens, 1024),
         }
         if provider == "github":
-            client_kwargs["token"] = token if token is not None else ""
-            client_kwargs["endpoint"] = base_url if base_url is not None else ""
+            client_kwargs["token"] = settings.github_token or ""
+            client_kwargs["endpoint"] = settings.github_endpoint
+        elif provider == "nvidia":
+            client_kwargs["api_key"] = settings.nvidia_api_key or ""
+            client_kwargs["base_url"] = settings.nvidia_base_url
         elif provider == "ollama":
-            client_kwargs["base_url"] = (
-                base_url if base_url is not None else settings.ollama_base_url
-            )
+            client_kwargs["base_url"] = settings.ollama_base_url
         else:
-            client_kwargs["token"] = token if token is not None else ""
-            client_kwargs["base_url"] = base_url if base_url is not None else ""
+            client_kwargs["token"] = settings.llm_api_key or ""
+            client_kwargs["base_url"] = settings.llm_base_url or ""
 
         self.client = get_llm_client(provider, **client_kwargs)
 
@@ -186,23 +184,24 @@ class AnalyticsPipeline:
             sources.append(
                 SourceInfo(
                     artifact_id=artifact_id,
-                    snippet=text[:150],
+                    snippet=text[:100],
                 )
             )
 
         context = "\n\n---\n\n".join(snippets)
-        max_chars = 3500
+        max_chars = 2000
         if len(context) > max_chars:
             context = context[:max_chars]
             logger.warning(f"analytics_context_truncated: {max_chars} chars")
 
-        return context, sources[:5]
+        return context, sources[:3]
 
     async def _generate(self, prompt: str) -> str:
         async with self._llm_semaphore:
-            return await self.client.generate(
-                prompt, system_prompt=ANALYTICS_SYSTEM_PROMPT
+            result = await generate_with_fallback(
+                self.client, prompt, system_prompt=ANALYTICS_SYSTEM_PROMPT
             )
+            return result.content
 
     def _parse_response(
         self, question: str, raw: str, sources: list[SourceInfo]

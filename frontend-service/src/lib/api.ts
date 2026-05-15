@@ -820,29 +820,16 @@ export interface AnalyticsSection {
   error: string | null;
 }
 
-export const MEDICAL_ANALYTIC_QUERIES: Omit<AnalyticsSection, 'response' | 'loading' | 'error'>[] = [
+export const ANALYTIC_QUERIES: Omit<AnalyticsSection, 'response' | 'loading' | 'error'>[] = [
   {
-    key: 'patient_demographics',
-    title: 'Patient Demographics',
-    question: 'Analyze patient demographics: total patients, gender distribution, age groups. Show counts and proportions.',
+    key: 'patient_overview',
+    title: 'Patient Overview',
+    question: 'Analyze patient demographics (total patients, gender distribution, age groups) AND DR severity distribution (grades 0-4 with counts and percentages). Show proportions. Include recent prediction activity.',
   },
   {
-    key: 'dr_severity',
-    title: 'DR Severity Distribution',
-    question: 'What is the distribution of diabetic retinopathy severity grades (0-4) across all predictions? Show counts per grade with percentages. Include recent prediction activity.',
-  },
-];
-
-export const MODEL_ANALYTIC_QUERIES: Omit<AnalyticsSection, 'response' | 'loading' | 'error'>[] = [
-  {
-    key: 'imaging_performance',
-    title: 'Imaging Model Performance',
-    question: 'Summarize the imaging model (EfficientNet) evaluation results. Show accuracy, quadratic weighted kappa, AUC, and macro F1 from EyePACS test set. Compare with Samaya validation if available.',
-  },
-  {
-    key: 'clinical_performance',
-    title: 'Clinical Model Performance',
-    question: 'Summarize the clinical model (XGBoost) evaluation metrics: accuracy, quadratic weighted kappa, AUC, macro F1, and number of test samples.',
+    key: 'model_performance',
+    title: 'Model Performance',
+    question: 'Compare both imaging (EfficientNet) and clinical (XGBoost) model metrics side by side. Show accuracy, QWK, AUC, and F1 for each. Include EyePACS vs Samaya comparison where available.',
   },
   {
     key: 'feature_importance',
@@ -850,14 +837,9 @@ export const MODEL_ANALYTIC_QUERIES: Omit<AnalyticsSection, 'response' | 'loadin
     question: 'What are the most important clinical features for DR prediction? List the top 10 features with their importance scores. Include information about available and missing features.',
   },
   {
-    key: 'drift_monitoring',
-    title: 'Data Drift & Monitoring',
-    question: 'Analyze data drift metrics from Evidently monitoring. What is the dataset drift and how many features have drifted for both imaging and clinical pipelines?',
-  },
-  {
-    key: 'model_version_history',
-    title: 'Model Version History',
-    question: 'Show model version history from the model registry. What versions exist for imaging and clinical pipelines? What were their performance metrics and lifecycle stages?',
+    key: 'model_health',
+    title: 'Model Health & History',
+    question: 'Analyze data drift metrics from Evidently monitoring for both pipelines. Also show model version history: versions, performance trends, and lifecycle stages.',
   },
 ];
 
@@ -866,7 +848,7 @@ export async function queryAnalytics(question: string): Promise<AnalyticsQueryRe
     method: 'POST',
     body: JSON.stringify({
       question,
-      top_k: 5,
+      top_k: 3,
     }),
   });
 }

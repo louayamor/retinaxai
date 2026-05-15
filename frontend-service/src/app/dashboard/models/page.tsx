@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import PageContainer from '@/components/layout/page-container';
 import { PageHeader, RefreshButton } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -8,9 +8,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AIChartRenderer } from '@/components/charts/ai-chart-renderer';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getLLMOpsHealth, queryAnalytics } from '@/lib/api';
-import type { AnalyticsQueryResponse, AnalyticsSection } from '@/lib/api';
-import { MODEL_ANALYTIC_QUERIES } from '@/lib/api';
+import { startMLOpsTraining, stopMLOpsTraining } from '@/lib/api';
+import { useLazyAnalytics } from '@/hooks/use-lazy-analytics';
+import type { AnalyticsSection } from '@/lib/api';
 import {
   Loader2,
   Play,
@@ -23,6 +23,7 @@ import {
   Bell,
   Sparkles,
   BarChart3,
+  PauseCircle,
 } from 'lucide-react';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { TrainingProgress } from '@/components/training-progress';
@@ -31,8 +32,6 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
 const MLOPS_BASE = process.env.NEXT_PUBLIC_MLOPS_URL || 'http://localhost:8004';
-const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-
 interface Metrics {
   imaging?: {
     accuracy?: number;
@@ -88,17 +87,6 @@ export default function ModelsPage() {
     message?: string;
   } | null>(null);
 
-  const [sections, setSections] = useState<AnalyticsSection[]>(() =>
-    MODEL_ANALYTIC_QUERIES.map((q) => ({
-      ...q,
-      response: null,
-      loading: true,
-      error: null,
-    })),
-  );
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-
   const { connected, subscribe } = useWebSocket();
 
   useEffect(() => {
@@ -133,7 +121,7 @@ export default function ModelsPage() {
         setMetrics(data);
       }
     } catch (err) {
-      console.warn('MLOps service not available:', err);
+      toast.error(`MLOps metrics unavailable: ${String(err).slice(0, 120)}`);
     }
   };
 
@@ -147,7 +135,7 @@ export default function ModelsPage() {
         setAlerts(null);
       }
     } catch (err) {
-      console.warn('Failed to fetch alerts:', err);
+      toast.error(`Failed to fetch alerts: ${String(err).slice(0, 120)}`);
       setAlerts(null);
     } finally {
       setAlertLoading(false);
@@ -162,164 +150,90 @@ export default function ModelsPage() {
         setJobStatus(data);
       }
     } catch (err) {
-      console.warn('MLOps service not available:', err);
+      toast.error(`MLOps status unavailable: ${String(err).slice(0, 120)}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const loadAnalytics = useCallback(async (silent = false) => {
-    if (!silent) {
-      setSections((prev) =>
-        prev.map((s) => ({ ...s, loading: true, error: null })),
-      );
-    }
+  const {
+    sections: analyticsSections,
+    llmopsOnline: analyticsOnline,
+    lastUpdated: analyticsUpdated,
+    paused: analyticsPaused,
+    refresh: refreshAnalytics,
+    retrySection: retryAnalyticsSection,
+    containerRef: analyticsContainerRef,
+  } = useLazyAnalytics();
 
-    abortRef.current?.abort();
-    abortRef.current = new AbortController();
-
-    const online = await getLLMOpsHealth().then((h) => h?.status === 'ok').catch(() => false);
-    if (!online) {
-      setSections((prev) =>
-        prev.map((s) => ({
-          ...s,
-          loading: false,
-          error: 'Analytics engine unavailable',
-        })),
-      );
-      return;
-    }
-
-    const results: Array<
-      | { status: 'fulfilled'; value: { key: string; response: AnalyticsQueryResponse } }
-      | { status: 'rejected'; reason: unknown }
-    > = [];
-    for (const q of MODEL_ANALYTIC_QUERIES) {
-      if (abortRef.current?.signal.aborted) break;
-      try {
-        const response = await queryAnalytics(q.question);
-        results.push({ status: 'fulfilled', value: { key: q.key, response } });
-      } catch (err) {
-        results.push({ status: 'rejected', reason: err });
-      }
-      await new Promise((r) => setTimeout(r, 500));
-    }
-
-    setSections((prev) =>
-      prev.map((section) => {
-        const result = results.find((r) => {
-          if (r.status === 'fulfilled') return r.value.key === section.key;
-          return false;
-        });
-        if (result && result.status === 'fulfilled') {
-          return {
-            ...section,
-            response: result.value.response,
-            loading: false,
-            error: result.value.response.error || null,
-          };
-        }
-        const rejected = results.find((r) => {
-          if (r.status === 'rejected') {
-            return MODEL_ANALYTIC_QUERIES.find(
-              (q, i) => q.key === section.key && i === results.indexOf(r as never),
-            );
-          }
-          return false;
-        });
-        return {
-          ...section,
-          response: null,
-          loading: false,
-          error: rejected
-            ? String((rejected as PromiseRejectedResult).reason).slice(0, 200)
-            : 'Query failed',
-        };
-      }),
-    );
-
-    if (!silent) {
-      const successCount = results.filter((r) => r.status === 'fulfilled').length;
-      if (successCount < MODEL_ANALYTIC_QUERIES.length) {
-        toast.warning(`${successCount}/${MODEL_ANALYTIC_QUERIES.length} model sections loaded`);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    void fetchMetrics();
-    void fetchStatus();
-    void fetchAlerts();
-    void loadAnalytics(true);
-
-    intervalRef.current = setInterval(() => {
-      void loadAnalytics(true);
-    }, REFRESH_INTERVAL_MS);
-
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      abortRef.current?.abort();
-    };
-  }, [loadAnalytics]);
+  const isTraining = jobStatus?.status === 'running' || jobStatus?.status === 'pending';
+  const analyticsMetadata = analyticsUpdated ? (
+    <span className="text-[11px] text-muted-foreground">
+      Last updated: {analyticsUpdated.toLocaleTimeString()}
+      {analyticsPaused && (
+        <span className="ml-2 text-amber-500 flex items-center gap-1 inline-flex">
+          <PauseCircle className="h-3 w-3" />
+          Paused
+        </span>
+      )}
+    </span>
+  ) : null;
 
   const triggerTraining = async (pipeline: 'imaging' | 'clinical') => {
     setTraining(pipeline);
     try {
-      const res = await fetch(`${MLOPS_BASE}/api/train/${pipeline}`, {
-        method: 'POST',
-      });
-      if (res.ok) {
-        const data = await res.json();
-        console.log(`Training started: ${data.job_id}`);
-        setTimeout(fetchStatus, 2000);
-      }
+      const data = await startMLOpsTraining(pipeline);
+      toast.success(`Training started: ${data.job_id}`);
+      await Promise.all([fetchMetrics(), fetchStatus(), fetchAlerts()]);
     } catch (err) {
-      console.error(`Failed to start ${pipeline} training:`, err);
+      toast.error(`Failed to start training: ${String(err).slice(0, 120)}`);
     } finally {
       setTraining(null);
     }
   };
 
   const stopTraining = async () => {
-    if (!jobStatus?.job_id) return;
+    if (!jobStatus?.job_id) {
+      toast.error('No active training job to stop');
+      return;
+    }
     try {
-      const res = await fetch(`${MLOPS_BASE}/api/train/${jobStatus.job_id}/stop`, {
-        method: 'POST',
-      });
-      if (res.ok) {
-        toast.info('Training stop requested');
-        setTraining(null);
-        void fetchStatus();
-      }
+      await stopMLOpsTraining(jobStatus.job_id);
+      toast.success('Stop requested');
+      await fetchStatus();
     } catch (err) {
-      console.error('Failed to stop training:', err);
+      toast.error(`Failed to stop training: ${String(err).slice(0, 120)}`);
     }
   };
 
-  const isTraining = jobStatus?.status === 'running' || jobStatus?.status === 'pending';
+  useEffect(() => {
+    void fetchMetrics();
+    void fetchStatus();
+    void fetchAlerts();
+  }, []);
 
   if (loading && !metrics) {
     return (
       <PageContainer>
-        <div className='flex items-center justify-center h-[60vh]'>
-          <Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
+        <div className="flex items-center justify-center h-[60vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       </PageContainer>
     );
   }
 
   return (
-    <PageContainer className='flex flex-col gap-6'>
+    <PageContainer className="flex flex-col gap-6">
       <PageHeader
-        title='AI Models'
-        description='Model performance, training controls, and AI-generated analytics'
+        title="AI Models"
+        description="Model performance, training controls, and AI-generated analytics"
       />
 
-      <div className='rounded-lg border bg-card p-4'>
-        <div className='flex items-center justify-between mb-4'>
-          <div className='flex items-center gap-2'>
-            <Play className='h-5 w-5' />
-            <h3 className='font-semibold'>Training Pipeline</h3>
+      <div className="rounded-lg border bg-card p-4">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Play className="h-5 w-5" />
+            <h3 className="font-semibold">Training Pipeline</h3>
           </div>
           <RefreshButton
             onClick={() => {
@@ -328,52 +242,52 @@ export default function ModelsPage() {
             loading={loading}
           />
         </div>
-        <div className='flex flex-wrap gap-4 items-center'>
+        <div className="flex flex-wrap gap-4 items-center">
           <Button
             onClick={() => void triggerTraining('imaging')}
             disabled={isTraining || training === 'imaging'}
-            className='bg-[var(--brand-teal)] hover:bg-[#1a9a9a]'
+            className="bg-[var(--brand-teal)] hover:bg-[#1a9a9a]"
           >
             {training === 'imaging' ? (
-              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
-              <Play className='mr-2 h-4 w-4' />
+              <Play className="mr-2 h-4 w-4" />
             )}
             Train Imaging
           </Button>
           <Button
             onClick={() => void triggerTraining('clinical')}
             disabled={isTraining || training === 'clinical'}
-            variant='outline'
+            variant="outline"
           >
             {training === 'clinical' ? (
-              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
-              <Play className='mr-2 h-4 w-4' />
+              <Play className="mr-2 h-4 w-4" />
             )}
             Train Clinical
           </Button>
           {isTraining && (
-            <Button onClick={stopTraining} variant='destructive' size='sm'>
-              <Square className='mr-2 h-4 w-4' />
+            <Button onClick={stopTraining} variant="destructive" size="sm">
+              <Square className="mr-2 h-4 w-4" />
               Stop
             </Button>
           )}
           {isTraining && (
-            <Badge variant='secondary' className='ml-auto'>
-              <Loader2 className='mr-1 h-3 w-3 animate-spin' />
+            <Badge variant="secondary" className="ml-auto">
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
               {jobStatus?.pipeline} — {jobStatus?.status}
             </Badge>
           )}
           {!connected && (
-            <Badge variant='outline' className='ml-2 text-orange-500'>
-              <WifiOff className='mr-1 h-3 w-3' />
+            <Badge variant="outline" className="ml-2 text-orange-500">
+              <WifiOff className="mr-1 h-3 w-3" />
               Offline
             </Badge>
           )}
         </div>
         {trainingProgress && (
-          <div className='mt-4 p-4 bg-muted/50 rounded-lg'>
+          <div className="mt-4 p-4 bg-muted/50 rounded-lg">
             <TrainingProgress
               stage={trainingProgress.stage}
               progress={trainingProgress.progress}
@@ -383,14 +297,14 @@ export default function ModelsPage() {
           </div>
         )}
         {jobStatus?.error && (
-          <p className='text-sm text-destructive mt-4'>{jobStatus.error}</p>
+          <p className="text-sm text-destructive mt-4">{jobStatus.error}</p>
         )}
       </div>
 
       <Card className={cn(alerts && alerts.total > 0 ? 'border-destructive/50 bg-destructive/5' : 'border-border')}>
         <CardHeader>
-          <CardTitle className='flex items-center gap-2'>
-            <Bell className='h-5 w-5' />
+          <CardTitle className="flex items-center gap-2">
+            <Bell className="h-5 w-5" />
             Active Alerts
             {alerts && alerts.total > 0 && (
               <Badge variant={alerts.firing > 0 ? 'destructive' : 'secondary'}>
@@ -401,14 +315,14 @@ export default function ModelsPage() {
         </CardHeader>
         <CardContent>
           {alertLoading ? (
-            <p className='text-muted-foreground'>Loading alerts...</p>
+            <p className="text-muted-foreground">Loading alerts...</p>
           ) : !alerts || alerts.total === 0 ? (
-            <div className='flex items-center gap-2 text-green-600'>
-              <CheckCircle2 className='h-5 w-5' />
-              <p className='text-sm'>No active alerts - all systems operational</p>
+            <div className="flex items-center gap-2 text-green-600">
+              <CheckCircle2 className="h-5 w-5" />
+              <p className="text-sm">No active alerts - all systems operational</p>
             </div>
           ) : (
-            <div className='space-y-3'>
+            <div className="space-y-3">
               {alerts.alerts.map((alert, idx) => (
                 <div
                   key={alert.fingerprint || idx}
@@ -419,46 +333,46 @@ export default function ModelsPage() {
                       : 'bg-yellow-50 border-yellow-200 dark:bg-yellow-950/30 dark:border-yellow-900'
                   )}
                 >
-                  <div className='flex items-start justify-between gap-2'>
-                    <div className='flex items-center gap-2 flex-1'>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 flex-1">
                       {alert.status === 'firing' ? (
-                        <AlertTriangle className='h-4 w-4 text-red-600 flex-shrink-0' />
+                        <AlertTriangle className="h-4 w-4 text-red-600 flex-shrink-0" />
                       ) : (
-                        <AlertCircle className='h-4 w-4 text-yellow-600 flex-shrink-0' />
+                        <AlertCircle className="h-4 w-4 text-yellow-600 flex-shrink-0" />
                       )}
-                      <div className='flex-1 min-w-0'>
-                        <p className='font-medium truncate'>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">
                           {alert.labels.alertname || 'Unknown Alert'}
                         </p>
-                        <p className='text-xs text-muted-foreground truncate'>
+                        <p className="text-xs text-muted-foreground truncate">
                           {alert.annotations.summary || alert.annotations.description || 'No description'}
                         </p>
                       </div>
                     </div>
                     <Badge
                       variant={alert.status === 'firing' ? 'destructive' : 'secondary'}
-                      className='flex-shrink-0 text-xs'
+                      className="flex-shrink-0 text-xs"
                     >
                       {alert.status || 'unknown'}
                     </Badge>
                   </div>
-                  <div className='mt-2 flex flex-wrap gap-2 text-xs'>
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs">
                     {alert.labels.severity && (
-                      <Badge variant='outline' className='text-xs'>
+                      <Badge variant="outline" className="text-xs">
                         Severity: {alert.labels.severity}
                       </Badge>
                     )}
                     {alert.labels.service && (
-                      <Badge variant='outline' className='text-xs'>
+                      <Badge variant="outline" className="text-xs">
                         {alert.labels.service}
                       </Badge>
                     )}
                     {alert.value && (
-                      <span className='text-muted-foreground'>Value: {alert.value}</span>
+                      <span className="text-muted-foreground">Value: {alert.value}</span>
                     )}
                   </div>
                   {alert.annotations.remediation && (
-                    <p className='mt-2 text-xs text-muted-foreground'>
+                    <p className="mt-2 text-xs text-muted-foreground">
                       💡 {alert.annotations.remediation}
                     </p>
                   )}
@@ -472,57 +386,49 @@ export default function ModelsPage() {
       <Separator />
 
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-sm flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-[var(--brand-teal)]" />
-          AI Model Analytics
-        </h3>
-        <Button variant="outline" size="sm" onClick={() => { void loadAnalytics(false); }}>
+        <div className="flex items-center gap-3">
+          <h3 className="font-semibold text-sm flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-[var(--brand-teal)]" />
+            AI Model Analytics
+          </h3>
+          {analyticsMetadata}
+        </div>
+        <Button variant="outline" size="sm" onClick={refreshAnalytics}>
           <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
           Refresh
         </Button>
       </div>
 
-      <div className='grid gap-4 lg:grid-cols-2'>
-        {sections.map((section) => (
-          <AnalyticsSectionCard
-            key={section.key}
-            section={section}
-            onRetry={() => {
-              setSections((prev) =>
-                prev.map((s) =>
-                  s.key === section.key
-                    ? { ...s, loading: true, error: null }
-                    : s,
-                ),
-              );
-              queryAnalytics(section.question)
-                .then((response) => {
-                  setSections((prev) =>
-                    prev.map((s) =>
-                      s.key === section.key
-                        ? { ...s, response, loading: false, error: response.error || null }
-                        : s,
-                    ),
-                  );
-                })
-                .catch((err) => {
-                  setSections((prev) =>
-                    prev.map((s) =>
-                      s.key === section.key
-                        ? {
-                            ...s,
-                            response: null,
-                            loading: false,
-                            error: String(err).slice(0, 200),
-                          }
-                        : s,
-                    ),
-                  );
-                });
-            }}
-          />
-        ))}
-      </div>
+      {analyticsOnline === false ? (
+        <Card className="border-destructive/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <WifiOff className="h-4 w-4 text-destructive" />
+              Analytics Engine Unavailable
+            </CardTitle>
+            <CardDescription className="text-xs text-muted-foreground">
+              Start the LLMOps service to load AI model analytics.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" size="sm" onClick={refreshAnalytics}>
+              <RefreshCw className="mr-1.5 h-3 w-3" />
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div ref={analyticsContainerRef} className="grid gap-4 lg:grid-cols-2">
+          {analyticsSections.map((section) => (
+            <div key={section.key} data-analytics-card={section.key}>
+              <AnalyticsSectionCard
+                section={section}
+                onRetry={() => retryAnalyticsSection(section.key)}
+              />
+            </div>
+          ))}
+        </div>
+      )}
     </PageContainer>
   );
 }

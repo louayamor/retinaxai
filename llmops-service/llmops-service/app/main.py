@@ -134,7 +134,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Environment: {settings.app_env}")
     logger.info(f"LLM Provider: {settings.llm_provider}")
-    logger.info(f"LLM Model: {settings.llm_model}")
+    logger.info(f"LLM Model: {settings.resolved_model}")
 
     # Start Prometheus metrics server
     start_metrics_server(port=settings.prometheus_metrics_port)
@@ -312,7 +312,7 @@ def create_app() -> FastAPI:
             "version": settings.app_version,
             "environment": settings.app_env,
             "llm_provider": settings.llm_provider.value,
-            "model": settings.llm_model,
+            "model": settings.resolved_model,
         }
 
     @app.get("/ready", tags=["health"])

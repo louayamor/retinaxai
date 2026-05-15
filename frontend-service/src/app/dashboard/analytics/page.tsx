@@ -1,6 +1,5 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
 import PageContainer from '@/components/layout/page-container';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -8,9 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { AIChartRenderer } from '@/components/charts/ai-chart-renderer';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getLLMOpsHealth, queryAnalytics } from '@/lib/api';
-import type { AnalyticsQueryResponse, AnalyticsSection } from '@/lib/api';
-import { MEDICAL_ANALYTIC_QUERIES, MODEL_ANALYTIC_QUERIES } from '@/lib/api';
+import { useLazyAnalytics } from '@/hooks/use-lazy-analytics';
+import type { AnalyticsSection } from '@/lib/api';
 import {
   RefreshCw,
   Sparkles,
@@ -18,140 +16,29 @@ import {
   BarChart3,
   WifiOff,
   FileQuestion,
+  PauseCircle,
 } from 'lucide-react';
-import { toast } from 'sonner';
-
-const ALL_ANALYTIC_QUERIES = [...MEDICAL_ANALYTIC_QUERIES, ...MODEL_ANALYTIC_QUERIES];
-
-const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
 export default function AnalyticsPage() {
-  const [sections, setSections] = useState<AnalyticsSection[]>(() =>
-    ALL_ANALYTIC_QUERIES.map((q) => ({
-      ...q,
-      response: null,
-      loading: true,
-      error: null,
-    })),
-  );
-  const [llmopsOnline, setLlmopsOnline] = useState<boolean | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-
-  const checkHealth = useCallback(async () => {
-    try {
-      const health = await getLLMOpsHealth();
-      setLlmopsOnline(health?.status === 'ok');
-      return health?.status === 'ok';
-    } catch {
-      setLlmopsOnline(false);
-      return false;
-    }
-  }, []);
-
-  const loadAll = useCallback(async (silent = false) => {
-    if (!silent) {
-      setSections((prev) =>
-        prev.map((s) => ({ ...s, loading: true, error: null })),
-      );
-    }
-
-    abortRef.current?.abort();
-    abortRef.current = new AbortController();
-
-    const online = await checkHealth();
-    if (!online) {
-      setSections((prev) =>
-        prev.map((s) => ({
-          ...s,
-          loading: false,
-          error: 'Analytics engine unavailable',
-        })),
-      );
-      if (!silent) {
-        toast.error('Analytics engine is not available');
-      }
-      return;
-    }
-
-    const results: Array<
-      | { status: 'fulfilled'; value: { key: string; response: AnalyticsQueryResponse } }
-      | { status: 'rejected'; reason: unknown }
-    > = [];
-    for (const q of ALL_ANALYTIC_QUERIES) {
-      if (abortRef.current?.signal.aborted) break;
-      try {
-        const response = await queryAnalytics(q.question);
-        results.push({ status: 'fulfilled', value: { key: q.key, response } });
-      } catch (err) {
-        results.push({ status: 'rejected', reason: err });
-      }
-      await new Promise((r) => setTimeout(r, 500));
-    }
-
-    setSections((prev) =>
-      prev.map((section) => {
-        const result = results.find((r) => {
-          if (r.status === 'fulfilled') return r.value.key === section.key;
-          return false;
-        });
-        if (result && result.status === 'fulfilled') {
-          return {
-            ...section,
-            response: result.value.response,
-            loading: false,
-            error: result.value.response.error || null,
-          };
-        }
-        const rejected = results.find((r) => {
-          if (r.status === 'rejected') {
-            return ALL_ANALYTIC_QUERIES.find(
-              (q, i) => q.key === section.key && i === results.indexOf(r as never),
-            );
-          }
-          return false;
-        });
-        return {
-          ...section,
-          response: null,
-          loading: false,
-          error: rejected
-            ? String((rejected as PromiseRejectedResult).reason).slice(0, 200)
-            : 'Query failed',
-        };
-      }),
-    );
-    setLastUpdated(new Date());
-
-    if (!silent) {
-      const successCount = results.filter((r) => r.status === 'fulfilled').length;
-      if (successCount < ALL_ANALYTIC_QUERIES.length) {
-        toast.warning(`${successCount}/${ALL_ANALYTIC_QUERIES.length} sections loaded`);
-      }
-    }
-  }, [checkHealth]);
-
-  const refresh = useCallback(() => {
-    void loadAll(false);
-  }, [loadAll]);
-
-  useEffect(() => {
-    void loadAll(true);
-
-    intervalRef.current = setInterval(() => {
-      void loadAll(true);
-    }, REFRESH_INTERVAL_MS);
-
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      abortRef.current?.abort();
-    };
-  }, [loadAll]);
+  const {
+    sections,
+    llmopsOnline,
+    lastUpdated,
+    paused,
+    refresh,
+    retrySection,
+    containerRef,
+  } = useLazyAnalytics();
 
   const metadata = lastUpdated ? (
     <span className="text-[11px] text-muted-foreground">
       Last updated: {lastUpdated.toLocaleTimeString()}
+      {paused && (
+        <span className="ml-2 text-amber-500 flex items-center gap-1 inline-flex">
+          <PauseCircle className="h-3 w-3" />
+          Paused
+        </span>
+      )}
     </span>
   ) : null;
 
@@ -177,8 +64,8 @@ export default function AnalyticsPage() {
   return (
     <PageContainer className="flex flex-col gap-6">
       <PageHeader
-        title="Medical Analytics"
-        description="AI-generated insights from patient demographics, DR severity distribution, and clinical data"
+        title="AI Analytics"
+        description="AI-generated insights from patient data, model performance, and clinical findings"
         metadata={metadata}
         actions={
           <Button variant="outline" size="sm" onClick={refresh}>
@@ -188,45 +75,14 @@ export default function AnalyticsPage() {
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div ref={containerRef} className="grid gap-4 lg:grid-cols-2">
         {sections.map((section) => (
-          <AnalyticsSectionCard
-            key={section.key}
-            section={section}
-            onRetry={() => {
-              setSections((prev) =>
-                prev.map((s) =>
-                  s.key === section.key
-                    ? { ...s, loading: true, error: null }
-                    : s,
-                ),
-              );
-              queryAnalytics(section.question)
-                .then((response) => {
-                  setSections((prev) =>
-                    prev.map((s) =>
-                      s.key === section.key
-                        ? { ...s, response, loading: false, error: response.error || null }
-                        : s,
-                    ),
-                  );
-                })
-                .catch((err) => {
-                  setSections((prev) =>
-                    prev.map((s) =>
-                      s.key === section.key
-                        ? {
-                            ...s,
-                            response: null,
-                            loading: false,
-                            error: String(err).slice(0, 200),
-                          }
-                        : s,
-                    ),
-                  );
-                });
-            }}
-          />
+          <div key={section.key} data-analytics-card={section.key}>
+            <AnalyticsSectionCard
+              section={section}
+              onRetry={() => retrySection(section.key)}
+            />
+          </div>
         ))}
       </div>
     </PageContainer>
@@ -258,7 +114,7 @@ function AnalyticsSectionCard({
     );
   }
 
-  if (error || response?.error) {
+  if (error) {
     return (
       <Card className="border-destructive/30">
         <CardHeader>
@@ -267,7 +123,7 @@ function AnalyticsSectionCard({
             {title}
           </CardTitle>
           <CardDescription className="text-xs text-destructive">
-            {error || response?.error}
+            {error}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -294,8 +150,7 @@ function AnalyticsSectionCard({
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            No data available for this section. Data may not exist yet — run
-            training or indexing to populate metrics.
+            No data available for this section.
           </p>
         </CardContent>
       </Card>
