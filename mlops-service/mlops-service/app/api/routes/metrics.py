@@ -11,6 +11,7 @@ def get_metrics():
     settings = get_settings()
 
     imaging_metrics = None
+    imaging_detail = None
     if settings.imaging_metrics_path.is_file():
         with open(settings.imaging_metrics_path) as f:
             data = json.load(f)
@@ -23,6 +24,7 @@ def get_metrics():
             recall_macro=eyepacs.get("recall_macro"),
             num_samples=eyepacs.get("num_samples"),
         )
+        imaging_detail = data
 
     clinical_metrics = None
     if settings.clinical_metrics_path.is_file():
@@ -37,4 +39,15 @@ def get_metrics():
             num_samples=data.get("num_samples"),
         )
 
-    return MetricsResponse(imaging=imaging_metrics, clinical=clinical_metrics)
+    training_summary = None
+    training_summary_path = settings.imaging_artifacts_dir / "training_summary.json"
+    if training_summary_path.is_file():
+        with open(training_summary_path) as f:
+            training_summary = json.load(f)
+
+    return MetricsResponse(
+        imaging=imaging_metrics,
+        clinical=clinical_metrics,
+        imaging_detail=imaging_detail,
+        training_summary=training_summary,
+    )

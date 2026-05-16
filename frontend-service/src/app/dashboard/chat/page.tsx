@@ -268,7 +268,7 @@ export default function ChatPage() {
                       <Trash2 className="h-3 w-3" />
                     </button>
                   </div>
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-xs text-muted-foreground">
                     {s.message_count} msgs
                   </span>
                 </div>
@@ -406,7 +406,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
             <div className="mt-3 rounded border bg-card/50 p-3">
               <div className="flex items-center gap-1.5 mb-2">
                 <BarChart3 className="h-3 w-3 text-muted-foreground" />
-                <span className="text-[11px] font-medium">
+                <span className="text-xs font-medium">
                   {message.chart!.title}
                 </span>
               </div>
@@ -415,7 +415,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
           )}
 
           {hasSources && (
-            <details className="mt-2 text-[11px]">
+            <details className="mt-2 text-xs">
               <summary className={cn(
                 'cursor-pointer transition-colors',
                 isUser ? 'text-primary-foreground/70 hover:text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
@@ -425,7 +425,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
               <div className="mt-1.5 space-y-1">
                 {message.sources!.map((src, i) => (
                   <div key={i} className="rounded border bg-background/50 px-2 py-1">
-                    <span className="font-mono text-[10px] text-[var(--brand-teal)]">
+                    <span className="font-mono text-xs text-[var(--brand-teal)]">
                       {src.artifact_id}
                     </span>
                     <p className="text-muted-foreground leading-relaxed mt-0.5">

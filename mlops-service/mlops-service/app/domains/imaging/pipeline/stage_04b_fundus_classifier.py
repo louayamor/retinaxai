@@ -239,6 +239,7 @@ def train_fundus_classifier(
     model_name: str = "mobilenetv3_small_100",
     image_size: int = 300,
     num_classes: int = 2,
+    dropout: float = 0.1,
     batch_size: int = 32,
     num_epochs: int = 5,
     learning_rate: float = 0.001,
@@ -321,7 +322,7 @@ def train_fundus_classifier(
 
     # Model
     model = timm.create_model(
-        model_name, pretrained=True, num_classes=num_classes, drop_rate=0.1
+        model_name, pretrained=True, num_classes=num_classes, drop_rate=dropout
     )
     model = model.to(device)
 
@@ -441,12 +442,14 @@ def run():
             )
 
             output_path = ARTIFACTS_DIR / "fundus_classifier.pth"
+            dropout_rate = fc_cfg.get("dropout", 0.1)
             train_fundus_classifier(
                 train_dir=PROCESSED_DATA_DIR,
                 output_path=output_path,
                 model_name=model_name,
                 image_size=image_size,
                 num_classes=num_classes,
+                dropout=dropout_rate,
                 batch_size=32,
                 num_epochs=5,
                 learning_rate=0.001,
@@ -470,6 +473,7 @@ def run():
             model_name=model_name,
             image_size=image_size,
             num_classes=num_classes,
+            dropout=dropout_rate,
             batch_size=32,
             num_epochs=5,
             learning_rate=0.001,

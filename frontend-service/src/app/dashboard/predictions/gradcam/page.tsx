@@ -160,7 +160,7 @@ export default function GradCAMListPage() {
                             alt="Left eye"
                             className="w-full h-full object-cover"
                           />
-                          <span className="absolute bottom-1 left-1 text-[10px] text-white bg-black/50 px-1 rounded">
+                          <span className="absolute bottom-1 left-1 text-xs text-white bg-black/50 px-1 rounded">
                             OS
                           </span>
                         </div>
@@ -176,7 +176,7 @@ export default function GradCAMListPage() {
                             alt="Right eye"
                             className="w-full h-full object-cover"
                           />
-                          <span className="absolute bottom-1 right-1 text-[10px] text-white bg-black/50 px-1 rounded">
+                          <span className="absolute bottom-1 right-1 text-xs text-white bg-black/50 px-1 rounded">
                             OD
                           </span>
                         </div>

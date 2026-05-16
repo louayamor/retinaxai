@@ -60,7 +60,7 @@ const ResultItem = React.forwardRef(
             {action.shortcut.map((sc, i) => (
               <kbd
                 key={sc + i}
-                className='bg-muted flex h-5 items-center gap-1 rounded-md border px-1.5 text-[10px] font-medium'
+                className='bg-muted flex h-5 items-center gap-1 rounded-md border px-1.5 text-xs font-medium'
               >
                 {sc}
               </kbd>

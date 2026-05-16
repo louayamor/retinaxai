@@ -96,7 +96,7 @@ function GradCAMEyeMetrics({
       <div className="flex items-center justify-between mb-3">
         <h4 className={`font-semibold text-base ${titleClassName}`}>{title}</h4>
         {hotspotList.length > 0 && (
-          <span className="text-[11px] uppercase tracking-widest text-muted-foreground">
+          <span className="text-xs uppercase tracking-widest text-muted-foreground">
             Top hotspots
           </span>
         )}
@@ -145,8 +145,8 @@ function GradCAMEyeMetrics({
         <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
           <div className="rounded-md border border-border bg-card/70 p-2.5">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Intensity Chart</p>
-              <p className="text-[10px] text-muted-foreground">Top {regionList.length}</p>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">Intensity Chart</p>
+              <p className="text-xs text-muted-foreground">Top {regionList.length}</p>
             </div>
             <div className="h-40 w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -173,8 +173,8 @@ function GradCAMEyeMetrics({
 
           <div className="rounded-md border border-border bg-card/70 p-2.5">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Spatial Map</p>
-              <p className="text-[10px] text-muted-foreground">X/Y position</p>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">Spatial Map</p>
+              <p className="text-xs text-muted-foreground">X/Y position</p>
             </div>
             <div className="h-40 w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -224,7 +224,7 @@ function GradCAMEyeMetrics({
 function MetricPill({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md bg-muted/40 px-2.5 py-1.5">
-      <p className="uppercase tracking-widest text-[10px] text-muted-foreground">{label}</p>
+      <p className="uppercase tracking-widest text-xs text-muted-foreground">{label}</p>
       <p className="text-sm font-medium text-foreground truncate">{value}</p>
     </div>
   );

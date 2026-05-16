@@ -24,9 +24,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   SidebarRail
 } from '@/components/ui/sidebar';
 import { navGroups, navItems } from '@/config/nav-config';
@@ -37,7 +34,8 @@ import {
   IconChevronRight,
   IconChevronsDown,
   IconLogout,
-  IconUserCircle
+  IconUserCircle,
+  IconSettings
 } from '@tabler/icons-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -46,15 +44,7 @@ import * as React from 'react';
 import { Icons } from '../icons';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
-function parseUserFromToken(token: string | null) {
-  if (!token) return null;
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    return { username: payload.sub ?? 'Doctor', email: payload.email ?? '' };
-  } catch {
-    return null;
-  }
-}
+const SYSTEM_ITEMS = navGroups[1]?.items ?? [];
 
 function isActivePath(pathname: string, url: string): boolean {
   if (pathname === url) return true;
@@ -69,51 +59,6 @@ function NavItemComponent({
   pathname: string;
 }) {
   const Icon = item.icon ? Icons[item.icon] : Icons.logo;
-  const hasActiveChild =
-    item.items?.some((sub) => pathname === sub.url || pathname.startsWith(sub.url)) ?? false;
-
-  if (item.items && item.items.length > 0) {
-    return (
-      <Collapsible
-        key={item.title}
-        asChild
-        defaultOpen={hasActiveChild || isActivePath(pathname, item.url)}
-        className='group/collapsible'
-      >
-        <SidebarMenuItem>
-          <CollapsibleTrigger asChild>
-            <SidebarMenuButton
-              tooltip={item.title}
-              isActive={hasActiveChild}
-              className='text-sm py-1'
-            >
-              {item.icon && <Icon className="size-4" />}
-              <span>{item.title}</span>
-              <IconChevronRight className='ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90' />
-            </SidebarMenuButton>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <SidebarMenuSub>
-              {item.items.map((subItem) => (
-                <SidebarMenuSubItem key={subItem.title}>
-                  <SidebarMenuSubButton
-                    asChild
-                    isActive={pathname === subItem.url}
-                    className='text-sm py-1'
-                  >
-                    <Link href={subItem.url}>
-                      <span>{subItem.title}</span>
-                    </Link>
-                  </SidebarMenuSubButton>
-                </SidebarMenuSubItem>
-              ))}
-            </SidebarMenuSub>
-          </CollapsibleContent>
-        </SidebarMenuItem>
-      </Collapsible>
-    );
-  }
-
   const active = isActivePath(pathname, item.url);
 
   return (
@@ -122,7 +67,7 @@ function NavItemComponent({
         asChild
         tooltip={item.title}
         isActive={active}
-        className='text-sm py-1'
+        className='text-sm py-1.5'
       >
         <Link href={item.url}>
           <Icon className="size-4" />
@@ -138,6 +83,7 @@ export default function AppSidebar() {
   const router = useRouter();
   const filteredItems = useFilteredNavItems(navItems);
   const [user, setUser] = React.useState<{ username: string; email: string } | null>(null);
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
 
   React.useEffect(() => {
     apiFetch<{ username: string; email: string }>('/api/v1/auth/me')
@@ -147,16 +93,19 @@ export default function AppSidebar() {
 
   async function handleLogout() {
     clearTokens();
-
     try {
       await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });
     } catch {}
-
     window.location.href = '/auth/login';
   }
+
+  const clinicalItems = React.useMemo(
+    () => filteredItems.filter((item) => !SYSTEM_ITEMS.some((s) => s.title === item.title)),
+    [filteredItems],
+  );
 
   return (
     <Sidebar collapsible='icon'>
@@ -177,18 +126,37 @@ export default function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        {navGroups.map((group) => (
-          <SidebarGroup key={group.title}>
-            <SidebarGroupLabel className='text-[10px] uppercase tracking-widest text-sidebar-primary font-semibold px-2 pb-1'>
-              {group.title}
-            </SidebarGroupLabel>
-            <SidebarMenu>
-              {group.items.map((item) => (
-                <NavItemComponent key={item.title} item={item} pathname={pathname} />
-              ))}
-            </SidebarMenu>
-          </SidebarGroup>
-        ))}
+        <SidebarGroup>
+          <SidebarMenu>
+            {clinicalItems.map((item) => (
+              <NavItemComponent key={item.title} item={item} pathname={pathname} />
+            ))}
+          </SidebarMenu>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen} className='group/collapsible'>
+            <SidebarMenuItem>
+              <CollapsibleTrigger asChild>
+                <SidebarMenuButton tooltip="Advanced" className='text-sm py-1.5'>
+                  <IconSettings className="size-4" />
+                  <span>Advanced</span>
+                  <IconChevronRight className='ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90' />
+                </SidebarMenuButton>
+              </CollapsibleTrigger>
+            </SidebarMenuItem>
+            <CollapsibleContent>
+              <SidebarGroupLabel className='text-xs uppercase tracking-widest text-sidebar-primary/60 font-semibold px-2 pb-1 pt-2'>
+                System
+              </SidebarGroupLabel>
+              <SidebarMenu>
+                {SYSTEM_ITEMS.map((item) => (
+                  <NavItemComponent key={item.title} item={item} pathname={pathname} />
+                ))}
+              </SidebarMenu>
+            </CollapsibleContent>
+          </Collapsible>
+        </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter>

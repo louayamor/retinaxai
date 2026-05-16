@@ -174,6 +174,14 @@ class ChromaStore:
             )
         return vectorstore.similarity_search_with_score(text, k=top_k)
 
+    def _nuke_corrupted_data(self) -> None:
+        for path in (
+            self.persist_directory,
+            self.staging_directory,
+            self.backup_directory,
+        ):
+            self._remove_path(path)
+
     def rebuild_collection_atomically(
         self, documents: list[Document], state: dict[str, Any]
     ) -> None:
@@ -188,15 +196,19 @@ class ChromaStore:
             if backup_directory.exists():
                 self._remove_path(backup_directory)
 
-            staging_store = ChromaStore(
-                staging_directory,
-                self.collection_name,
-                self.embedding_model,
-                self.embedding_function,
-            )
-            staging_store.ensure_ready()
-            staging_store.upsert_documents(documents)
-            staging_store.write_state(state)
+            try:
+                staging_store = ChromaStore(
+                    staging_directory,
+                    self.collection_name,
+                    self.embedding_model,
+                    self.embedding_function,
+                )
+                staging_store.ensure_ready()
+                staging_store.upsert_documents(documents)
+                staging_store.write_state(state)
+            except Exception:
+                self._nuke_corrupted_data()
+                raise
 
             self._swap_directories(staging_directory)
             # Directory changed; clear cached client

@@ -13,7 +13,7 @@ data_ingestion:
 data_transformation:
   imaging:
     root_dir: artifacts/data/processed/imaging
-    image_size: 300
+    image_size: 456
     train_csv: artifacts/data/processed/imaging/train.csv
     val_csv: artifacts/data/processed/imaging/val.csv
     test_csv: artifacts/data/processed/imaging/test.csv

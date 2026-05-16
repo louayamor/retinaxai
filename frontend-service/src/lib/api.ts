@@ -695,6 +695,8 @@ export interface MLOpsMetrics {
     total_runs?: number;
     active_jobs?: number;
   };
+  imaging_detail?: Record<string, unknown>;
+  training_summary?: Record<string, unknown>;
 }
 
 export async function getMLOpsStatus(jobId?: string): Promise<{ job: MLOpsJob | null; jobs: MLOpsJob[] }> {

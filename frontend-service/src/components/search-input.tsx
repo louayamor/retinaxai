@@ -14,7 +14,7 @@ export default function SearchInput() {
       >
         <IconSearch className='mr-2 h-4 w-4' />
         Search...
-        <kbd className='bg-sidebar-accent pointer-events-none absolute top-[0.25rem] right-[0.25rem] hidden h-5 items-center gap-1 rounded border border-sidebar-border px-1.5 font-mono text-[10px] font-medium opacity-100 select-none sm:flex'>
+        <kbd className='bg-sidebar-accent pointer-events-none absolute top-[0.25rem] right-[0.25rem] hidden h-5 items-center gap-1 rounded border border-sidebar-border px-1.5 font-mono text-xs font-medium opacity-100 select-none sm:flex'>
           <span className='text-xs'>⌘</span>K
         </kbd>
       </Button>

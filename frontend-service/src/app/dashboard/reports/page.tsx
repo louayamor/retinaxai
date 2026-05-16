@@ -290,7 +290,7 @@ export default function ReportsPage() {
                 <p className='text-xs text-muted-foreground'>Status</p>
                 <Badge
                   variant='outline'
-                  className={`text-[11px] ${
+                  className={`text-xs ${
                     ragStatus.status === 'ok'
                       ? 'bg-green-500 text-white'
                       : ragStatus.status === 'idle'
@@ -353,7 +353,7 @@ export default function ReportsPage() {
                 ? 'No reports match your filters'
                 : 'No reports generated yet'}
             </p>
-            <p className='text-[11px] text-muted-foreground/70 mt-0.5'>
+            <p className='text-xs text-muted-foreground/70 mt-0.5'>
               {search || statusFilter !== 'all'
                 ? 'Try adjusting your search or filters'
                 : 'Generate reports from completed predictions'}

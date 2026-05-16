@@ -35,6 +35,7 @@ export function InfoSidebar({
   ...props
 }: React.ComponentProps<typeof Infobar>) {
   const { content } = useInfobar();
+  const hasCustomContent = content !== null;
   const data = content || defaultData;
 
   return (
@@ -45,9 +46,11 @@ export function InfoSidebar({
             {data.title}
           </h2>
         </div>
-        <div className='shrink-0'>
-          <InfobarTrigger className='-mr-1' />
-        </div>
+        {hasCustomContent && (
+          <div className='shrink-0'>
+            <InfobarTrigger className='-mr-1' />
+          </div>
+        )}
       </InfobarHeader>
       <InfobarContent>
         <InfobarGroup>
@@ -98,7 +101,7 @@ export function InfoSidebar({
           </InfobarGroupContent>
         </InfobarGroup>
       </InfobarContent>
-      <InfobarRail />
+      {hasCustomContent && <InfobarRail />}
     </Infobar>
   );
 }

@@ -111,12 +111,12 @@ function StatBlock({ label, value, threshold, flag }: { label: string; value: nu
   return (
     <div className={cn('rounded-md border px-3 py-2', flagClass(flag))}>
       <div className='flex items-center justify-between gap-2'>
-        <span className='text-[11px] uppercase tracking-widest text-muted-foreground'>{label}</span>
-        <Badge variant='outline' className='text-[10px] uppercase'>{threshold}</Badge>
+        <span className='text-xs uppercase tracking-widest text-muted-foreground'>{label}</span>
+        <Badge variant='outline' className='text-xs uppercase'>{threshold}</Badge>
       </div>
       <div className='mt-1 flex items-end justify-between gap-3'>
         <span className='text-lg font-semibold tabular-nums'>{formatValue(value)}</span>
-        <span className='text-[11px] uppercase tracking-wide'>{flag}</span>
+        <span className='text-xs uppercase tracking-wide'>{flag}</span>
       </div>
     </div>
   );
@@ -143,24 +143,24 @@ function MetricTable({ title, biomarkers }: { title: string; biomarkers?: Biomar
 
         <div className='grid gap-2 md:grid-cols-2'>
           <div className='rounded-md border border-border/70 bg-muted/20 p-3'>
-            <p className='mb-2 text-[11px] uppercase tracking-widest text-muted-foreground'>CRE metrics</p>
+            <p className='mb-2 text-xs uppercase tracking-widest text-muted-foreground'>CRE metrics</p>
             <div className='grid gap-2 sm:grid-cols-3'>
               <div>
-                <p className='text-[11px] text-muted-foreground'>Artery CRE</p>
+                <p className='text-xs text-muted-foreground'>Artery CRE</p>
                 <p className='text-sm font-semibold tabular-nums'>{formatValue(biomarkers?.cre?.artery_cre)}</p>
               </div>
               <div>
-                <p className='text-[11px] text-muted-foreground'>Vein CRE</p>
+                <p className='text-xs text-muted-foreground'>Vein CRE</p>
                 <p className='text-sm font-semibold tabular-nums'>{formatValue(biomarkers?.cre?.vein_cre)}</p>
               </div>
               <div>
-                <p className='text-[11px] text-muted-foreground'>Samples</p>
+                <p className='text-xs text-muted-foreground'>Samples</p>
                 <p className='text-sm font-semibold tabular-nums'>{formatValue(biomarkers?.cre?.width_samples)}</p>
               </div>
             </div>
           </div>
           <div className='rounded-md border border-border/70 bg-muted/20 p-3'>
-            <p className='mb-2 text-[11px] uppercase tracking-widest text-muted-foreground'>Bifurcation angles</p>
+            <p className='mb-2 text-xs uppercase tracking-widest text-muted-foreground'>Bifurcation angles</p>
             <div className='flex flex-wrap gap-2'>
               {(biomarkers?.bifurcation_angles || []).slice(0, 10).map((angle, index) => (
                 <Badge key={index} variant='outline' className='tabular-nums'>{Number(angle).toFixed(1)}°</Badge>
@@ -237,7 +237,7 @@ function TrendChart({ title, series }: { title: string; series: Array<{ date: st
 function SummaryCard({ title, value, subtitle }: { title: string; value: string; subtitle: string }) {
   return (
     <div className='rounded-md border border-border/70 bg-muted/20 p-3'>
-      <p className='text-[11px] uppercase tracking-widest text-muted-foreground'>{title}</p>
+      <p className='text-xs uppercase tracking-widest text-muted-foreground'>{title}</p>
       <p className='mt-1 text-xl font-semibold tabular-nums'>{value}</p>
       <p className='text-xs text-muted-foreground'>{subtitle}</p>
     </div>
@@ -443,7 +443,7 @@ export function BiomarkerPanel({
         </CardHeader>
         <CardContent className='overflow-x-auto'>
           <table className='w-full min-w-[760px] text-sm'>
-            <thead className='text-left text-[11px] uppercase tracking-widest text-muted-foreground'>
+            <thead className='text-left text-xs uppercase tracking-widest text-muted-foreground'>
               <tr className='border-b border-border/60'>
                 <th className='py-2 pr-3'>Metric</th>
                 <th className='py-2 pr-3'>Left</th>

@@ -39,7 +39,7 @@ def create_fine_tune_split(
     eyepacs_no_dr = eyepacs_df[eyepacs_df["label"] == 0].sample(
         n=max(1, no_dr_count), random_state=42
     )
-    dr_count = int(len(eyepacs_df[eyepacs_df["label"] != 0]) * (1 - no_dr_ratio))
+    dr_count = int(len(eyepacs_df[eyepacs_df["label"] != 0]) * no_dr_ratio)
     eyepacs_dr = eyepacs_df[eyepacs_df["label"] != 0].sample(
         n=max(1, dr_count), random_state=42
     )

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -13,9 +14,10 @@ import {
   Heart,
   Calendar,
   Stethoscope,
-  Scan
+  Scan,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
-import { motion } from 'framer-motion';
 
 interface XAIExplanationsData {
   diagnosis?: {
@@ -159,6 +161,8 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
   const gradeMeta = getGradeMeta(drGrade);
   const riskMeta = getRiskMeta(riskLevel);
 
+  const [showGradcamDetails, setShowGradcamDetails] = useState(false);
+
   return (
     <Card className="overflow-hidden border border-border bg-card">
       <div className="bg-[var(--sidebar)] px-5 py-4 flex items-center justify-between">
@@ -200,15 +204,15 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="rounded-md bg-muted/30 px-3 py-2">
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Condition</p>
+                  <p className="text-xs uppercase tracking-widest text-muted-foreground">Condition</p>
                   <p className="text-sm font-semibold mt-0.5">{diagnosis.condition || 'Diabetic Retinopathy'}</p>
                 </div>
                 <div className="rounded-md bg-muted/30 px-3 py-2">
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Severity</p>
+                  <p className="text-xs uppercase tracking-widest text-muted-foreground">Severity</p>
                   <p className="text-sm font-semibold mt-0.5">{diagnosis.severity || severity_report?.diagnosis?.severity_label || '—'}</p>
                 </div>
                 <div className="rounded-md bg-muted/30 px-3 py-2">
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">DR Grade</p>
+                  <p className="text-xs uppercase tracking-widest text-muted-foreground">DR Grade</p>
                   {gradeMeta ? (
                     <span className={`text-xs font-medium px-2 py-0.5 rounded border mt-0.5 inline-block ${gradeMeta.bg} ${gradeMeta.border} ${gradeMeta.color}`}>
                       {getGradeKey(drGrade)}
@@ -218,7 +222,7 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
                   )}
                 </div>
                 <div className="rounded-md bg-muted/30 px-3 py-2">
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Confidence</p>
+                  <p className="text-xs uppercase tracking-widest text-muted-foreground">Confidence</p>
                   <p className="text-sm font-semibold mt-0.5">{diagnosis.confidence ? `${(diagnosis.confidence * 100).toFixed(1)}%` : '—'}</p>
                 </div>
               </div>
@@ -357,7 +361,7 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
                 {severity_report.recommendations.slice(0, 5).map((rec, idx) => (
                   rec?.action && (
                     <div key={idx} className="flex items-start gap-3 p-2.5 rounded-md bg-card border border-border">
-                      <div className="bg-amber-500 text-white w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                      <div className="bg-amber-500 text-white w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
                         {idx + 1}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -378,58 +382,74 @@ export default function XAICard({ predictionId, createdAt, data }: XAICardProps)
           <>
             <Separator />
             <div>
-              <div className="flex items-center gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => setShowGradcamDetails(!showGradcamDetails)}
+                className="flex items-center gap-2 mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+              >
                 <Eye className="h-4 w-4 text-[var(--brand-teal)]" />
-                <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Detailed GradCAM Analysis</span>
-              </div>
-              <div className="grid md:grid-cols-2 gap-3">
-                {gradcam_explanation?.left_eye_explanation && (
-                  <div className="rounded-lg border border-[var(--brand-teal)]/30 bg-[var(--brand-teal)]/5 p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <Eye className="h-3.5 w-3.5 text-[var(--brand-teal)]" />
-                        <h4 className="text-sm font-semibold text-foreground">Left Eye (OS)</h4>
-                      </div>
-                      <span className="text-[10px] font-mono font-bold text-white px-1.5 py-0.5 rounded bg-[var(--brand-teal)]">
-                        {gradcam_explanation.highlighted_regions?.left_eye?.length || 0} regions
-                      </span>
-                    </div>
-                    <div className="space-y-3">
-                      {parseExplanationSections(gradcam_explanation.left_eye_explanation).map((section, idx) => (
-                        <div key={idx}>
-                          {section.title && (
-                            <p className="text-xs font-semibold text-foreground mb-1">{section.title}</p>
-                          )}
-                          <p className="text-sm text-muted-foreground leading-relaxed">{section.body}</p>
+                Detailed GradCAM Analysis
+                {showGradcamDetails ? <ChevronUp className="h-3.5 w-3.5 ml-auto" /> : <ChevronDown className="h-3.5 w-3.5 ml-auto" />}
+              </button>
+              {!showGradcamDetails && (
+                <p className="text-xs text-muted-foreground">
+                  {(() => {
+                    const leftCount = gradcam_explanation?.highlighted_regions?.left_eye?.length || 0;
+                    const rightCount = gradcam_explanation?.highlighted_regions?.right_eye?.length || 0;
+                    return `${leftCount + rightCount} regions analyzed — click to view detailed AI analysis`;
+                  })()}
+                </p>
+              )}
+              {showGradcamDetails && (
+                <div className="grid md:grid-cols-2 gap-3">
+                  {gradcam_explanation?.left_eye_explanation && (
+                    <div className="rounded-lg border border-[var(--brand-teal)]/30 bg-[var(--brand-teal)]/5 p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <Eye className="h-3.5 w-3.5 text-[var(--brand-teal)]" />
+                          <h4 className="text-sm font-semibold text-foreground">Left Eye (OS)</h4>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {gradcam_explanation?.right_eye_explanation && (
-                  <div className="rounded-lg border border-[var(--brand-gold)]/30 bg-[var(--brand-gold)]/5 p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <Eye className="h-3.5 w-3.5 text-[var(--brand-gold)]" />
-                        <h4 className="text-sm font-semibold text-foreground">Right Eye (OD)</h4>
+                        <span className="text-xs font-mono font-bold text-white px-1.5 py-0.5 rounded bg-[var(--brand-teal)]">
+                          {gradcam_explanation.highlighted_regions?.left_eye?.length || 0} regions
+                        </span>
                       </div>
-                      <span className="text-[10px] font-mono font-bold text-white px-1.5 py-0.5 rounded bg-[var(--brand-gold)]">
-                        {gradcam_explanation.highlighted_regions?.right_eye?.length || 0} regions
-                      </span>
+                      <div className="space-y-3">
+                        {parseExplanationSections(gradcam_explanation.left_eye_explanation).map((section, idx) => (
+                          <div key={idx}>
+                            {section.title && (
+                              <p className="text-xs font-semibold text-foreground mb-1">{section.title}</p>
+                            )}
+                            <p className="text-sm text-muted-foreground leading-relaxed">{section.body}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div className="space-y-3">
-                      {parseExplanationSections(gradcam_explanation.right_eye_explanation).map((section, idx) => (
-                        <div key={idx}>
-                          {section.title && (
-                            <p className="text-xs font-semibold text-foreground mb-1">{section.title}</p>
-                          )}
-                          <p className="text-sm text-muted-foreground leading-relaxed">{section.body}</p>
+                  )}
+                  {gradcam_explanation?.right_eye_explanation && (
+                    <div className="rounded-lg border border-[var(--brand-gold)]/30 bg-[var(--brand-gold)]/5 p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <Eye className="h-3.5 w-3.5 text-[var(--brand-gold)]" />
+                          <h4 className="text-sm font-semibold text-foreground">Right Eye (OD)</h4>
                         </div>
-                      ))}
+                        <span className="text-xs font-mono font-bold text-white px-1.5 py-0.5 rounded bg-[var(--brand-gold)]">
+                          {gradcam_explanation.highlighted_regions?.right_eye?.length || 0} regions
+                        </span>
+                      </div>
+                      <div className="space-y-3">
+                        {parseExplanationSections(gradcam_explanation.right_eye_explanation).map((section, idx) => (
+                          <div key={idx}>
+                            {section.title && (
+                              <p className="text-xs font-semibold text-foreground mb-1">{section.title}</p>
+                            )}
+                            <p className="text-sm text-muted-foreground leading-relaxed">{section.body}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
           </>
         )}

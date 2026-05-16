@@ -102,27 +102,42 @@ class HealthResponse(BaseModel):
     version: str
 
 
+class PerClassMetrics(BaseModel):
+    recall: Optional[float] = None
+    f1: Optional[float] = None
+    precision: Optional[float] = None
+
+
 class ImagingMetrics(BaseModel):
-    accuracy: Optional[float]
-    quadratic_weighted_kappa: Optional[float]
-    roc_auc_macro: Optional[float]
-    precision_macro: Optional[float]
-    recall_macro: Optional[float]
-    num_samples: Optional[int]
+    accuracy: Optional[float] = None
+    quadratic_weighted_kappa: Optional[float] = None
+    roc_auc_macro: Optional[float] = None
+    macro_f1: Optional[float] = None
+    precision_macro: Optional[float] = None
+    recall_macro: Optional[float] = None
+    num_samples: Optional[int] = None
+    confusion_matrix: Optional[list[list[int]]] = None
+    class_metrics: Optional[dict[str, PerClassMetrics]] = None
+    label_distribution: Optional[dict[str, int]] = None
+    samaya: Optional["ImagingMetrics"] = None
+    training_summary: Optional[dict] = None
 
 
 class ClinicalMetrics(BaseModel):
-    accuracy: Optional[float]
-    quadratic_weighted_kappa: Optional[float]
-    roc_auc_macro: Optional[float]
-    precision_macro: Optional[float]
-    recall_macro: Optional[float]
-    num_samples: Optional[int]
+    accuracy: Optional[float] = None
+    quadratic_weighted_kappa: Optional[float] = None
+    roc_auc_macro: Optional[float] = None
+    macro_f1: Optional[float] = None
+    precision_macro: Optional[float] = None
+    recall_macro: Optional[float] = None
+    num_samples: Optional[int] = None
 
 
 class MetricsResponse(BaseModel):
     imaging: Optional[ImagingMetrics]
     clinical: Optional[ClinicalMetrics]
+    imaging_detail: Optional[dict] = None
+    training_summary: Optional[dict] = None
 
 
 class ClinicalFeatures(BaseModel):

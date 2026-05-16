@@ -37,7 +37,7 @@ export function DRGradeBadge({ grade, showLabel = true, size = 'default' }: DRGr
   return (
     <Badge
       variant={config.variant as 'dr_no_dr'}
-      className={size === 'sm' ? 'text-[10px] px-1.5 py-0' : ''}
+      className={size === 'sm' ? 'text-xs px-1.5 py-0' : ''}
     >
       {showLabel ? config.label : gradeStr}
     </Badge>

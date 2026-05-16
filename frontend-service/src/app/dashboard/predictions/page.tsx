@@ -133,6 +133,7 @@ export default function PredictionsPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [generatingReport, setGeneratingReport] = useState(false);
   const [patientNames, setPatientNames] = useState<Record<string, string>>({});
+  const [predictionFilter, setPredictionFilter] = useState<'all' | 'success' | 'failed'>('success');
   const [logMessages, setLogMessages] = useState<LogMessageData[]>([]);
   const [workflow, setWorkflow] = useState<PredictionWorkflowState>(INITIAL_WORKFLOW);
   const [biomarkerStages, setBiomarkerStages] = useState<Record<string, BiomarkerStageState>>({
@@ -443,8 +444,18 @@ export default function PredictionsPage() {
   };
 
   const getSeverityFromPrediction = (prediction: Prediction): DRSeverity | null => {
-    if (!prediction.output_payload?.severity) return null;
-    return prediction.output_payload.severity as DRSeverity;
+    const p = prediction.output_payload as Record<string, unknown> | null | undefined;
+    if (!p) return null;
+    const severity = (p.severity || p.overall_severity || p.severity_label) as string | undefined;
+    if (severity) return severity as DRSeverity;
+    const grade = p.combined_grade as number | undefined;
+    if (grade !== undefined) {
+      const gradeToSeverity: Record<number, DRSeverity> = {
+        0: 'no_dr', 1: 'mild', 2: 'moderate', 3: 'severe', 4: 'proliferative',
+      };
+      return gradeToSeverity[grade] || null;
+    }
+    return null;
   };
 
   const viewPredictionDetails = (prediction: Prediction) => {
@@ -664,10 +675,7 @@ export default function PredictionsPage() {
                       ))
                     )}
                   </div>
-                  <div className='flex items-center gap-1.5 text-[11px] text-muted-foreground'>
-                    <span className={`h-1.5 w-1.5 rounded-full ${wsConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                    {wsConnected ? 'Live' : 'Connecting...'}
-                  </div>
+                  <div className='flex items-center gap-1.5 text-xs text-muted-foreground' />
                 </div>
               </div>
 
@@ -697,10 +705,22 @@ export default function PredictionsPage() {
           <div className='rounded-lg border bg-card'>
             <div className='flex items-center justify-between p-4 pb-2'>
               <h3 className='text-sm font-semibold'>Recent Predictions</h3>
-              <Button variant='outline' size='sm' onClick={loadPredictions}>
-                <RefreshCw className='mr-1.5 h-3.5 w-3.5' />
-                Refresh
-              </Button>
+              <div className='flex items-center gap-2'>
+                <Select value={predictionFilter} onValueChange={(v) => setPredictionFilter(v as 'all' | 'success' | 'failed')}>
+                  <SelectTrigger className='h-8 w-28 text-xs'>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='success'>Success</SelectItem>
+                    <SelectItem value='failed'>Failed</SelectItem>
+                    <SelectItem value='all'>All</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button variant='outline' size='sm' onClick={loadPredictions}>
+                  <RefreshCw className='mr-1.5 h-3.5 w-3.5' />
+                  Refresh
+                </Button>
+              </div>
             </div>
             {predictionsLoading ? (
               <div className='py-8 text-center'>
@@ -714,7 +734,24 @@ export default function PredictionsPage() {
                   No predictions yet. Upload scans to get started.
                 </p>
               </div>
-            ) : (
+            ) : (() => {
+              const filtered = predictions.filter((p) => {
+                const status = p.status.toLowerCase();
+                if (predictionFilter === 'all') return true;
+                if (predictionFilter === 'success') return status === 'success' || status === 'completed';
+                return status === 'failed' || status === 'partial';
+              });
+              if (filtered.length === 0) {
+                return (
+                  <div className='flex flex-col items-center justify-center py-10'>
+                    <Activity className='mb-3 h-10 w-10 text-muted-foreground' />
+                    <p className='text-xs text-muted-foreground'>
+                      No {predictionFilter} predictions found.
+                    </p>
+                  </div>
+                );
+              }
+              return (
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -727,8 +764,9 @@ export default function PredictionsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {predictions.map((prediction) => {
+                  {filtered.map((prediction) => {
                     const severity = getSeverityFromPrediction(prediction);
+                    const canView = prediction.status.toLowerCase() === 'success' || prediction.status.toLowerCase() === 'completed';
                     return (
                       <TableRow key={prediction.id}>
                         <TableCell className='font-medium text-sm'>
@@ -739,7 +777,7 @@ export default function PredictionsPage() {
                         </TableCell>
                         <TableCell>
                           {severity ? (
-                            <Badge className={`${SEVERITY_COLORS[severity]} text-white text-[11px]`}>
+                            <Badge className={`${SEVERITY_COLORS[severity]} text-white text-xs`}>
                               {SEVERITY_LABELS[severity]}
                             </Badge>
                           ) : (
@@ -759,7 +797,7 @@ export default function PredictionsPage() {
                             variant='outline'
                             size='sm'
                             onClick={() => router.push(`/dashboard/predictions/${prediction.id}/gradcam`)}
-                            disabled={prediction.status !== 'success'}
+                            disabled={!canView}
                           >
                             <Eye className='mr-1 h-3.5 w-3.5' />
                             View
@@ -770,7 +808,8 @@ export default function PredictionsPage() {
                   })}
                 </TableBody>
               </Table>
-            )}
+              );
+              })()}
           </div>
         </TabsContent>
 
@@ -813,10 +852,10 @@ export default function PredictionsPage() {
                         {report.patient_id ? patientNames[report.patient_id] || 'Loading...' : 'N/A'}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className='text-[11px]'>{report.report_type || 'LLM'}</Badge>
+                        <Badge variant="outline" className='text-xs'>{report.report_type || 'LLM'}</Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={report.status === 'completed' ? 'default' : 'secondary'} className='text-[11px]'>
+                        <Badge variant={report.status === 'completed' ? 'default' : 'secondary'} className='text-xs'>
                           {report.status}
                         </Badge>
                       </TableCell>
@@ -867,7 +906,7 @@ export default function PredictionsPage() {
                       <p className="text-xs text-muted-foreground font-medium">
                         No GradCAM Visualizations Available
                       </p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                      <p className="text-xs text-muted-foreground mt-0.5">
                         Run predictions with GradCAM enabled to see heatmaps here.
                       </p>
                     </div>
@@ -890,12 +929,12 @@ export default function PredictionsPage() {
                                 {patientNames[prediction.patient_id] || 'Loading...'}
                               </span>
                               {gradeLabel && (
-                                <Badge className={`${GRADE_COLORS[String(grade)] || 'bg-muted'} text-white text-[10px] ml-2`}>
+                                <Badge className={`${GRADE_COLORS[String(grade)] || 'bg-muted'} text-white text-xs ml-2`}>
                                   {gradeLabel}
                                 </Badge>
                               )}
                             </div>
-                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground mb-2">
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
                               <span>{new Date(prediction.created_at).toLocaleDateString()}</span>
                               <span>|</span>
                               <span>
@@ -918,7 +957,7 @@ export default function PredictionsPage() {
                                 </div>
                               ) : (
                                 <div className="relative aspect-square rounded-md bg-muted flex items-center justify-center">
-                                  <span className="text-[10px] text-muted-foreground">No Left</span>
+                                  <span className="text-xs text-muted-foreground">No Left</span>
                                 </div>
                               )}
                               {prediction.output_payload?.gradcam_right ? (
@@ -934,7 +973,7 @@ export default function PredictionsPage() {
                                 </div>
                               ) : (
                                 <div className="relative aspect-square rounded-md bg-muted flex items-center justify-center">
-                                  <span className="text-[10px] text-muted-foreground">No Right</span>
+                                  <span className="text-xs text-muted-foreground">No Right</span>
                                 </div>
                               )}
                             </div>

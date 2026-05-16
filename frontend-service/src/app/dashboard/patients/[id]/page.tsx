@@ -7,6 +7,7 @@ import PageContainer from '@/components/layout/page-container';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { setBreadcrumbOverride, clearBreadcrumbOverride } from '@/hooks/use-breadcrumbs';
 import type { LucideIcon } from 'lucide-react';
 import {
   ArrowLeft,
@@ -28,8 +29,6 @@ import {
   User,
   Phone,
   Hash,
-  Wifi,
-  WifiOff,
   ChevronRight,
 } from 'lucide-react';
 import {
@@ -89,7 +88,7 @@ const RISK_META: Record<string, { color: string; bg: string; border: string }> =
 type TabId = 'scans' | 'biomarkers' | 'gradcam' | 'xai' | 'reports';
 
 const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
-  { id: 'scans',   label: 'MRI Scans',        icon: Scan },
+  { id: 'scans',   label: 'Retinal Images',   icon: Scan },
   { id: 'biomarkers', label: 'Biomarkers',    icon: BarChart3 },
   { id: 'gradcam', label: 'GradCAM Report',   icon: Eye },
   { id: 'xai',     label: 'XAI Explanations', icon: Brain },
@@ -149,7 +148,7 @@ export default function PatientProfilePage() {
     } catch {}
   }, [patientId]);
 
-  const { connected } = usePatientWebSocket({
+  usePatientWebSocket({
     patientId,
     onPredictionComplete: useCallback((_data: PredictionEventData) => {
       setNeedsRefresh(prev => ({ ...prev, predictions: true }));
@@ -172,6 +171,11 @@ export default function PatientProfilePage() {
   });
 
   useEffect(() => {
+    const path = `/dashboard/patients/${patientId}`;
+    return () => { clearBreadcrumbOverride(path); };
+  }, [patientId]);
+
+  useEffect(() => {
     const load = async () => {
       try {
         const [patientData, scansData, predsData, repsData] = await Promise.all([
@@ -181,6 +185,9 @@ export default function PatientProfilePage() {
           listPatientReports(patientId, 1, 100),
         ]);
         setPatient(patientData);
+        const patientPath = `/dashboard/patients/${patientId}`;
+        const patientName = `${patientData.first_name} ${patientData.last_name}`.trim();
+        setBreadcrumbOverride(patientPath, patientName || patientId.slice(0, 8));
         setScans(scansData);
         setPredictions((predsData as PaginatedResponse<Prediction>).items);
         setReports((repsData as PaginatedResponse<Report>).items);
@@ -361,12 +368,7 @@ export default function PatientProfilePage() {
             <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40" />
             <span className="text-sm font-medium">{patient.first_name} {patient.last_name}</span>
           </div>
-          <div className="flex items-center gap-2">
-            {connected
-              ? <><Wifi className="h-3.5 w-3.5 text-emerald-500" /><span className="text-xs text-emerald-500">Live</span></>
-              : <><WifiOff className="h-3.5 w-3.5 text-amber-500" /><span className="text-xs text-amber-500">Connecting</span></>
-            }
-          </div>
+          <div className="flex items-center gap-2" />
         </div>
 
         {/* Two-column layout: patient identity left, content right */}
@@ -456,7 +458,7 @@ export default function PatientProfilePage() {
                 <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Summary</span>
               </div>
               <div className="grid grid-cols-2 divide-x divide-y divide-border">
-                <StatCell label="MRI Scans" value={scans.length} accent="teal" />
+                <StatCell label="Retinal Images" value={scans.length} accent="teal" />
                 <StatCell label="Predictions" value={predictions.length} accent="gold" />
                 <StatCell label="Reports" value={reports.length} accent="blue" />
                 <StatCell label="XAI" value={successPredictions.length} accent="purple" />
@@ -510,7 +512,7 @@ export default function PatientProfilePage() {
                 {activeTab === 'scans' && (
                   <div className="flex flex-col gap-3">
                     {scans.length === 0
-                      ? <EmptyState icon={Scan} title="No MRI Scans" description="No fundus scans have been uploaded for this patient." />
+                      ? <EmptyState icon={Scan} title="No Retinal Images" description="No fundus scans have been uploaded for this patient." />
                       : scans.map(scan => (
                         <div key={scan.id} className="rounded-md border border-border bg-card overflow-hidden">
                           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-muted/20">
@@ -520,7 +522,7 @@ export default function PatientProfilePage() {
                               <span className="text-xs font-mono font-medium">{scan.id.slice(0, 12).toUpperCase()}</span>
                             </div>
                             <span className="text-xs text-muted-foreground">
-                              {new Date(scan.uploaded_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              {new Date((scan as unknown as Record<string, string>).scanned_at || scan.uploaded_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </span>
                           </div>
                           <div className="p-4 grid grid-cols-2 gap-3">
@@ -615,7 +617,7 @@ export default function PatientProfilePage() {
                                         <Eye className="h-4 w-4 text-[var(--brand-teal)]" />
                                         Left Eye (OS)
                                       </h4>
-                                      <span className="text-[10px] font-mono font-bold text-white px-1.5 py-0.5 rounded bg-[var(--brand-teal)]">
+                                      <span className="text-xs font-mono font-bold text-white px-1.5 py-0.5 rounded bg-[var(--brand-teal)]">
                                         {xaiData[pred.id]?.gradcam_explanation?.highlighted_regions?.left_eye?.length || 0} regions
                                       </span>
                                     </div>
@@ -638,7 +640,7 @@ export default function PatientProfilePage() {
                                         <Eye className="h-4 w-4 text-[var(--brand-gold)]" />
                                         Right Eye (OD)
                                       </h4>
-                                      <span className="text-[10px] font-mono font-bold text-white px-1.5 py-0.5 rounded bg-[var(--brand-gold)]">
+                                      <span className="text-xs font-mono font-bold text-white px-1.5 py-0.5 rounded bg-[var(--brand-gold)]">
                                         {xaiData[pred.id]?.gradcam_explanation?.highlighted_regions?.right_eye?.length || 0} regions
                                       </span>
                                     </div>
@@ -872,53 +874,7 @@ export default function PatientProfilePage() {
                   </div>
                 )}
 
-                <div className="mt-2">
-                      <SectionHeader icon={Layers} title="Recent Activity" iconColor="text-muted-foreground" />
-                      {predictions.length === 0 && reports.length === 0 && scans.length === 0
-                        ? <EmptyState icon={Activity} title="No Activity" description="Patient activity will appear here." />
-                        : (
-                          <div className="rounded-md border border-border bg-card divide-y divide-border">
-                            {[
-                              ...predictions.map(p => ({ type: 'prediction' as const, date: p.created_at, data: p })),
-                              ...reports.map(r => ({ type: 'report' as const, date: r.created_at, data: r })),
-                              ...scans.map(s => ({ type: 'scan' as const, date: s.uploaded_at, data: s })),
-                            ]
-                              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                              .slice(0, 8)
-                              .map((activity, i) => (
-                                <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-                                  <div className={`p-1.5 rounded-full flex-shrink-0 ${
-                                    activity.type === 'prediction' ? 'bg-amber-500/10 text-amber-500'
-                                    : activity.type === 'report' ? 'bg-blue-500/10 text-blue-500'
-                                    : 'bg-[var(--brand-teal)]/10 text-[var(--brand-teal)]'
-                                  }`}>
-                                    {activity.type === 'prediction' ? <Eye className="h-3 w-3" />
-                                      : activity.type === 'report' ? <FileText className="h-3 w-3" />
-                                      : <Scan className="h-3 w-3" />
-                                    }
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-medium">
-                                      {activity.type === 'prediction' ? 'DR Screening'
-                                        : activity.type === 'report' ? 'Clinical Report'
-                                        : 'MRI Scan Upload'}
-                                    </p>
-                                    <p className="text-xs text-muted-foreground truncate">
-                                      {activity.type === 'prediction' && (activity.data as Prediction).model_name}
-                                      {activity.type === 'report' && (activity.data as Report).llm_model}
-                                      {activity.type === 'scan' && `ID: ${(activity.data as MRIScan).id.slice(0, 12)}`}
-                                    </p>
-                                  </div>
-                                  <span className="text-xs text-muted-foreground flex-shrink-0">
-                                    {new Date(activity.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                                  </span>
-                                </div>
-                              ))
-                            }
-                          </div>
-                        )
-                      }
-                </div>
+                <div className="mt-2" />
 
               </motion.div>
             </AnimatePresence>
@@ -936,7 +892,7 @@ function DataRow({ icon: Icon, label, value, mono }: { icon: typeof Hash; label:
     <div className="flex items-center gap-3 px-3 py-2.5">
       <Icon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
       <div className="min-w-0">
-        <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</p>
+        <p className="text-xs uppercase tracking-widest text-muted-foreground">{label}</p>
         <p className={`text-xs font-medium truncate ${mono ? 'font-mono' : ''}`}>{value}</p>
       </div>
     </div>
@@ -953,7 +909,7 @@ function StatCell({ label, value, accent }: { label: string; value: number; acce
   return (
     <div className="flex flex-col items-center py-3 gap-0.5">
       <span className={`text-xl font-bold ${colors[accent]}`}>{value}</span>
-      <span className="text-[10px] text-muted-foreground uppercase tracking-widest">{label}</span>
+      <span className="text-xs text-muted-foreground uppercase tracking-widest">{label}</span>
     </div>
   );
 }
@@ -1036,7 +992,7 @@ function EyeImagePanel({ title, src, eye }: { title: string; src?: string; eye: 
           <Eye className={`h-3.5 w-3.5 ${accentText}`} />
           <span className="text-xs font-semibold uppercase tracking-wider text-foreground">{title}</span>
         </div>
-        <span className={`text-[10px] font-mono font-bold text-white px-1.5 py-0.5 rounded ${accentBadgeBg}`}>
+        <span className={`text-xs font-mono font-bold text-white px-1.5 py-0.5 rounded ${accentBadgeBg}`}>
           {eye === 'L' ? 'OS' : 'OD'}
         </span>
       </div>
@@ -1051,7 +1007,7 @@ function EyeImagePanel({ title, src, eye }: { title: string; src?: string; eye: 
         )}
       </div>
       <div className="px-3 py-1.5 border-t border-border/50 bg-muted/20">
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+        <p className="text-xs text-muted-foreground uppercase tracking-wider">
           {eye === 'L' ? 'Oculus Sinister' : 'Oculus Dexter'} — Fundus Photography
         </p>
       </div>
@@ -1073,7 +1029,7 @@ function GradCAMPanel({ title, gradcamBase64 }: { title: string; gradcamBase64?:
           <Eye className={`h-3.5 w-3.5 ${accentText}`} />
           <span className="text-xs font-semibold uppercase tracking-wider text-foreground">{title}</span>
         </div>
-        <span className={`text-[10px] font-mono font-bold text-white px-1.5 py-0.5 rounded ${accentBadgeBg}`}>
+        <span className={`text-xs font-mono font-bold text-white px-1.5 py-0.5 rounded ${accentBadgeBg}`}>
           {isLeft ? 'OS' : 'OD'}
         </span>
       </div>
@@ -1092,7 +1048,7 @@ function GradCAMPanel({ title, gradcamBase64 }: { title: string; gradcamBase64?:
         )}
       </div>
       <div className="px-3 py-1.5 border-t border-border/50 bg-muted/20">
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+        <p className="text-xs text-muted-foreground uppercase tracking-wider">
           {isLeft ? 'Oculus Sinister' : 'Oculus Dexter'} — GradCAM Saliency Map
         </p>
       </div>

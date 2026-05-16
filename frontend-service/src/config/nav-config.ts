@@ -7,18 +7,10 @@ export type NavGroup = {
 
 export const navGroups: NavGroup[] = [
   {
-    title: 'Clinical',
+    title: '',
     items: [
       {
-        title: 'Dashboard',
-        url: '/dashboard/overview',
-        icon: 'dashboard',
-        isActive: false,
-        shortcut: ['o', 'o'],
-        items: [],
-      },
-      {
-        title: 'Patient Registry',
+        title: 'Patients',
         url: '/dashboard/patients',
         icon: 'user',
         isActive: false,
@@ -26,18 +18,21 @@ export const navGroups: NavGroup[] = [
         items: [],
       },
       {
-        title: 'Analytics',
-        url: '/dashboard/analytics',
-        icon: 'chart',
+        title: 'Predictions',
+        url: '/dashboard/predictions',
+        icon: 'media',
         isActive: false,
-        shortcut: ['a', 'a'],
+        shortcut: ['d', 'd'],
         items: [],
       },
-    ],
-  },
-  {
-    title: 'AI Assistant',
-    items: [
+      {
+        title: 'Reports',
+        url: '/dashboard/reports',
+        icon: 'post',
+        isActive: false,
+        shortcut: ['r', 'r'],
+        items: [],
+      },
       {
         title: 'AI Chat',
         url: '/dashboard/chat',
@@ -49,39 +44,7 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
-    title: 'AI Tools',
-    items: [
-      {
-        title: 'Diagnostics',
-        url: '/dashboard/predictions?tab=screening',
-        icon: 'media',
-        isActive: false,
-        shortcut: ['d', 'd'],
-        items: [
-          {
-            title: 'Screening',
-            url: '/dashboard/predictions?tab=screening',
-            icon: 'media',
-            shortcut: ['s', 's'],
-          },
-          {
-            title: 'Reports',
-            url: '/dashboard/predictions?tab=reports',
-            icon: 'post',
-            shortcut: ['r', 'r'],
-          },
-          {
-            title: 'GradCAM',
-            url: '/dashboard/predictions?tab=gradcam',
-            icon: 'media',
-            shortcut: ['g', 'g'],
-          },
-        ],
-      },
-    ],
-  },
-  {
-    title: 'Administration',
+    title: 'System',
     items: [
       {
         title: 'AI Models',
@@ -113,19 +76,6 @@ export const navGroups: NavGroup[] = [
         icon: 'database',
         isActive: false,
         shortcut: ['s', 's'],
-        items: [],
-      },
-    ],
-  },
-  {
-    title: 'Account',
-    items: [
-      {
-        title: 'Profile',
-        url: '/dashboard/profile',
-        icon: 'profile',
-        isActive: false,
-        shortcut: ['u', 'u'],
         items: [],
       },
     ],

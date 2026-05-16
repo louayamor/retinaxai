@@ -140,6 +140,7 @@ class ImagingModelTrainer:
         self._training_scheduler = training_cfg.get("scheduler", "reduce_on_plateau")
         self._training_lr_warmup_epochs = int(training_cfg.get("lr_warmup_epochs", 0))
         self._training_label_smoothing = float(training_cfg.get("label_smoothing", 0.0))
+        self._training_pin_memory = bool(training_cfg.get("pin_memory", True))
 
         self.use_phase_based = phase in ("phase1", "phase2")
 
@@ -153,6 +154,7 @@ class ImagingModelTrainer:
             self.unfreeze_last_blocks = phase_specific.get(
                 "unfreeze_last_blocks", False
             )
+
             self._focal_loss_gamma = phase_specific.get("focal_loss_gamma", 1.5)
             self._loss_type = phase_specific.get("loss", "ordinal_cross_entropy")
 
@@ -332,7 +334,7 @@ class ImagingModelTrainer:
                     param.requires_grad = True
 
                 if self.unfreeze_last_blocks and num_blocks > 0:
-                    num_unfreeze = min(2, num_blocks)
+                    num_unfreeze = min(self._freeze_blocks, num_blocks)
                     unfreeze_from = num_blocks - num_unfreeze
 
                     for i in range(unfreeze_from, num_blocks):
@@ -451,14 +453,14 @@ class ImagingModelTrainer:
             shuffle=(sampler is None),
             sampler=sampler,
             num_workers=self._training_num_workers,
-            pin_memory=False,
+            pin_memory=self._training_pin_memory,
         )
         val_loader = DataLoader(
             val_dataset,
             batch_size=self._training_batch_size,
             shuffle=False,
             num_workers=self._training_num_workers,
-            pin_memory=False,
+            pin_memory=self._training_pin_memory,
         )
 
         model = self._build_model()
@@ -606,10 +608,10 @@ class ImagingModelTrainer:
                         else None
                     ),
                     "freeze_backbone": self.freeze_backbone,
-                    "freeze_blocks": getattr(self, "_freeze_blocks", 3),
                     "unfreeze_last_blocks": getattr(
                         self, "unfreeze_last_blocks", False
                     ),
+                    "freeze_blocks": getattr(self, "_freeze_blocks", 3),
                     "device": str(self.device),
                     "phase": self.phase,
                     "mixup_enabled": self._use_mixup,

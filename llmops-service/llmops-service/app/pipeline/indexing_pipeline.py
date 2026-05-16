@@ -88,7 +88,14 @@ class IndexingPipeline:
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         if hasattr(store, "rebuild_collection_atomically"):
-            store.rebuild_collection_atomically(chunks, state)
+            try:
+                store.rebuild_collection_atomically(chunks, state)
+            except Exception:
+                logger.warning(
+                    "Rebuild failed, nuking corrupted ChromaDB data and retrying..."
+                )
+                store._nuke_corrupted_data()
+                store.rebuild_collection_atomically(chunks, state)
         else:
             store.upsert_documents(chunks)
             if hasattr(store, "write_state"):

@@ -10,10 +10,13 @@ from app.llm.client import LLMClient, get_llm_client
 
 
 class InferenceResult:
-    def __init__(self, content: str, model_name: str, provider: str):
+    def __init__(
+        self, content: str, model_name: str, provider: str, switched: str = ""
+    ):
         self.content = content
         self.model_name = model_name
         self.provider = provider
+        self.switched = switched
 
 
 _GITHUB_FALLBACK_CLIENT: LLMClient | None = None
@@ -109,9 +112,10 @@ async def generate_with_fallback(
             if i > start_idx:
                 switch_note = f"[Switched to {display} ({model})]\n\n"
             return InferenceResult(
-                content=switch_note + raw,
+                content=raw,
                 model_name=model,
                 provider=display,
+                switched=switch_note,
             )
         except Exception as e:
             attempts.append(f"{display}: {str(e)[:80]}")

@@ -26,7 +26,7 @@ def _run_single_phase(
         data_cfg = params.get("data", {}) or {}
         ratios_cfg = data_cfg.get("ratios", {}) or {}
 
-        oversample_ratio = data_cfg.get("oversample_ratio", 5)
+        oversample_ratio = ratios_cfg.get("oversample_ratio", 5)
         clinical_ratio = ratios_cfg.get("clinical", 0.7)
         no_dr_ratio = data_cfg.get("keep_no_dr_ratio", 0.55)
 
@@ -99,6 +99,15 @@ def run(phase: str = "phase1", checkpoint_path: Path | None = None):
     if phase == "phase1" and checkpoint_path is None:
         logger.info(">>> Phase 1: Full EyePacs training (frozen backbone)")
         phase1_checkpoint = _run_single_phase("phase1", None, cfg, transformation_cfg)
+
+        params = read_yaml(PARAMS_FILE_PATH)
+        phase2_cfg = params.get("training", {}).get("phase2", {}) or {}
+        if phase2_cfg.get("skip", False):
+            logger.info(">>> Phase 2: SKIPPED (phase2.skip=true in params.yaml)")
+            logger.info(
+                f">>> stage 04: imaging model training complete (final checkpoint={phase1_checkpoint})"
+            )
+            return phase1_checkpoint
 
         logger.info(">>> Phase 2: Clinical fine-tuning with domain adaptation")
         try:

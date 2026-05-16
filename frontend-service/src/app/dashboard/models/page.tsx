@@ -24,6 +24,16 @@ import {
   Sparkles,
   BarChart3,
   PauseCircle,
+  Activity,
+  TrendingUp,
+  Target,
+  Layers,
+  ChevronDown,
+  ChevronUp,
+  Brain,
+  Crosshair,
+  BarChart2,
+  Clock,
 } from 'lucide-react';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { TrainingProgress } from '@/components/training-progress';
@@ -32,6 +42,36 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
 const MLOPS_BASE = process.env.NEXT_PUBLIC_MLOPS_URL || 'http://localhost:8004';
+
+interface SplitMetrics {
+  split: string;
+  accuracy: number;
+  quadratic_weighted_kappa: number;
+  roc_auc_macro: number;
+  macro_f1: number;
+  precision_macro: number;
+  recall_macro: number;
+  num_samples: number;
+  confusion_matrix: number[][];
+  classification_report: Record<string, unknown>;
+  label_distribution: Record<string, number>;
+  class_0_recall: number;
+  class_1_recall: number;
+  class_2_recall: number;
+  class_3_recall: number;
+  class_4_recall: number;
+  class_0_f1: number;
+  class_1_f1: number;
+  class_2_f1: number;
+  class_3_f1: number;
+  class_4_f1: number;
+  class_0_precision: number;
+  class_1_precision: number;
+  class_2_precision: number;
+  class_3_precision: number;
+  class_4_precision: number;
+}
+
 interface Metrics {
   imaging?: {
     accuracy?: number;
@@ -45,6 +85,8 @@ interface Metrics {
     roc_auc_macro?: number;
     num_samples?: number;
   };
+  imaging_detail?: Record<string, unknown>;
+  training_summary?: Record<string, unknown>;
 }
 
 interface JobStatus {
@@ -73,12 +115,291 @@ interface AlertsResponse {
   pending: number;
 }
 
+const DR_LABELS = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative'] as const;
+
+function formatPct(v: number): string {
+  return `${(v * 100).toFixed(1)}%`;
+}
+
+function formatVal(v: number): string {
+  return v.toFixed(4);
+}
+
+function MetricCard({
+  label,
+  value,
+  icon: Icon,
+  accent,
+  sub,
+}: {
+  label: string;
+  value: string;
+  icon: React.ElementType;
+  accent: string;
+  sub?: string;
+}) {
+  return (
+    <div className="rounded-lg border bg-card p-3 flex flex-col gap-1">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Icon className="h-3.5 w-3.5" style={{ color: accent }} />
+        {label}
+      </div>
+      <div className="text-lg font-semibold tabular-nums" style={{ color: accent }}>
+        {value}
+      </div>
+      {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
+    </div>
+  );
+}
+
+function SplitPanel({
+  title,
+  metrics,
+  accent,
+  confusionMatrixUrl,
+  misclassifiedCount,
+}: {
+  title: string;
+  metrics: SplitMetrics;
+  accent: string;
+  confusionMatrixUrl?: string;
+  misclassifiedCount?: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <Card className="flex flex-col">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: accent }} />
+          {title}
+          <Badge variant="secondary" className="text-xs px-1.5 py-0 ml-auto">
+            n={metrics.num_samples.toLocaleString()}
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex-1 flex flex-col gap-3">
+        <div className="grid grid-cols-2 gap-2">
+          <MetricCard
+            label="Accuracy"
+            value={formatPct(metrics.accuracy)}
+            icon={Target}
+            accent={accent}
+            sub={`${metrics.num_samples.toLocaleString()} samples`}
+          />
+          <MetricCard
+            label="QWK"
+            value={formatVal(metrics.quadratic_weighted_kappa)}
+            icon={TrendingUp}
+            accent={accent}
+          />
+          <MetricCard
+            label="ROC-AUC (macro)"
+            value={formatVal(metrics.roc_auc_macro)}
+            icon={Crosshair}
+            accent={accent}
+          />
+          <MetricCard
+            label="Macro-F1"
+            value={formatVal(metrics.macro_f1)}
+            icon={BarChart2}
+            accent={accent}
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          {expanded ? 'Hide' : 'Show'} per-class metrics
+        </button>
+
+        {expanded && (
+          <div className="space-y-2">
+            <div className="rounded-lg border overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-muted/50">
+                    <th className="px-2 py-1 text-left font-medium">Grade</th>
+                    <th className="px-2 py-1 text-right font-medium">Precision</th>
+                    <th className="px-2 py-1 text-right font-medium">Recall</th>
+                    <th className="px-2 py-1 text-right font-medium">F1</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {DR_LABELS.map((label, i) => (
+                    <tr key={i} className="border-t">
+                      <td className="px-2 py-1 font-medium">{label}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">
+                        {formatVal(metrics[`class_${i}_precision` as keyof SplitMetrics] as number)}
+                      </td>
+                      <td className="px-2 py-1 text-right tabular-nums">
+                        {formatVal(metrics[`class_${i}_recall` as keyof SplitMetrics] as number)}
+                      </td>
+                      <td className="px-2 py-1 text-right tabular-nums">
+                        {formatVal(metrics[`class_${i}_f1` as keyof SplitMetrics] as number)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="rounded-lg border overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-muted/50">
+                    <th className="px-2 py-1 text-left font-medium">Grade</th>
+                    {DR_LABELS.map((l) => (
+                      <th key={l} className="px-2 py-1 text-right font-medium">{l}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {metrics.confusion_matrix.map((row, i) => (
+                    <tr key={i} className="border-t">
+                      <td className="px-2 py-1 font-medium">{DR_LABELS[i]}</td>
+                      {row.map((val, j) => (
+                        <td
+                          key={j}
+                          className={cn(
+                            'px-2 py-1 text-right tabular-nums',
+                            i === j ? 'font-semibold' : 'text-muted-foreground',
+                          )}
+                        >
+                          {val.toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {confusionMatrixUrl && (
+          <div className="rounded-lg border bg-muted/30 p-2">
+            <p className="text-xs text-muted-foreground mb-1.5">Confusion Matrix</p>
+            <img
+              src={confusionMatrixUrl}
+              alt={`${title} confusion matrix`}
+              className="w-full max-w-[400px] mx-auto rounded"
+            />
+          </div>
+        )}
+
+        {misclassifiedCount !== undefined && (
+          <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <AlertCircle className="h-3 w-3" />
+            {misclassifiedCount} misclassified samples
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TrainingHistoryPanel({
+  trainingSummary,
+}: {
+  trainingSummary: Record<string, unknown>;
+}) {
+  const epochLog = (trainingSummary.epoch_log ?? []) as Array<Record<string, unknown>>;
+  const bestEpoch = trainingSummary.best_epoch as number;
+  const bestValQwk = trainingSummary.best_val_qwk as number;
+  const bestValAcc = trainingSummary.best_val_acc as number;
+  const bestValF1 = trainingSummary.best_val_f1 as number;
+  const bestValMae = trainingSummary.best_val_mae as number;
+  const phase = trainingSummary.phase as string;
+  const totalEpochs = trainingSummary.total_epochs as number;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <Activity className="h-4 w-4 text-[var(--brand-teal)]" />
+          Training History
+          <Badge variant="secondary" className="text-xs px-1.5 py-0 ml-auto">
+            {phase} — {totalEpochs} epochs
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <MetricCard label="Best Epoch" value={`#${bestEpoch}`} icon={Clock} accent="var(--brand-teal)" />
+          <MetricCard label="Best Val QWK" value={formatVal(bestValQwk)} icon={TrendingUp} accent="var(--brand-teal)" />
+          <MetricCard label="Best Val Acc" value={formatPct(bestValAcc)} icon={Target} accent="var(--brand-teal)" />
+          <MetricCard label="Best Val MAE" value={formatVal(bestValMae)} icon={BarChart2} accent="var(--brand-teal)" />
+        </div>
+
+        {epochLog.length > 0 && (
+          <div className="rounded-lg border overflow-hidden">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-muted/50">
+                  <th className="px-2 py-1 text-left font-medium">Epoch</th>
+                  <th className="px-2 py-1 text-right font-medium">Loss</th>
+                  <th className="px-2 py-1 text-right font-medium">Val Acc</th>
+                  <th className="px-2 py-1 text-right font-medium">Val QWK</th>
+                  <th className="px-2 py-1 text-right font-medium">Val F1</th>
+                  <th className="px-2 py-1 text-right font-medium">Val MAE</th>
+                  <th className="px-2 py-1 text-right font-medium">LR</th>
+                </tr>
+              </thead>
+              <tbody>
+                {epochLog.map((ep) => {
+                  const epoch = ep.epoch as number;
+                  const isBest = epoch === bestEpoch;
+                  return (
+                    <tr
+                      key={epoch}
+                      className={cn('border-t', isBest && 'bg-[var(--brand-teal)]/10 font-semibold')}
+                    >
+                      <td className="px-2 py-1">
+                        {epoch}
+                        {isBest && (
+                          <span className="ml-1 text-[var(--brand-teal)]">★</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1 text-right tabular-nums">
+                        {(ep.loss as number).toFixed(4)}
+                      </td>
+                      <td className="px-2 py-1 text-right tabular-nums">
+                        {formatPct(ep.val_acc as number)}
+                      </td>
+                      <td className="px-2 py-1 text-right tabular-nums">
+                        {formatVal(ep.val_qwk as number)}
+                      </td>
+                      <td className="px-2 py-1 text-right tabular-nums">
+                        {formatVal(ep.val_f1 as number)}
+                      </td>
+                      <td className="px-2 py-1 text-right tabular-nums">
+                        {formatVal(ep.val_mae as number)}
+                      </td>
+                      <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">
+                        {(ep.lr as number).toExponential(2)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function ModelsPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [alerts, setAlerts] = useState<AlertsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [alertLoading, setAlertLoading] = useState(true);
+  const [alertsExpanded, setAlertsExpanded] = useState(false);
   const [training, setTraining] = useState<string | null>(null);
   const [trainingProgress, setTrainingProgress] = useState<{
     stage: string;
@@ -168,7 +489,7 @@ export default function ModelsPage() {
 
   const isTraining = jobStatus?.status === 'running' || jobStatus?.status === 'pending';
   const analyticsMetadata = analyticsUpdated ? (
-    <span className="text-[11px] text-muted-foreground">
+    <span className="text-xs text-muted-foreground">
       Last updated: {analyticsUpdated.toLocaleTimeString()}
       {analyticsPaused && (
         <span className="ml-2 text-amber-500 flex items-center gap-1 inline-flex">
@@ -212,6 +533,11 @@ export default function ModelsPage() {
     void fetchAlerts();
   }, []);
 
+  const eyepacsMetrics = metrics?.imaging_detail?.eyepacs_test as SplitMetrics | undefined;
+  const samayaMetrics = metrics?.imaging_detail?.samaya_validation as SplitMetrics | undefined;
+  const trainingSummary = metrics?.training_summary;
+  const domainShift = metrics?.imaging_detail?.domain_shift as { confidence_ece: number; embedding_mmd: number } | undefined;
+
   if (loading && !metrics) {
     return (
       <PageContainer>
@@ -229,160 +555,204 @@ export default function ModelsPage() {
         description="Model performance, training controls, and AI-generated analytics"
       />
 
-      <div className="rounded-lg border bg-card p-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Play className="h-5 w-5" />
-            <h3 className="font-semibold">Training Pipeline</h3>
-          </div>
-          <RefreshButton
-            onClick={() => {
-              void Promise.all([fetchMetrics(), fetchStatus(), fetchAlerts()]);
-            }}
-            loading={loading}
-          />
-        </div>
-        <div className="flex flex-wrap gap-4 items-center">
-          <Button
-            onClick={() => void triggerTraining('imaging')}
-            disabled={isTraining || training === 'imaging'}
-            className="bg-[var(--brand-teal)] hover:bg-[#1a9a9a]"
-          >
-            {training === 'imaging' ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Play className="mr-2 h-4 w-4" />
-            )}
-            Train Imaging
-          </Button>
-          <Button
-            onClick={() => void triggerTraining('clinical')}
-            disabled={isTraining || training === 'clinical'}
-            variant="outline"
-          >
-            {training === 'clinical' ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Play className="mr-2 h-4 w-4" />
-            )}
-            Train Clinical
-          </Button>
-          {isTraining && (
-            <Button onClick={stopTraining} variant="destructive" size="sm">
-              <Square className="mr-2 h-4 w-4" />
-              Stop
-            </Button>
-          )}
-          {isTraining && (
-            <Badge variant="secondary" className="ml-auto">
-              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-              {jobStatus?.pipeline} — {jobStatus?.status}
-            </Badge>
-          )}
-          {!connected && (
-            <Badge variant="outline" className="ml-2 text-orange-500">
-              <WifiOff className="mr-1 h-3 w-3" />
-              Offline
-            </Badge>
-          )}
-        </div>
-        {trainingProgress && (
-          <div className="mt-4 p-4 bg-muted/50 rounded-lg">
-            <TrainingProgress
-              stage={trainingProgress.stage}
-              progress={trainingProgress.progress}
-              status={trainingProgress.status}
-              message={trainingProgress.message}
+      {/* Top row: Training + Alerts side by side */}
+      <div className="grid gap-4 lg:grid-cols-5">
+        <div className="lg:col-span-3 rounded-lg border bg-card p-4">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Play className="h-5 w-5" />
+              <h3 className="font-semibold">Training Pipeline</h3>
+            </div>
+            <RefreshButton
+              onClick={() => {
+                void Promise.all([fetchMetrics(), fetchStatus(), fetchAlerts()]);
+              }}
+              loading={loading}
             />
           </div>
-        )}
-        {jobStatus?.error && (
-          <p className="text-sm text-destructive mt-4">{jobStatus.error}</p>
-        )}
-      </div>
-
-      <Card className={cn(alerts && alerts.total > 0 ? 'border-destructive/50 bg-destructive/5' : 'border-border')}>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Bell className="h-5 w-5" />
-            Active Alerts
-            {alerts && alerts.total > 0 && (
-              <Badge variant={alerts.firing > 0 ? 'destructive' : 'secondary'}>
-                {alerts.total} total
+          <div className="flex flex-wrap gap-4 items-center">
+            <Button
+              onClick={() => void triggerTraining('imaging')}
+              disabled={isTraining || training === 'imaging'}
+              className="bg-[var(--brand-teal)] hover:bg-[#1a9a9a]"
+            >
+              {training === 'imaging' ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="mr-2 h-4 w-4" />
+              )}
+              Train Imaging
+            </Button>
+            <Button
+              onClick={() => void triggerTraining('clinical')}
+              disabled={isTraining || training === 'clinical'}
+              variant="outline"
+            >
+              {training === 'clinical' ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="mr-2 h-4 w-4" />
+              )}
+              Train Clinical
+            </Button>
+            {isTraining && (
+              <Button onClick={stopTraining} variant="destructive" size="sm">
+                <Square className="mr-2 h-4 w-4" />
+                Stop
+              </Button>
+            )}
+            {isTraining && (
+              <Badge variant="secondary" className="ml-auto">
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                {jobStatus?.pipeline} — {jobStatus?.status}
               </Badge>
             )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {alertLoading ? (
-            <p className="text-muted-foreground">Loading alerts...</p>
-          ) : !alerts || alerts.total === 0 ? (
-            <div className="flex items-center gap-2 text-green-600">
-              <CheckCircle2 className="h-5 w-5" />
-              <p className="text-sm">No active alerts - all systems operational</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {alerts.alerts.map((alert, idx) => (
-                <div
-                  key={alert.fingerprint || idx}
-                  className={cn(
-                    'p-3 rounded-lg border text-sm',
-                    alert.status === 'firing'
-                      ? 'bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-900'
-                      : 'bg-yellow-50 border-yellow-200 dark:bg-yellow-950/30 dark:border-yellow-900'
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2 flex-1">
-                      {alert.status === 'firing' ? (
-                        <AlertTriangle className="h-4 w-4 text-red-600 flex-shrink-0" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4 text-yellow-600 flex-shrink-0" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">
-                          {alert.labels.alertname || 'Unknown Alert'}
-                        </p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {alert.annotations.summary || alert.annotations.description || 'No description'}
-                        </p>
-                      </div>
-                    </div>
-                    <Badge
-                      variant={alert.status === 'firing' ? 'destructive' : 'secondary'}
-                      className="flex-shrink-0 text-xs"
-                    >
-                      {alert.status || 'unknown'}
-                    </Badge>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                    {alert.labels.severity && (
-                      <Badge variant="outline" className="text-xs">
-                        Severity: {alert.labels.severity}
-                      </Badge>
-                    )}
-                    {alert.labels.service && (
-                      <Badge variant="outline" className="text-xs">
-                        {alert.labels.service}
-                      </Badge>
-                    )}
-                    {alert.value && (
-                      <span className="text-muted-foreground">Value: {alert.value}</span>
-                    )}
-                  </div>
-                  {alert.annotations.remediation && (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      💡 {alert.annotations.remediation}
-                    </p>
-                  )}
-                </div>
-              ))}
+            {!connected && (
+              <Badge variant="outline" className="ml-2 text-orange-500">
+                <WifiOff className="mr-1 h-3 w-3" />
+                Offline
+              </Badge>
+            )}
+          </div>
+          {trainingProgress && (
+            <div className="mt-4 p-4 bg-muted/50 rounded-lg">
+              <TrainingProgress
+                stage={trainingProgress.stage}
+                progress={trainingProgress.progress}
+                status={trainingProgress.status}
+                message={trainingProgress.message}
+              />
             </div>
           )}
-        </CardContent>
-      </Card>
+          {jobStatus?.error && (
+            <p className="text-sm text-destructive mt-4">{jobStatus.error}</p>
+          )}
+        </div>
 
+        <Card className={cn(
+          'lg:col-span-2',
+          alerts && alerts.total > 0 ? 'border-destructive/50 bg-destructive/5' : 'border-border',
+        )}>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Bell className="h-4 w-4" />
+              Active Alerts
+              {alerts && alerts.total > 0 && (
+                <Badge variant={alerts.firing > 0 ? 'destructive' : 'secondary'} className="text-xs px-1.5 py-0">
+                  {alerts.total}
+                </Badge>
+              )}
+              {alerts && alerts.total > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setAlertsExpanded(!alertsExpanded)}
+                  className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {alertsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </button>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {alertLoading ? (
+              <p className="text-sm text-muted-foreground">Loading...</p>
+            ) : !alerts || alerts.total === 0 ? (
+              <div className="flex items-center gap-2 text-green-600">
+                <CheckCircle2 className="h-4 w-4" />
+                <p className="text-sm">All systems operational</p>
+              </div>
+            ) : alertsExpanded ? (
+              <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                {alerts.alerts.map((alert, idx) => (
+                  <div
+                    key={alert.fingerprint || idx}
+                    className={cn(
+                      'p-2 rounded-lg border text-xs',
+                      alert.status === 'firing'
+                        ? 'bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-900'
+                        : 'bg-yellow-50 border-yellow-200 dark:bg-yellow-950/30 dark:border-yellow-900',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        {alert.status === 'firing' ? (
+                          <AlertTriangle className="h-3 w-3 text-red-600 flex-shrink-0" />
+                        ) : (
+                          <AlertCircle className="h-3 w-3 text-yellow-600 flex-shrink-0" />
+                        )}
+                        <p className="font-medium truncate text-xs">
+                          {alert.labels.alertname || 'Unknown Alert'}
+                        </p>
+                      </div>
+                      <Badge
+                        variant={alert.status === 'firing' ? 'destructive' : 'secondary'}
+                        className="flex-shrink-0 text-xs px-1 py-0"
+                      >
+                        {alert.status || 'unknown'}
+                      </Badge>
+                    </div>
+                    {alert.annotations.summary && (
+                      <p className="text-xs text-muted-foreground mt-1 truncate">
+                        {alert.annotations.summary}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {alerts.firing > 0 ? `${alerts.firing} firing` : `${alerts.total} pending`}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Model Performance */}
+      {(eyepacsMetrics || samayaMetrics) && (
+        <>
+          <Separator />
+          <div className="flex items-center gap-2">
+            <Brain className="h-5 w-5 text-[var(--brand-teal)]" />
+            <h3 className="font-semibold">Model Performance</h3>
+            {domainShift && (
+              <Badge variant="outline" className="text-xs ml-2">
+                ECE {formatVal(domainShift.confidence_ece)} · MMD {formatVal(domainShift.embedding_mmd)}
+              </Badge>
+            )}
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {eyepacsMetrics && (
+              <SplitPanel
+                title="EyePACS Test"
+                metrics={eyepacsMetrics}
+                accent="var(--brand-teal)"
+                confusionMatrixUrl={`${MLOPS_BASE}/models/download/imaging/artifacts/confusion_matrix_eyepacs_test.png`}
+                misclassifiedCount={58}
+              />
+            )}
+            {samayaMetrics && (
+              <SplitPanel
+                title="Samaya Validation"
+                metrics={samayaMetrics}
+                accent="var(--brand-gold)"
+                confusionMatrixUrl={`${MLOPS_BASE}/models/download/imaging/artifacts/confusion_matrix_samaya_validation.png`}
+                misclassifiedCount={60}
+              />
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Training History */}
+      {trainingSummary && (
+        <>
+          <Separator />
+          <TrainingHistoryPanel trainingSummary={trainingSummary} />
+        </>
+      )}
+
+      {/* AI Analytics */}
       <Separator />
 
       <div className="flex items-center justify-between">
@@ -510,7 +880,7 @@ function AnalyticsSectionCard({
         <CardDescription className="text-xs flex items-center gap-2">
           <span>AI-generated insight</span>
           {hasSources && (
-            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="text-xs px-1.5 py-0">
               {response!.sources.length} source{response!.sources.length !== 1 ? 's' : ''}
             </Badge>
           )}
@@ -533,7 +903,7 @@ function AnalyticsSectionCard({
             </div>
             <AIChartRenderer spec={response!.chart!} height={220} />
             {response!.chart!.description && (
-              <p className="text-[11px] text-muted-foreground mt-2">
+              <p className="text-xs text-muted-foreground mt-2">
                 {response!.chart!.description}
               </p>
             )}
@@ -551,7 +921,7 @@ function AnalyticsSectionCard({
                   key={i}
                   className="rounded border bg-muted/30 px-2.5 py-1.5"
                 >
-                  <span className="font-mono text-[10px] text-[var(--brand-teal)]">
+                  <span className="font-mono text-xs text-[var(--brand-teal)]">
                     {src.artifact_id}
                   </span>
                   <p className="mt-0.5 text-muted-foreground leading-relaxed">

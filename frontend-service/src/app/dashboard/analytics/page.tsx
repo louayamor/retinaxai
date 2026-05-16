@@ -31,7 +31,7 @@ export default function AnalyticsPage() {
   } = useLazyAnalytics();
 
   const metadata = lastUpdated ? (
-    <span className="text-[11px] text-muted-foreground">
+    <span className="text-xs text-muted-foreground">
       Last updated: {lastUpdated.toLocaleTimeString()}
       {paused && (
         <span className="ml-2 text-amber-500 flex items-center gap-1 inline-flex">
@@ -167,7 +167,7 @@ function AnalyticsSectionCard({
         <CardDescription className="text-xs flex items-center gap-2">
           <span>AI-generated insight</span>
           {hasSources && (
-            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="text-xs px-1.5 py-0">
               {response!.sources.length} source{response!.sources.length !== 1 ? 's' : ''}
             </Badge>
           )}
@@ -190,7 +190,7 @@ function AnalyticsSectionCard({
             </div>
             <AIChartRenderer spec={response!.chart!} height={220} />
             {response!.chart!.description && (
-              <p className="text-[11px] text-muted-foreground mt-2">
+              <p className="text-xs text-muted-foreground mt-2">
                 {response!.chart!.description}
               </p>
             )}
@@ -208,7 +208,7 @@ function AnalyticsSectionCard({
                   key={i}
                   className="rounded border bg-muted/30 px-2.5 py-1.5"
                 >
-                  <span className="font-mono text-[10px] text-[var(--brand-teal)]">
+                  <span className="font-mono text-xs text-[var(--brand-teal)]">
                     {src.artifact_id}
                   </span>
                   <p className="mt-0.5 text-muted-foreground leading-relaxed">
