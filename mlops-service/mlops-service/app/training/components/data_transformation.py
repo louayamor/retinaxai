@@ -10,49 +10,16 @@ from PIL import Image
 from sklearn.model_selection import train_test_split
 from torchvision import transforms
 
-from app.entity.config_entity import ImagingTransformationConfig
+from app.config.config_entity import ImagingTransformationConfig
 from app.utils.common import read_yaml
 from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
-from app.domains.imaging.preprocessing import (
+from app.training.preprocessing import (
     circular_crop,
     apply_clahe_l_channel,
     CROP_THRESHOLD,
     CLAHE_CLIP_LIMIT,
     CLAHE_TILE_GRID_SIZE,
 )
-
-
-def oversample_clinical(df: pd.DataFrame, ratio: int = 5) -> pd.DataFrame:
-    """Oversample clinical data by repeating samples."""
-    return pd.concat([df] * ratio, ignore_index=True)
-
-
-def create_fine_tune_split(
-    clinical_df: pd.DataFrame,
-    eyepacs_df: pd.DataFrame,
-    clinical_ratio: float = 0.7,
-    no_dr_ratio: float = 0.25,
-    oversample_ratio: int = 5,
-) -> pd.DataFrame:
-    """Create Phase 2 training split with healthy anchor (No DR samples)."""
-    no_dr_count = int(len(eyepacs_df[eyepacs_df["label"] == 0]) * no_dr_ratio)
-    eyepacs_no_dr = eyepacs_df[eyepacs_df["label"] == 0].sample(
-        n=max(1, no_dr_count), random_state=42
-    )
-    dr_count = int(len(eyepacs_df[eyepacs_df["label"] != 0]) * no_dr_ratio)
-    eyepacs_dr = eyepacs_df[eyepacs_df["label"] != 0].sample(
-        n=max(1, dr_count), random_state=42
-    )
-    eyepacs_subset = pd.concat([eyepacs_no_dr, eyepacs_dr], ignore_index=True)
-
-    clinical_oversampled = oversample_clinical(clinical_df, ratio=oversample_ratio)
-
-    clinical_size = int(len(eyepacs_subset) * clinical_ratio / (1 - clinical_ratio))
-    clinical_subset = clinical_oversampled.sample(
-        n=min(clinical_size, len(clinical_oversampled)), random_state=42
-    )
-
-    return pd.concat([clinical_subset, eyepacs_subset], ignore_index=True)  # type: ignore[return-value]
 
 
 class ImagingDataTransformation:

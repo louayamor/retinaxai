@@ -12,7 +12,7 @@ from PIL import Image
 from torchvision import transforms
 
 from app.constants import PARAMS_FILE_PATH
-from app.domains.imaging.preprocessing import preprocess_fundus_image
+from app.training.preprocessing import preprocess_fundus_image
 from app.utils.common import read_yaml
 
 

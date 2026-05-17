@@ -7,8 +7,8 @@ import torch.nn as nn
 from pathlib import Path
 from unittest.mock import patch, MagicMock, PropertyMock
 
-from app.domains.imaging.evaluation.imaging_evaluation import ImagingModelEvaluation
-from app.entity.config_entity import ImagingModelEvaluationConfig
+from app.training.evaluation.imaging_evaluation import ImagingModelEvaluation
+from app.config.config_entity import ImagingModelEvaluationConfig
 
 
 @pytest.fixture
@@ -57,11 +57,11 @@ def mock_params() -> dict:
 def evaluator(mock_config: ImagingModelEvaluationConfig, mock_params: dict):
     with (
         patch(
-            "app.domains.imaging.evaluation.imaging_evaluation.read_yaml",
+            "app.training.evaluation.imaging_evaluation.read_yaml",
         ) as mock_read,
-        patch("app.domains.imaging.evaluation.imaging_evaluation.Path.mkdir"),
+        patch("app.training.evaluation.imaging_evaluation.Path.mkdir"),
         patch(
-            "app.domains.imaging.evaluation.imaging_evaluation.Path.exists",
+            "app.training.evaluation.imaging_evaluation.Path.exists",
             return_value=True,
         ),
     ):
@@ -305,10 +305,10 @@ class TestComputeEmbeddingMMD:
 
         with (
             patch(
-                "app.domains.imaging.evaluation.imaging_evaluation.RetinalDataset",
+                "app.training.evaluation.imaging_evaluation.RetinalDataset",
             ),
             patch(
-                "app.domains.imaging.evaluation.imaging_evaluation.DataLoader",
+                "app.training.evaluation.imaging_evaluation.DataLoader",
             ) as mock_loader,
         ):
             mock_loader.return_value = [
@@ -346,14 +346,14 @@ class TestFullEvaluate:
         with (
             patch.object(evaluator, "_load_model", return_value=fake_model),
             patch(
-                "app.domains.imaging.evaluation.imaging_evaluation.RetinalDataset",
+                "app.training.evaluation.imaging_evaluation.RetinalDataset",
             ),
             patch(
-                "app.domains.imaging.evaluation.imaging_evaluation.DataLoader",
+                "app.training.evaluation.imaging_evaluation.DataLoader",
                 side_effect=_make_loader,
             ),
             patch(
-                "app.domains.imaging.evaluation.imaging_evaluation.mlflow.start_run",
+                "app.training.evaluation.imaging_evaluation.mlflow.start_run",
             ) as mock_mlflow_run,
         ):
             mock_mlflow_run.return_value.__enter__.return_value = MagicMock()
@@ -402,14 +402,14 @@ class TestFullEvaluate:
         with (
             patch.object(evaluator, "_load_model", return_value=fake_model),
             patch(
-                "app.domains.imaging.evaluation.imaging_evaluation.RetinalDataset",
+                "app.training.evaluation.imaging_evaluation.RetinalDataset",
             ),
             patch(
-                "app.domains.imaging.evaluation.imaging_evaluation.DataLoader",
+                "app.training.evaluation.imaging_evaluation.DataLoader",
                 side_effect=_make_loader,
             ),
             patch(
-                "app.domains.imaging.evaluation.imaging_evaluation.mlflow.start_run",
+                "app.training.evaluation.imaging_evaluation.mlflow.start_run",
             ) as mock_mlflow_run,
             patch.object(Path, "exists", _exists_side_effect),
         ):

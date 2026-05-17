@@ -4,15 +4,15 @@ from pathlib import Path
 from loguru import logger
 
 from app.config.configuration import ConfigurationManager
-from app.domains.ocr.components.preprocessor import (
+from app.ocr.components.preprocessor import (
     load_and_preprocess,
     load_color_image,
 )
-from app.domains.ocr.components.extractor import run_ocr
-from app.domains.ocr.components.parser import parse_report
-from app.domains.ocr.components.region_detector import extract_regions
-from app.domains.ocr.components.image_exporter import export_regions
-from app.entity.ocr_schema import OCTReport, RegionImage
+from app.ocr.components.extractor import run_ocr
+from app.ocr.components.parser import parse_report
+from app.ocr.components.region_detector import extract_regions
+from app.ocr.components.image_exporter import export_regions
+from app.ocr.ocr_schema import OCTReport, RegionImage
 
 
 def _to_flat_dict(report: OCTReport) -> dict:

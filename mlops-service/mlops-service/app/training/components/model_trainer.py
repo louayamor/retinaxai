@@ -1,63 +1,28 @@
-import json
-import mlflow
-import mlflow.pytorch
 import time
-from datetime import datetime, timezone
 import timm
 import torch
 import torch.nn as nn
 from loguru import logger
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torchvision import transforms
 import pandas as pd
 from PIL import Image
 import numpy as np
-from sklearn.metrics import (
-    f1_score,
-    recall_score,
-    confusion_matrix,
-    cohen_kappa_score,
-    precision_score,
-)
-import matplotlib
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-from app.entity.config_entity import (
+from app.config.config_entity import (
     ImagingModelTrainerConfig,
     ImagingTransformationConfig,
 )
-from app.utils.common import read_yaml, set_seed, save_json
-from app.domains.imaging.components.ordinal_loss import (
+from app.utils.common import read_yaml, set_seed
+from app.training.components.ordinal_loss import (
     OrdinalCrossEntropyLoss,
     FocalOrdinalLoss,
 )
-from app.domains.imaging.components.fda_augment import FDAAugment
+from app.training.components.fda_augment import FDAAugment
+from app.training.components.epoch_metrics import EpochMetrics
+from app.training.components.training_logger import TrainingLogger
 from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
-from app.services.monitoring.prometheus_metrics import (
-    BEST_VAL_ACCURACY,
-    EPOCH_TRAIN_LOSS,
-    TRAINING_CURRENT_EPOCH,
-    TRAINING_TOTAL_EPOCHS,
-    TRAINING_EPOCH_ACCURACY,
-    TRAINING_EPOCH_F1,
-    TRAINING_LEARNING_RATE,
-    TRAINING_EPOCH_DURATION,
-    TRAINING_BEST_F1,
-    TRAINING_PATIENCE_COUNTER,
-    TRAINING_VAL_LOSS,
-    TRAINING_PER_CLASS_F1,
-    TRAINING_PER_CLASS_RECALL,
-    TRAINING_VAL_MAE,
-    TRAINING_EPOCH_QWK,
-    ACTIVE_TRAINING_JOBS,
-    GPU_MEMORY_USED_BYTES,
-    GPU_UTILIZATION_PERCENT,
-)
 
 
 class RetinalDataset(Dataset):
@@ -389,39 +354,6 @@ class ImagingModelTrainer:
 
         return model.to(self.device)
 
-    def _log_best_model_to_mlflow(
-        self, checkpoint_path: Path, num_classes: int
-    ) -> None:
-        if not checkpoint_path.exists():
-            logger.warning("best checkpoint missing; skipping mlflow model log")
-            return
-
-        logger.info(f"logging best model to mlflow: {checkpoint_path}")
-
-        mlflow.log_param("checkpoint_path", str(checkpoint_path))
-
-        try:
-            import timm
-
-            model = timm.create_model(
-                self.config.model_name,
-                pretrained=False,
-                num_classes=num_classes,
-                drop_rate=self._training_dropout,
-            )
-            state_dict = torch.load(checkpoint_path, map_location="cpu")
-            model.load_state_dict(state_dict)
-            model.eval()
-
-            mlflow.pytorch.log_model(
-                pytorch_model=model,
-                artifact_path="imaging_model",
-                registered_model_name="efficientnet_b3",
-            )
-            logger.info("model logged to mlflow model registry")
-        except Exception as e:
-            logger.warning(f"failed to log model to mlflow registry: {e}")
-
     def train(self) -> Path:
         set_seed(self._global_seed)
         train_tf, val_tf = self._build_transforms()
@@ -438,6 +370,8 @@ class ImagingModelTrainer:
             labels = train_dataset.df["label"].values
             class_counts = np.bincount(labels, minlength=5)
             class_weights = class_counts.max() / (class_counts + 1e-6)
+            weight_cap = float(training_cfg.get("sampler_weight_cap", 8.0))
+            class_weights = np.clip(class_weights, 0.0, weight_cap)
             sample_weights = class_weights[labels]
             sampler = WeightedRandomSampler(
                 sample_weights, len(sample_weights), replacement=True
@@ -579,50 +513,7 @@ class ImagingModelTrainer:
         checkpoint_path = self.config.checkpoint_path
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
-        epoch_log: list[dict] = []
-
-        run_suffix = f"_{int(time.time()) % 1000:03d}"
-        with mlflow.start_run(
-            run_name=self.params.get("mlflow", {}).get(
-                "imaging_run_name", "efficientnet_b3"
-            )
-            + run_suffix
-        ):
-            mlflow.log_params(
-                {
-                    "model": self.config.model_name,
-                    "pretrained": self.config.pretrained,
-                    "epochs": self.phase_epochs,
-                    "batch_size": self._training_batch_size,
-                    "lr": self.phase_lr,
-                    "weight_decay": self._training_weight_decay,
-                    "scheduler": self._training_scheduler,
-                    "num_classes": self._global_num_classes,
-                    "dropout": dropout_rate,
-                    "seed": self._global_seed,
-                    "loss": loss_type,
-                    "focal_gamma": focal_gamma,
-                    "class_weights": (
-                        self._class_weights_tensor.tolist()
-                        if self._class_weights_tensor is not None
-                        else None
-                    ),
-                    "freeze_backbone": self.freeze_backbone,
-                    "unfreeze_last_blocks": getattr(
-                        self, "unfreeze_last_blocks", False
-                    ),
-                    "freeze_blocks": getattr(self, "_freeze_blocks", 3),
-                    "device": str(self.device),
-                    "phase": self.phase,
-                    "mixup_enabled": self._use_mixup,
-                    "mixup_alpha": self._mixup_alpha if self._use_mixup else 0.0,
-                    "fda_enabled": self._fda_augment is not None,
-                }
-            )
-
-            TRAINING_TOTAL_EPOCHS.labels(pipeline="imaging").set(self.phase_epochs)
-            ACTIVE_TRAINING_JOBS.inc()
-
+        with TrainingLogger(self) as run_logger:
             for epoch in range(self.phase_epochs):
                 epoch_start = time.perf_counter()
                 model.train()
@@ -716,191 +607,42 @@ class ImagingModelTrainer:
                 model.train()
 
                 epoch_duration = time.perf_counter() - epoch_start
-
-                clean_train_mae = float(
-                    np.mean(
-                        np.abs(
-                            np.array(clean_train_preds) - np.array(clean_train_labels)
-                        )
-                    )
-                )
-
-                macro_f1 = float(
-                    f1_score(
-                        all_labels, all_preds, average="macro", zero_division="warn"
-                    )
-                )
-                per_class_f1 = f1_score(
-                    all_labels, all_preds, average=None, zero_division=0
-                )
-                cm = confusion_matrix(all_labels, all_preds)
-
-                per_class_recall = recall_score(
-                    all_labels, all_preds, average=None, zero_division=0
-                )
-                mae = float(np.mean(np.abs(np.array(all_preds) - np.array(all_labels))))
-                qwk = float(
-                    cohen_kappa_score(all_labels, all_preds, weights="quadratic")
-                )
-
-                train_acc = float(
-                    sum(
-                        1
-                        for p, lbl in zip(clean_train_preds, clean_train_labels)
-                        if p == lbl
-                    )
-                    / max(len(clean_train_labels), 1)
-                )
-                train_f1 = float(
-                    f1_score(
-                        clean_train_labels,
-                        clean_train_preds,
-                        average="macro",
-                        zero_division="warn",
-                    )
-                )
-                val_acc = val_correct / val_total
                 avg_loss = train_loss / train_total
                 lr = float(scheduler.get_last_lr()[0])
 
-                # Update Prometheus metrics
-                TRAINING_CURRENT_EPOCH.labels(pipeline="imaging").set(epoch + 1)
-                TRAINING_EPOCH_ACCURACY.labels(pipeline="imaging", split="train").set(
-                    train_acc
+                metrics = EpochMetrics.from_predictions(
+                    epoch=epoch + 1,
+                    phase=self.phase,
+                    train_preds=clean_train_preds,
+                    train_labels=clean_train_labels,
+                    val_preds=all_preds,
+                    val_labels=all_labels,
+                    avg_loss=avg_loss,
+                    lr=lr,
+                    duration_s=epoch_duration,
+                    num_classes=self._global_num_classes,
                 )
-                TRAINING_EPOCH_ACCURACY.labels(pipeline="imaging", split="val").set(
-                    val_acc
-                )
-                TRAINING_EPOCH_F1.labels(pipeline="imaging", split="train").set(
-                    train_f1
-                )
-                TRAINING_EPOCH_F1.labels(pipeline="imaging", split="val").set(macro_f1)
-                TRAINING_LEARNING_RATE.labels(pipeline="imaging").set(lr)
-                TRAINING_EPOCH_DURATION.labels(pipeline="imaging").set(epoch_duration)
-                TRAINING_PATIENCE_COUNTER.labels(pipeline="imaging").set(
-                    patience_counter
-                )
-                TRAINING_VAL_LOSS.labels(pipeline="imaging").set(avg_loss)
-                TRAINING_VAL_MAE.labels(pipeline="imaging").set(mae)
-                TRAINING_EPOCH_QWK.labels(pipeline="imaging").set(qwk)
-                EPOCH_TRAIN_LOSS.labels(pipeline="imaging").observe(avg_loss)
+                run_logger.log_epoch(metrics, patience_counter)
+                run_logger.log_artifact(metrics)
 
-                # Update per-class F1 gauges
-                for cls_idx, cls_f1 in enumerate(per_class_f1):
-                    TRAINING_PER_CLASS_F1.labels(
-                        pipeline="imaging", dr_grade=str(cls_idx)
-                    ).set(float(cls_f1))
-
-                for cls_idx, cls_recall in enumerate(per_class_recall):
-                    TRAINING_PER_CLASS_RECALL.labels(
-                        pipeline="imaging", dr_grade=str(cls_idx)
-                    ).set(float(cls_recall))
-
-                # Update GPU metrics
-                if torch.cuda.is_available():
-                    GPU_MEMORY_USED_BYTES.labels(device="0").set(
-                        torch.cuda.memory_allocated(0)
-                    )
-                    try:
-                        GPU_UTILIZATION_PERCENT.labels(device="0").set(
-                            torch.cuda.utilization(0)
-                        )
-                    except Exception:
-                        pass
-
-                mlflow.log_metrics(
-                    {
-                        "train_loss": float(avg_loss),
-                        "train_acc": float(train_acc),
-                        "val_acc": float(val_acc),
-                        "val_macro_f1": float(macro_f1),
-                        "train_f1": float(train_f1),
-                        "lr": float(lr),
-                        "epoch_duration_s": float(epoch_duration),
-                        "val_mae": float(mae),
-                        "val_qwk": float(qwk),
-                    },
-                    step=epoch,
-                )
-
-                for cls_idx, cls_f1 in enumerate(per_class_f1):
-                    mlflow.log_metric(
-                        f"val_f1_class_{cls_idx}", float(cls_f1), step=epoch
-                    )
-
-                for cls_idx, cls_recall in enumerate(per_class_recall):
-                    mlflow.log_metric(
-                        f"val_recall_class_{cls_idx}", float(cls_recall), step=epoch
-                    )
-
-                # Log confusion matrix as MLflow artifact
-                dr_labels = ["No DR", "Mild", "Moderate", "Severe", "Proliferative"]
-                fig, ax = plt.subplots(figsize=(6, 5))
-                sns.heatmap(
-                    cm,
-                    annot=True,
-                    fmt="d",
-                    ax=ax,
-                    xticklabels=dr_labels,
-                    yticklabels=dr_labels,
-                    cmap="Blues",
-                )
-                ax.set_xlabel("Predicted")
-                ax.set_ylabel("True")
-                ax.set_title(f"Confusion Matrix — Epoch {epoch + 1}")
-                plt.tight_layout()
-                cm_path = Path(f"/tmp/cm_epoch_{epoch + 1}.png")
-                fig.savefig(cm_path)
-                mlflow.log_artifact(str(cm_path), "confusion_matrices")
-                plt.close(fig)
-
-                epoch_log.append(
-                    {
-                        "epoch": epoch + 1,
-                        "phase": self.phase,
-                        "loss": float(avg_loss),
-                        "train_acc": float(train_acc),
-                        "val_acc": float(val_acc),
-                        "train_f1": float(train_f1),
-                        "val_f1": float(macro_f1),
-                        "val_qwk": float(qwk),
-                        "val_mae": float(mae),
-                        "train_mae": float(clean_train_mae),
-                        "lr": float(lr),
-                        "duration_s": float(epoch_duration),
-                        "class_recall": [float(r) for r in per_class_recall],
-                        "class_f1": [float(f) for f in per_class_f1],
-                        "class_precision": [
-                            float(
-                                precision_score(
-                                    all_labels,
-                                    all_preds,
-                                    average=None,
-                                    zero_division=0,
-                                )[i]
-                            )
-                            for i in range(self._global_num_classes)
-                        ],
-                    }
-                )
                 logger.info(
-                    f"epoch={epoch + 1}/{self.phase_epochs} "
-                    f"loss={avg_loss:.4f} "
-                    f"train_acc={train_acc:.4f} "
-                    f"val_acc={val_acc:.4f} "
-                    f"train_f1={train_f1:.4f} "
-                    f"val_f1={macro_f1:.4f} "
-                    f"qwk={qwk:.4f} "
-                    f"mae={mae:.4f} "
-                    f"recall=[{', '.join(f'{r:.3f}' for r in per_class_recall)}] "
-                    f"lr={lr:.6f} "
-                    f"duration={epoch_duration:.1f}s"
+                    f"epoch={metrics.epoch}/{self.phase_epochs} "
+                    f"loss={metrics.loss:.4f} "
+                    f"train_acc={metrics.train_acc:.4f} "
+                    f"val_acc={metrics.val_acc:.4f} "
+                    f"train_f1={metrics.train_f1:.4f} "
+                    f"val_f1={metrics.val_f1:.4f} "
+                    f"qwk={metrics.qwk:.4f} "
+                    f"mae={metrics.mae:.4f} "
+                    f"rmse={metrics.rmse:.4f} "
+                    f"recall=[{', '.join(f'{r:.3f}' for r in metrics.class_recall)}] "
+                    f"lr={metrics.lr:.6f} "
+                    f"duration={metrics.duration_s:.1f}s"
                 )
 
-                # Use QWK for checkpointing (ordinal agreement — clinically meaningful)
-                if qwk > best_val_qwk:
-                    best_val_qwk = qwk
-                    best_val_acc = val_acc
+                if metrics.qwk > best_val_qwk:
+                    best_val_qwk = metrics.qwk
+                    best_val_acc = metrics.val_acc
                     best_epoch_idx = epoch
                     patience_counter = 0
                     try:
@@ -909,69 +651,25 @@ class ImagingModelTrainer:
                         raise RuntimeError(
                             f"Failed to save model checkpoint: {e}"
                         ) from e
-                    BEST_VAL_ACCURACY.labels(pipeline="imaging").set(best_val_acc)
-                    TRAINING_BEST_F1.labels(pipeline="imaging").set(macro_f1)
-                    logger.info(f"checkpoint saved: qwk={qwk:.4f} f1={macro_f1:.4f}")
+                    run_logger.mark_checkpoint(metrics.qwk, metrics.val_f1)
+                    logger.info(
+                        f"checkpoint saved: qwk={metrics.qwk:.4f} f1={metrics.val_f1:.4f}"
+                    )
                 else:
                     patience_counter += 1
-                    TRAINING_PATIENCE_COUNTER.labels(pipeline="imaging").set(
-                        patience_counter
-                    )
-                    early_stopping_patience = training_cfg.get(
-                        "early_stopping_patience", 8
-                    )
-                    if patience_counter >= early_stopping_patience:
-                        logger.info(f"early stopping at epoch {epoch + 1}")
-                        break
 
-            ACTIVE_TRAINING_JOBS.dec()
-            mlflow.log_metric("best_val_acc", float(best_val_acc))
-            mlflow.log_metric("best_val_qwk", float(best_val_qwk))
-            mlflow.log_metric("best_val_macro_f1", float(macro_f1))
+                early_stopping_patience = training_cfg.get("early_stopping_patience", 8)
+                if patience_counter >= early_stopping_patience:
+                    logger.info(f"early stopping at epoch {metrics.epoch}")
+                    break
 
-            summary_path = self.config.checkpoint_path.parent / "training_summary.json"
-            summary = {
-                "phase": self.phase,
-                "total_epochs": self.phase_epochs,
-                "best_epoch": best_epoch_idx + 1,
-                "best_val_acc": float(best_val_acc),
-                "best_val_qwk": float(best_val_qwk),
-                "best_val_f1": float(
-                    epoch_log[best_epoch_idx]["val_f1"] if best_epoch_idx >= 0 else 0.0
-                ),
-                "best_val_mae": float(
-                    epoch_log[best_epoch_idx]["val_mae"] if best_epoch_idx >= 0 else 0.0
-                ),
-                "epoch_log": epoch_log,
-            }
-            save_json(summary_path, summary)
-
-            history_path = self.config.checkpoint_path.parent / "training_history.jsonl"
-            mlflow_run_id = (
-                mlflow.active_run().info.run_id if mlflow.active_run() else "no-run"
-            )
-            history_entry = {
-                "run_id": mlflow_run_id,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "phase": self.phase,
-                "best_epoch": best_epoch_idx + 1,
-                "total_epochs_trained": epoch + 1,
-                "best_val_qwk": float(best_val_qwk),
-                "best_val_acc": float(best_val_acc),
-                "best_val_f1": float(
-                    epoch_log[best_epoch_idx]["val_f1"] if best_epoch_idx >= 0 else 0.0
-                ),
-                "best_val_mae": float(
-                    epoch_log[best_epoch_idx]["val_mae"] if best_epoch_idx >= 0 else 0.0
-                ),
-            }
-            with open(history_path, "a") as f:
-                f.write(json.dumps(history_entry) + "\n")
-            logger.info(f"training history appended: {history_path}")
-
+            run_logger.summarize(best_epoch_idx, best_val_acc)
             if self.phase != "phase1":
-                self._log_best_model_to_mlflow(
-                    checkpoint_path, self._global_num_classes
+                run_logger.log_model(
+                    checkpoint_path,
+                    self.config.model_name,
+                    self._global_num_classes,
+                    dropout_rate,
                 )
 
         logger.info(f"training complete. best_val_acc={best_val_acc:.4f}")

@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s')
+logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(message)s")
 
 BASE_DIR = Path("mlops-service")
 
@@ -16,10 +16,8 @@ dirs = [
     "artifacts/data",
     "artifacts/ocr",
     "artifacts/ocr/output",
-
     "config",
     "research",
-
     "app",
     "app/components",
     "app/utils",
@@ -27,9 +25,7 @@ dirs = [
     "app/pipeline",
     "app/entity",
     "app/constants",
-
     "monitoring",
-
     "tests",
 ]
 
@@ -40,7 +36,6 @@ for d in dirs:
 
 files = [
     "app/__init__.py",
-
     "app/components/__init__.py",
     "app/components/data_ingestion.py",
     "app/components/preprocessing.py",
@@ -51,39 +46,28 @@ files = [
     "app/components/ocr/parser.py",
     "app/components/ocr/region_detector.py",
     "app/components/ocr/ocr_pipeline.py",
-
     "app/utils/__init__.py",
     "app/utils/common.py",
-
     "app/config/__init__.py",
     "app/config/configuration.py",
-
     "app/pipeline/__init__.py",
     "app/pipeline/training_pipeline.py",
     "app/pipeline/inference_pipeline.py",
     "app/pipeline/imaging/__init__.py",
     "app/pipeline/clinical/__init__.py",
     "app/pipeline/ocr/__init__.py",
-
     "app/entity/__init__.py",
     "app/entity/config_entity.py",
-
     "app/constants/__init__.py",
     "app/constants/constants.py",
-
     "config/config.yaml",
     "config/params.yaml",
     "config/schema.yaml",
-
     "monitoring/__init__.py",
     "monitoring/evidently_report.py",
     "monitoring/prometheus_metrics.py",
-
     "tests/__init__.py",
-
     "research/trials.ipynb",
-
-    "dvc.yaml",
     "main.py",
     "Dockerfile",
     "requirements.txt",

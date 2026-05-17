@@ -1,6 +1,6 @@
 from loguru import logger
 from app.config.configuration import ConfigurationManager
-from app.domains.imaging.components.data_transformation import ImagingDataTransformation
+from app.training.components.data_transformation import ImagingDataTransformation
 
 
 def run():

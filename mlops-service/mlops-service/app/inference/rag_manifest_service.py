@@ -62,14 +62,7 @@ def _fetch_backend_manifest(
 def build_rag_manifest(settings: Settings) -> RagManifestResponse:
     sources = [
         ("ocr_reports", Path(settings.ocr_output_dir) / "reports.json", "list"),
-        ("clinical_metrics", settings.clinical_metrics_path, "json"),
-        (
-            "clinical_feature_importance",
-            settings.clinical_feature_importance_path,
-            "json",
-        ),
         ("imaging_metrics", settings.imaging_metrics_path, "json"),
-        ("clinical_features", settings.clinical_features_path, "json"),
         ("evidently_metrics", settings.evidently_metrics_path, "json"),
     ]
 
@@ -111,8 +104,6 @@ def build_rag_manifest(settings: Settings) -> RagManifestResponse:
 
     core_ids = {
         RagArtifactId.OCR_REPORTS,
-        RagArtifactId.CLINICAL_METRICS,
-        RagArtifactId.CLINICAL_FEATURE_IMPORTANCE,
         RagArtifactId.IMAGING_METRICS,
     }
     present_ids = {a.artifact_id for a in artifacts}

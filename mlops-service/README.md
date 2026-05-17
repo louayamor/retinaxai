@@ -1,4 +1,4 @@
-![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=fff) ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=fff) ![HuggingFace](https://img.shields.io/badge/HuggingFace-F18C00?logo=huggingface&logoColor=fff) ![timm](https://img.shields.io/badge/timm-FF6F61?logoColor=fff) ![MLflow](https://img.shields.io/badge/MLflow-00BFFF?logo=mlflow&logoColor=fff) ![DVC](https://img.shields.io/badge/DVC-007ACC?logo=dvc&logoColor=fff) ![DagsHub](https://img.shields.io/badge/DagsHub-FF7F50?logo=dagshub&logoColor=fff) ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=fff) ![Evidently](https://img.shields.io/badge/Evidently-6A0DAD?logoColor=fff) ![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?logo=prometheus&logoColor=fff)
+![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=fff) ![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=fff) ![HuggingFace](https://img.shields.io/badge/HuggingFace-F18C00?logo=huggingface&logoColor=fff) ![timm](https://img.shields.io/badge/timm-FF6F61?logoColor=fff) ![MLflow](https://img.shields.io/badge/MLflow-00BFFF?logo=mlflow&logoColor=fff) ![DagsHub](https://img.shields.io/badge/DagsHub-FF7F50?logo=dagshub&logoColor=fff) ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=fff) ![Evidently](https://img.shields.io/badge/Evidently-6A0DAD?logoColor=fff) ![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?logo=prometheus&logoColor=fff)
 
 **RetinaXAI MLOps Service** is a production-grade MLOps pipeline for **diabetic retinopathy (DR) classification** from retinal fundus images. It handles end-to-end model lifecycle management including data ingestion, preprocessing, training, evaluation, experiment tracking, data drift monitoring, and inter-service communication for the RetinaXAI platform.
 
@@ -10,7 +10,6 @@
 - **Preprocessing**: Resize, normalize, and export retinal images to structured CSVs for reproducible training.
 - **Model Training**: Fine-tune EfficientNet-B3 via [timm](https://github.com/huggingface/pytorch-image-models) with configurable augmentation, early stopping, and cosine annealing.
 - **Experiment Tracking**: Log all parameters, metrics, and model artifacts to MLflow tracked on DagsHub.
-- **Data Versioning**: Reproduce any pipeline stage with DVC backed by DagsHub remote storage.
 - **Model Evaluation**: Evaluate on held-out test set using accuracy and quadratic weighted kappa (QWK).
 - **Drift Monitoring**: Detect data drift and classification degradation using Evidently reports.
 - **Metrics Exposure**: Expose training and evaluation metrics via Prometheus for Grafana dashboards.
@@ -56,7 +55,6 @@ mlops-service/
 ├── artifacts/                      # Generated model and data artifacts
 ├── logs/                           # Structured JSON logs
 │
-├── dvc.yaml                        # Reproducible DVC pipeline stages
 ├── main.py                         # Service entrypoint
 ├── Dockerfile                      # Multi-stage Docker build
 ├── requirements.txt
@@ -123,18 +121,10 @@ Pipeline stages:
 3. **Model Training** — fine-tunes EfficientNet-B3 with MLflow tracking and early stopping.
 4. **Model Evaluation** — evaluates on test set, logs accuracy and QWK to MLflow.
 
-### Run via DVC (Reproducible)
+### Run via Orchestration
 
 ```bash
-dvc repro
-```
-
-DVC tracks dependencies between stages and only reruns stages where inputs have changed.
-
-### Pull Data and Artifacts from DagsHub
-
-```bash
-dvc pull
+python main.py pipeline
 ```
 
 ### Run Individual Stages

@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from app.api.schemas import StatusResponse
-from app.services.orchestration.training_service import get_job_status
+from app.core.exceptions import NotFoundException
+from app.training.orchestration.training_service import get_job_status
 
 router = APIRouter()
 
@@ -9,13 +10,13 @@ router = APIRouter()
 def get_status(job_id: str):
     job = get_job_status(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+        raise NotFoundException("Job", job_id)
     return StatusResponse(**job)
 
 
 @router.get("/status", response_model=StatusResponse)
 def get_latest_status():
-    from app.services.orchestration.training_service import get_latest_job
+    from app.training.orchestration.training_service import get_latest_job
 
     latest = get_latest_job()
     if not latest:

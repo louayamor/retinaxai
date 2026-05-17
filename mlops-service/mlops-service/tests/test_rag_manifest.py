@@ -11,26 +11,19 @@ from app.api.dependencies import get_settings
 class DummySettings:
     def __init__(self, base: Path):
         self.ocr_output_dir = base / "ocr"
-        self.clinical_metrics_path = base / "clinical_metrics.json"
-        self.clinical_feature_importance_path = (
-            base / "clinical_feature_importance.json"
-        )
         self.imaging_metrics_path = base / "imaging_metrics.json"
-        self.clinical_features_path = base / "clinical_features.json"
         self.evidently_metrics_path = base / "evidently_metrics.json"
         self.model_registry_dir = base / "model_registry"
+        self.monitoring_dir = base / "monitoring"
 
 
 def test_rag_manifest_endpoint_returns_indexable_artifacts(tmp_path, monkeypatch):
     ocr_dir = tmp_path / "ocr"
     ocr_dir.mkdir()
     (ocr_dir / "reports.json").write_text('[{"source_file": "scan.jpg"}]')
-    (tmp_path / "clinical_metrics.json").write_text('{"accuracy": 0.9}')
-    (tmp_path / "clinical_feature_importance.json").write_text('{"age": 0.4}')
     (tmp_path / "imaging_metrics.json").write_text(
         '{"eyepacs_test": {"accuracy": 0.8}}'
     )
-    (tmp_path / "clinical_features.json").write_text('{"numeric_features": ["age"]}')
     (tmp_path / "evidently_metrics.json").write_text(
         '{"imaging": {"dataset_drift": 0.1}}'
     )
@@ -49,15 +42,12 @@ def test_rag_manifest_endpoint_returns_indexable_artifacts(tmp_path, monkeypatch
 
     assert response.status_code == 200
     body = response.json()
-    assert body["artifact_count"] == 7
+    assert body["artifact_count"] == 4
     assert body["pipeline"] == "combined"
     assert body["schema_version"] == "1.0"
     assert {artifact["artifact_id"] for artifact in body["artifacts"]} == {
         "ocr_reports",
-        "clinical_metrics",
-        "clinical_feature_importance",
         "imaging_metrics",
-        "clinical_features",
         "evidently_metrics",
         "model_registry_metadata",
     }

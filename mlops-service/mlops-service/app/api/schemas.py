@@ -66,18 +66,15 @@ class ModelListResponse(BaseModel):
 
 class CurrentProductionResponse(BaseModel):
     imaging: Optional[ModelVersion]
-    clinical: Optional[ModelVersion]
     promoted_at: Optional[str]
 
 
 class PipelineType(str, Enum):
-    both = "both"
     imaging = "imaging"
-    clinical = "clinical"
 
 
 class TrainRequest(BaseModel):
-    pipeline: PipelineType = PipelineType.both
+    pipeline: PipelineType = PipelineType.imaging
 
 
 class TrainResponse(BaseModel):
@@ -123,41 +120,10 @@ class ImagingMetrics(BaseModel):
     training_summary: Optional[dict] = None
 
 
-class ClinicalMetrics(BaseModel):
-    accuracy: Optional[float] = None
-    quadratic_weighted_kappa: Optional[float] = None
-    roc_auc_macro: Optional[float] = None
-    macro_f1: Optional[float] = None
-    precision_macro: Optional[float] = None
-    recall_macro: Optional[float] = None
-    num_samples: Optional[int] = None
-
-
 class MetricsResponse(BaseModel):
     imaging: Optional[ImagingMetrics]
-    clinical: Optional[ClinicalMetrics]
     imaging_detail: Optional[dict] = None
     training_summary: Optional[dict] = None
-
-
-class ClinicalFeatures(BaseModel):
-    patient_age: Optional[float] = None
-    patient_gender: Optional[str] = None
-    meta_eye: Optional[str] = None
-    thickness_center_fovea: Optional[float] = None
-    thickness_average_thickness: Optional[float] = None
-    thickness_total_volume_mm3: Optional[float] = None
-    thickness_inner_superior: Optional[float] = None
-    thickness_inner_nasal: Optional[float] = None
-    thickness_inner_inferior: Optional[float] = None
-    thickness_inner_temporal: Optional[float] = None
-    thickness_outer_superior: Optional[float] = None
-    thickness_outer_nasal: Optional[float] = None
-    thickness_outer_inferior: Optional[float] = None
-    thickness_outer_temporal: Optional[float] = None
-    clinical_edema: Optional[str] = None
-    clinical_erm_status: Optional[str] = None
-    meta_image_quality: Optional[str] = None
 
 
 class MLPredictHttpRequest(BaseModel):

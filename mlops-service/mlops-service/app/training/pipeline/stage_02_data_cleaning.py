@@ -1,6 +1,6 @@
 from loguru import logger
 from app.config.configuration import ConfigurationManager
-from app.domains.imaging.components.data_cleaning import ImagingDataCleaning
+from app.training.components.data_cleaning import ImagingDataCleaning
 
 
 def run():

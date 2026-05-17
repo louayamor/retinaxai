@@ -242,6 +242,12 @@ TRAINING_VAL_MAE = Gauge(
     ["pipeline"],
 )
 
+TRAINING_VAL_RMSE = Gauge(
+    "retinaxai_training_val_rmse",
+    "Validation RMSE — penalizes catastrophic ordinal misclassification quadratically",
+    ["pipeline"],
+)
+
 TRAINING_EPOCH_QWK = Gauge(
     "retinaxai_training_epoch_qwk",
     "Quadratic Weighted Kappa per epoch on validation set",

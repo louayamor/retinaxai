@@ -5,13 +5,13 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from app.services.monitoring.drift_detection import (
+from app.monitoring.drift_detection import (
     DriftReport,
     FeatureDriftResult,
     DriftDetectionService,
     DriftStatus,
 )
-from app.services.monitoring.evidently_report import EvidentlyReportGenerator
+from app.monitoring.evidently_report import EvidentlyReportGenerator
 
 
 class TestDriftReport:
@@ -40,7 +40,7 @@ class TestDriftReport:
             FeatureDriftResult("feat2", 0.02, False, 0.0, 0.05),
         ]
         report = DriftReport(
-            pipeline="clinical",
+            pipeline="imaging",
             status=DriftStatus.NO_DRIFT,
             overall_psi=0.0,
             drift_detected=False,
@@ -154,10 +154,10 @@ class TestEvidentlyReportGenerator:
 
         with (
             patch(
-                "app.services.monitoring.evidently_report.EVIDENTLY_DRIFT_DATASET_SHIFT"
+                "app.monitoring.evidently_report.EVIDENTLY_DRIFT_DATASET_SHIFT"
             ) as mock_shift,
             patch(
-                "app.services.monitoring.evidently_report.EVIDENTLY_DRIFT_FEATURES_DRIFTED"
+                "app.monitoring.evidently_report.EVIDENTLY_DRIFT_FEATURES_DRIFTED"
             ) as mock_features,
         ):
             metrics = generator.run_drift_and_emit(

@@ -1,4 +1,13 @@
 # ── Global ────────────────────────────────────────────────────────────────────
+#
+# Evaluation Metrics (priority order)
+#   1. QWK          — Main leaderboard / clinical ordinal agreement
+#   2. Macro F1      — Class balance evaluation
+#   3. Recall G3/G4  — Clinical safety (severe DR must not be missed)
+#   4. AUC           — Representation quality
+#   5. MAE           — Secondary ordinal error
+#   6. RMSE          — Catastrophic grading penalty (quadratic)
+# ───────────────────────────────────────────────────────────────────────────────
 
 global:
   seed: 42
@@ -13,7 +22,7 @@ data:
     clinical: 0.12   
     eyepacs: 0.88
     oversample_ratio: 10
-  keep_no_dr_ratio: 1.0   
+  keep_no_dr_ratio: 0.35   # G0:DR ratio drops 3.4:1→1.5:1
 
 # ── Augmentation ──────────────────────────────────────────────────────────────
 
@@ -41,9 +50,10 @@ augmentation:
 # ── Training ──────────────────────────────────────────────────────────────────
 
 training:
-  class_weights: [1.0, 7.0, 3.5, 9.0, 11.0] 
+  sampler_weight_cap: 8.0
+  class_weights: [1.0, 4.0, 2.5, 6.0, 8.0]
   weighted_sampling: true
-  use_class_weights_in_loss: false
+  use_class_weights_in_loss: true
   early_stopping_metric: qwk
   early_stopping_patience: 8
   label_smoothing: 0.1
@@ -96,41 +106,6 @@ tent:
   steps: 3
   momentum: 0.9
 
-# ── XGBoost (ML branch) ───────────────────────────────────────────────────────
-
-ml_training:
-  model: xgboost
-  seed: 42
-  test_size: 0.2
-  target: clinical_npdr_grade
-  xgboost:
-    n_estimators: 300
-    max_depth: 6
-    learning_rate: 0.05
-    subsample: 0.8
-    colsample_bytree: 0.8
-    eval_metric: mlogloss
-  features:
-    numeric:
-      - thickness_center_fovea
-      - thickness_average_thickness
-      - thickness_total_volume_mm3
-      - thickness_inner_superior
-      - thickness_inner_nasal
-      - thickness_inner_inferior
-      - thickness_inner_temporal
-      - thickness_outer_superior
-      - thickness_outer_nasal
-      - thickness_outer_inferior
-      - thickness_outer_temporal
-      - patient_age
-    categorical:
-      - patient_gender
-      - meta_eye
-      - clinical_edema
-      - clinical_erm_status
-      - meta_image_quality
-
 # ── Inference ─────────────────────────────────────────────────────────────────
 
 inference:
@@ -147,13 +122,6 @@ evaluation:
       - accuracy
       - quadratic_weighted_kappa
       - roc_auc
-      - classification_report
-  ml:
-    metrics:
-      - accuracy
-      - quadratic_weighted_kappa
-      - roc_auc
-      - f1_weighted
       - classification_report
   domain_shift:
     compute_embedding_mmd: true

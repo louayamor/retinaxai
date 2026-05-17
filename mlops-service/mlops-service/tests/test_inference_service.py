@@ -10,7 +10,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.schemas import MLPredictHttpRequest
-import app.services.inference.inference_service as module
+import app.inference.inference_service as module
 from app.api.routes import predict as predict_route
 
 

@@ -22,14 +22,14 @@ from sklearn.metrics import (
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from app.domains.imaging.components.model_trainer import RetinalDataset
-from app.domains.imaging.components.tent_adapter import TENTAdapter
-from app.domains.imaging.components.fda_augment import FDAAugment
-from app.domains.imaging.preprocessing import preprocess_fundus_image
-from app.entity.config_entity import ImagingModelEvaluationConfig
+from app.training.components.model_trainer import RetinalDataset
+from app.training.components.tent_adapter import TENTAdapter
+from app.training.components.fda_augment import FDAAugment
+from app.training.preprocessing import preprocess_fundus_image
+from app.config.config_entity import ImagingModelEvaluationConfig
 from app.utils.common import read_yaml, save_json
 from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
-from app.services.monitoring.prometheus_metrics import QUADRATIC_WEIGHTED_KAPPA
+from app.monitoring.prometheus_metrics import QUADRATIC_WEIGHTED_KAPPA
 
 
 class ImagingModelEvaluation:

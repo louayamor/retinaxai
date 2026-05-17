@@ -3,8 +3,8 @@ from typing import Optional
 
 from loguru import logger
 
-from app.services.orchestration.training_service import get_active_jobs_count
-from app.services.monitoring.prometheus_metrics import (
+from app.training.orchestration.training_service import get_active_jobs_count
+from app.monitoring.prometheus_metrics import (
     TRAINING_REJECTIONS_TOTAL,
     TRAINING_SLOTS_USED,
 )

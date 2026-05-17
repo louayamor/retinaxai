@@ -1,9 +1,13 @@
 from contextlib import asynccontextmanager
 
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from loguru import logger
+
+from app.core.exceptions import MLOpsException
 
 from app.api.routes import (
     health,
@@ -20,7 +24,7 @@ from app.api.routes import (
 )
 from app.api.routes import models_download
 from app.api.dependencies import get_settings
-from app.services.monitoring.prometheus_metrics import (
+from app.monitoring.prometheus_metrics import (
     start_metrics_server,
     init_metrics,
     update_qwk_from_metrics_files,
@@ -66,7 +70,7 @@ async def lifespan(app: FastAPI):
     )
 
     if settings.automation_enabled:
-        from app.services.orchestration.automation_service import get_automation_service
+        from app.monitoring.automation_service import get_automation_service
 
         automation_service = get_automation_service(
             settings.artifacts_root,
@@ -107,6 +111,33 @@ def create_app() -> FastAPI:
     app.include_router(automation.router, tags=["automation"])  # type: ignore[arg-type]
     app.include_router(models_download.router, tags=["models"])  # type: ignore[arg-type]
     app.include_router(prometheus_proxy.router)  # type: ignore[arg-type]
+
+    @app.exception_handler(MLOpsException)
+    async def mlops_exception_handler(request: Request, exc: MLOpsException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail, "error_code": exc.error_code},
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": str(exc.errors()),
+                "error_code": "VALIDATION_ERROR",
+            },
+        )
+
+    @app.exception_handler(Exception)
+    async def general_exception_handler(request: Request, exc: Exception):
+        logger.opt(exception=True).error("Unhandled exception: {}", exc)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error", "error_code": "INTERNAL_ERROR"},
+        )
 
     return app
 

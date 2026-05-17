@@ -1,10 +1,11 @@
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from loguru import logger
 from pydantic import BaseModel
 
-from app.services.platform.feature_store import FeatureNotFoundError, get_feature_store
+from app.core.exceptions import NotFoundException
+from app.platform.feature_store import FeatureNotFoundError, get_feature_store
 
 
 class FeatureSetRequest(BaseModel):
@@ -46,7 +47,7 @@ async def get_feature(
         version = store.get_version(key)
         return FeatureGetResponse(key=key, value=value, version=version)
     except FeatureNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Feature not found: {key}")
+        raise NotFoundException("Feature", key)
 
 
 @router.delete("/delete/{key}")

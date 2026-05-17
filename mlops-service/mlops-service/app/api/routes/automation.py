@@ -1,12 +1,13 @@
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.api.dependencies import get_settings
 from app.config.settings import Settings
-from app.services.orchestration.automation_service import get_automation_service
+from app.core.exceptions import MLOpsException
+from app.monitoring.automation_service import get_automation_service
 
 
 class AutomationStatusResponse(BaseModel):
@@ -39,7 +40,11 @@ async def start_automation(
     settings: Settings = Depends(get_settings),
 ) -> AutomationStatusResponse:
     if not settings.automation_enabled:
-        raise HTTPException(status_code=400, detail="automation is disabled")
+        raise MLOpsException(
+            status_code=400,
+            detail="automation is disabled",
+            error_code="AUTOMATION_DISABLED",
+        )
 
     service = _get_service(settings)
     service.start_scheduler(interval_hours=settings.automation_interval_hours)
@@ -70,12 +75,8 @@ async def drift_retrain(
 ) -> DriftRetrainResponse:
     service = _get_service(settings)
 
-    if request.pipeline in ("imaging", "both"):
-        reference_path = settings.imaging_train_csv
-        current_path = settings.imaging_test_csv
-    else:
-        reference_path = settings.clinical_train_csv
-        current_path = settings.clinical_test_csv
+    reference_path = settings.imaging_train_csv
+    current_path = settings.imaging_test_csv
 
     result = service.trigger_drift_retraining(
         reference_csv=reference_path,

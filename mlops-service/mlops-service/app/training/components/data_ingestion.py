@@ -5,7 +5,7 @@ import tempfile
 from datasets import concatenate_datasets, load_dataset, load_from_disk
 from loguru import logger
 
-from app.entity.config_entity import ImagingIngestionConfig
+from app.config.config_entity import ImagingIngestionConfig
 
 
 def _validate_dataset(ds) -> bool:

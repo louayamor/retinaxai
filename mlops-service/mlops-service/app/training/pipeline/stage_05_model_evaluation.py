@@ -1,6 +1,6 @@
 from loguru import logger
 from app.config.configuration import ConfigurationManager
-from app.domains.imaging.evaluation.imaging_evaluation import ImagingModelEvaluation
+from app.training.evaluation.imaging_evaluation import ImagingModelEvaluation
 
 
 def run():

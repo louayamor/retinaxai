@@ -15,7 +15,7 @@ def _make_dummy_model() -> nn.Module:
 
 class TestTENTAdapter:
     def test_bn_params_exist(self) -> None:
-        from app.domains.imaging.components.tent_adapter import TENTAdapter
+        from app.training.components.tent_adapter import TENTAdapter
 
         model = _make_dummy_model()
         adapter = TENTAdapter(model)
@@ -25,7 +25,7 @@ class TestTENTAdapter:
             assert isinstance(p, nn.Parameter)
 
     def test_configure_freezes_non_bn(self) -> None:
-        from app.domains.imaging.components.tent_adapter import TENTAdapter
+        from app.training.components.tent_adapter import TENTAdapter
 
         model = _make_dummy_model()
         adapter = TENTAdapter(model)
@@ -48,7 +48,7 @@ class TestTENTAdapter:
             param.requires_grad = True
 
     def test_adapt_reduces_entropy(self) -> None:
-        from app.domains.imaging.components.tent_adapter import TENTAdapter
+        from app.training.components.tent_adapter import TENTAdapter
 
         model = _make_dummy_model()
         device = torch.device("cpu")
@@ -85,7 +85,7 @@ class TestTENTAdapter:
         adapter.restore()
 
     def test_restore_resets_bn(self) -> None:
-        from app.domains.imaging.components.tent_adapter import TENTAdapter
+        from app.training.components.tent_adapter import TENTAdapter
 
         model = _make_dummy_model()
         device = torch.device("cpu")
@@ -113,7 +113,7 @@ class TestTENTAdapter:
         assert torch.allclose(out_before, out_after, atol=1e-5)
 
     def test_adapt_with_tuple_batch(self) -> None:
-        from app.domains.imaging.components.tent_adapter import TENTAdapter
+        from app.training.components.tent_adapter import TENTAdapter
 
         model = _make_dummy_model()
         device = torch.device("cpu")
@@ -128,7 +128,7 @@ class TestTENTAdapter:
         adapter.restore()
 
     def test_no_bn_params_handled_gracefully(self) -> None:
-        from app.domains.imaging.components.tent_adapter import TENTAdapter
+        from app.training.components.tent_adapter import TENTAdapter
 
         model = nn.Linear(10, 5)
         adapter = TENTAdapter(model)

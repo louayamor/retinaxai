@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from app.services.inference.gradcam_service import GradCAMService
+from app.inference.gradcam_service import GradCAMService
 
 
 class DummyModel:

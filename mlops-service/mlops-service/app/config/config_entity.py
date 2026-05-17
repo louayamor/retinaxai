@@ -53,71 +53,12 @@ class ImagingModelEvaluationConfig:
 
 
 @dataclass(frozen=True)
-class ClinicalIngestionConfig:
-    reports_csv: Path
-    reports_json: Path
-    images_dir: Path
-    raw_csv: Path
-
-
-@dataclass(frozen=True)
-class ClinicalCleaningConfig:
-    root_dir: Path
-
-
-@dataclass(frozen=True)
-class ClinicalTransformationConfig:
-    root_dir: Path
-    source_csv: Path
-    train_csv: Path
-    test_csv: Path
-    feature_file: Path
-
-
-@dataclass(frozen=True)
-class ClinicalModelTrainerConfig:
-    root_dir: Path
-    model_name: str
-    checkpoint_path: Path
-    feature_importance_path: Path
-    feature_file: Path
-
-
-@dataclass(frozen=True)
-class ClinicalModelEvaluationConfig:
-    root_dir: Path
-    test_csv: Path
-    model_path: Path
-    metric_file: Path
-    mlflow_uri: str
-    experiment_name: str
-    run_name: str
-
-
-@dataclass(frozen=True)
 class ImagingMonitoringConfig:
     reports_dir: Path
     drift_report: Path
     classification_report: Path
     reference_csv: Path
     current_csv: Path
-
-
-@dataclass(frozen=True)
-class ClinicalMonitoringConfig:
-    reports_dir: Path
-    drift_report: Path
-    classification_report: Path
-    reference_csv: Path
-    current_csv: Path
-
-
-@dataclass(frozen=True)
-class MonitoringConfig:
-    reports_dir: Path
-    imaging: ImagingMonitoringConfig
-    clinical: ClinicalMonitoringConfig
-    prometheus_port: int
 
 
 @dataclass(frozen=True)

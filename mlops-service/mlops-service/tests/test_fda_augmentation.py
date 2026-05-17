@@ -32,7 +32,7 @@ def tmp_source_dir(tmp_path: Path) -> Path:
 
 class TestFDAAugment:
     def test_cache_created(self, tmp_target_dir: Path, tmp_path: Path) -> None:
-        from app.domains.imaging.components.fda_augment import FDAAugment
+        from app.training.components.fda_augment import FDAAugment
 
         cache = tmp_path / "amplitude.pt"
         augment = FDAAugment(
@@ -45,7 +45,7 @@ class TestFDAAugment:
         assert torch.isfinite(amp).all()
 
     def test_cache_reused(self, tmp_target_dir: Path, tmp_path: Path) -> None:
-        from app.domains.imaging.components.fda_augment import FDAAugment
+        from app.training.components.fda_augment import FDAAugment
 
         cache = tmp_path / "amplitude.pt"
         a1 = FDAAugment(tmp_target_dir, beta=0.15, cache_path=cache)
@@ -57,7 +57,7 @@ class TestFDAAugment:
         assert cache.stat().st_mtime == mod_time
 
     def test_beta_zero_is_identity(self, tmp_target_dir: Path, tmp_path: Path) -> None:
-        from app.domains.imaging.components.fda_augment import FDAAugment
+        from app.training.components.fda_augment import FDAAugment
 
         cache = tmp_path / "amplitude.pt"
         augment = FDAAugment(
@@ -68,7 +68,7 @@ class TestFDAAugment:
         assert torch.allclose(x, y, atol=1e-6)
 
     def test_output_in_valid_range(self, tmp_target_dir: Path, tmp_path: Path) -> None:
-        from app.domains.imaging.components.fda_augment import FDAAugment
+        from app.training.components.fda_augment import FDAAugment
 
         cache = tmp_path / "amplitude.pt"
         augment = FDAAugment(
@@ -81,7 +81,7 @@ class TestFDAAugment:
         assert torch.isfinite(y).all()
 
     def test_probability_respected(self, tmp_target_dir: Path, tmp_path: Path) -> None:
-        from app.domains.imaging.components.fda_augment import FDAAugment
+        from app.training.components.fda_augment import FDAAugment
 
         cache = tmp_path / "amplitude.pt"
         augment = FDAAugment(
@@ -100,7 +100,7 @@ class TestFDAAugment:
     def test_inverse_without_source_returns_original(
         self, tmp_target_dir: Path, tmp_path: Path
     ) -> None:
-        from app.domains.imaging.components.fda_augment import FDAAugment
+        from app.training.components.fda_augment import FDAAugment
 
         cache = tmp_path / "amplitude.pt"
         augment = FDAAugment(tmp_target_dir, beta=0.15, cache_path=cache)
@@ -111,7 +111,7 @@ class TestFDAAugment:
     def test_inverse_with_source(
         self, tmp_target_dir: Path, tmp_source_dir: Path, tmp_path: Path
     ) -> None:
-        from app.domains.imaging.components.fda_augment import FDAAugment
+        from app.training.components.fda_augment import FDAAugment
 
         cache_tgt = tmp_path / "amplitude_tgt.pt"
         cache_src = tmp_path / "amplitude_src.pt"
@@ -130,7 +130,7 @@ class TestFDAAugment:
         assert torch.isfinite(y).all()
 
     def test_beta_invalid_raises(self) -> None:
-        from app.domains.imaging.components.fda_augment import FDAAugment
+        from app.training.components.fda_augment import FDAAugment
 
         with pytest.raises(ValueError, match="beta"):
             FDAAugment(Path("/tmp"), beta=-0.1)
@@ -139,7 +139,7 @@ class TestFDAAugment:
             FDAAugment(Path("/tmp"), beta=1.5)
 
     def test_probability_invalid_raises(self) -> None:
-        from app.domains.imaging.components.fda_augment import FDAAugment
+        from app.training.components.fda_augment import FDAAugment
 
         with pytest.raises(ValueError, match="probability"):
             FDAAugment(Path("/tmp"), probability=-0.1)
@@ -148,7 +148,7 @@ class TestFDAAugment:
             FDAAugment(Path("/tmp"), probability=1.5)
 
     def test_empty_dir_raises(self, tmp_path: Path) -> None:
-        from app.domains.imaging.components.fda_augment import FDAAugment
+        from app.training.components.fda_augment import FDAAugment
 
         empty = tmp_path / "empty"
         empty.mkdir()
@@ -157,7 +157,7 @@ class TestFDAAugment:
             _ = augment.target_amplitude
 
     def test_structure_preserved(self, tmp_target_dir: Path, tmp_path: Path) -> None:
-        from app.domains.imaging.components.fda_augment import FDAAugment
+        from app.training.components.fda_augment import FDAAugment
 
         cache = tmp_path / "amplitude.pt"
         augment = FDAAugment(

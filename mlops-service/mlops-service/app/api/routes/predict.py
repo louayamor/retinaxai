@@ -12,17 +12,18 @@ from PIL import Image
 from starlette.concurrency import run_in_threadpool
 
 from app.api.dependencies import get_settings
-from app.api.schemas import ClinicalFeatures, MLPredictHttpRequest, PredictResponse
+from app.api.schemas import MLPredictHttpRequest, PredictResponse
 from app.config.settings import Settings
-from app.services.inference.inference_service import (
+from app.core.exceptions import MLOpsException, UnprocessableEntityException
+from app.inference.inference_service import (
     DR_SEVERITY,
     InferenceService,
 )
-from app.services.platform.websocket_client import (
+from app.platform.event_client import (
     send_prediction_event,
     send_prediction_log,
 )
-from app.services.monitoring.prometheus_metrics import (
+from app.monitoring.prometheus_metrics import (
     PREDICTION_REQUESTS_TOTAL,
     PREDICTION_ERRORS_TOTAL,
     GRADCAM_GENERATION_FAILURES,
@@ -44,14 +45,14 @@ def _decode_base64_image(base64_str: str) -> bytes:
     try:
         return base64.b64decode(base64_str, validate=True)
     except Exception as e:
-        raise HTTPException(status_code=422, detail=f"invalid base64 image: {e}")
+        raise UnprocessableEntityException(f"invalid base64 image: {e}")
 
 
 def _validate_image_bytes(image_bytes: bytes) -> None:
     try:
         Image.open(io.BytesIO(image_bytes)).verify()
     except Exception as e:
-        raise HTTPException(status_code=422, detail=f"invalid image data: {e}")
+        raise UnprocessableEntityException(f"invalid image data: {e}")
 
 
 @router.post("/predict", response_model=PredictResponse)
@@ -100,36 +101,9 @@ async def predict(
             f"Right eye: DR Grade {right_imaging_result['predicted_grade']} ({(right_imaging_result['confidence'] * 100):.1f}%)",
         )
 
-        try:
-            features = ClinicalFeatures(**request.features)
-            await log_msg("step_10", "info", "Processing clinical features")
-            clinical_result = await run_in_threadpool(
-                service.predict_clinical, features
-            )
-            await log_msg(
-                "step_11",
-                "info",
-                f"Clinical model: risk score {clinical_result.get('risk_score', 0):.2f}",
-            )
-        except Exception:
-            features = None
-            await log_msg(
-                "step_10", "warning", "Skipping clinical model (no valid features)"
-            )
-            clinical_result = {}
-
         combined_prediction = {
             "left_eye": left_imaging_result,
             "right_eye": right_imaging_result,
-            "clinical": {
-                "predicted_grade": clinical_result.get("predicted_grade"),
-                "predicted_label": clinical_result.get("predicted_label"),
-                "risk_score": clinical_result.get("risk_score"),
-                "severity": DR_SEVERITY.get(
-                    clinical_result.get("predicted_grade", 0), "unknown"
-                ),
-                "probabilities": clinical_result.get("probabilities"),
-            },
             "combined_grade": max(
                 left_imaging_result["predicted_grade"],
                 right_imaging_result["predicted_grade"],
@@ -163,16 +137,6 @@ async def predict(
             or math.isinf(right_confidence)
         ):
             right_confidence = 0.0
-        clinical_confidence = (
-            clinical_result.get("risk_score") if clinical_result else None
-        )
-        if clinical_confidence is not None:
-            if (
-                not isinstance(clinical_confidence, (int, float))
-                or math.isnan(clinical_confidence)
-                or math.isinf(clinical_confidence)
-            ):
-                clinical_confidence = None
 
         response = PredictResponse(
             prediction=combined_prediction,
@@ -199,7 +163,7 @@ async def predict(
                     dr_grade=combined_prediction["combined_grade"],
                     confidence=float(left_confidence),
                     imaging_confidence=float(left_confidence),
-                    clinical_confidence=clinical_confidence,
+                    clinical_confidence=None,
                     combined_grade=combined_prediction["combined_grade"],
                     overall_severity=combined_prediction["overall_severity"],
                     triggers_xai=True,
@@ -210,7 +174,7 @@ async def predict(
         asyncio.create_task(_send_event())
 
         try:
-            from app.services.platform.feature_store import get_feature_store
+            from app.platform.feature_store import get_feature_store
 
             feature_store = get_feature_store()
             feature_store.set(
@@ -254,7 +218,7 @@ async def predict(
             triggers_xai=False,
             error=str(e)[:200],
         )
-        raise HTTPException(status_code=422, detail=str(e))
+        raise UnprocessableEntityException(str(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -281,6 +245,8 @@ async def predict(
             triggers_xai=False,
             error=str(e)[:200],
         )
-        raise HTTPException(
-            status_code=500, detail=f"prediction failed: {type(e).__name__}"
+        raise MLOpsException(
+            status_code=500,
+            detail=f"Prediction failed: {type(e).__name__}",
+            error_code="PREDICTION_ERROR",
         )

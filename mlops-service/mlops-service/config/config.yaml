@@ -1,7 +1,4 @@
-artifacts_root: artifacts
-
 data_ingestion:
-  root_dir: artifacts/data/raw
   huggingface:
     dataset_name: bumbledeep/eyepacs
     train_split: train
@@ -10,63 +7,16 @@ data_ingestion:
     reports_csv: artifacts/ocr/output/reports.csv
     reports_json: artifacts/ocr/output/reports.json
 
-data_transformation:
-  imaging:
-    root_dir: artifacts/data/processed/imaging
-    image_size: 456
-    train_csv: artifacts/data/processed/imaging/train.csv
-    val_csv: artifacts/data/processed/imaging/val.csv
-    test_csv: artifacts/data/processed/imaging/test.csv
-    samaya_csv: artifacts/data/processed/imaging/samaya.csv
-  clinical:
-    root_dir: artifacts/data/processed/clinical
-    raw_csv: artifacts/data/processed/clinical/raw.csv
-    train_csv: artifacts/data/processed/clinical/train.csv
-    test_csv: artifacts/data/processed/clinical/test.csv
-    feature_file: artifacts/data/processed/clinical/features.json
-
 imaging_model:
-  root_dir: artifacts/model/imaging
   model_name: efficientnet_b3
   pretrained: true
-  checkpoint_path: artifacts/model/imaging/model.pth
-
-clinical_model:
-  root_dir: artifacts/model/clinical
-  model_name: xgboost
-  checkpoint_path: artifacts/model/clinical/model.pkl
-  feature_importance_path: artifacts/model/clinical/feature_importance.json
-
-model_evaluation:
-  imaging:
-    root_dir: artifacts/model/imaging
-    test_csv: artifacts/data/processed/imaging/test.csv
-    model_path: artifacts/model/imaging/model.pth
-    metric_file: artifacts/model/imaging/metrics.json
-  clinical:
-    root_dir: artifacts/model/clinical
-    test_csv: artifacts/data/processed/clinical/test.csv
-    model_path: artifacts/model/clinical/model.pkl
-    metric_file: artifacts/model/clinical/metrics.json
 
 monitoring:
-  reports_dir: artifacts/monitoring
-  imaging:
-    drift_report: artifacts/monitoring/imaging_drift_report.html
-    classification_report: artifacts/monitoring/imaging_classification_report.html
-    reference_csv: artifacts/data/processed/imaging/train.csv
-    current_csv: artifacts/data/processed/imaging/test.csv
-  clinical:
-    drift_report: artifacts/monitoring/clinical_drift_report.html
-    classification_report: artifacts/monitoring/clinical_classification_report.html
-    reference_csv: artifacts/data/processed/clinical/train.csv
-    current_csv: artifacts/data/processed/clinical/test.csv
   prometheus_port: 9090
 
 mlflow:
   experiment_name: retinaxai-dr-classification
   imaging_run_name: efficientnet_b3
-  clinical_run_name: xgboost_clinical
 
 inter_service:
   llmops_url: ${LLMOPS_SERVICE_URL}

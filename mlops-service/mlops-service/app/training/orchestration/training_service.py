@@ -8,19 +8,16 @@ from typing import Optional
 from loguru import logger
 import threading
 
-from app.domains.imaging.pipeline.stage_01_data_ingestion import run as img_s1
-from app.domains.imaging.pipeline.stage_02_data_cleaning import run as img_s2
-from app.domains.imaging.pipeline.stage_03_data_transformation import run as img_s3
-from app.domains.imaging.pipeline.stage_04_model_trainer import run as img_s4
-from app.domains.imaging.pipeline.stage_05_model_evaluation import run as img_s5
-from app.domains.clinical.pipeline.stage_01_data_ingestion import run as clin_s1
-from app.domains.clinical.pipeline.stage_02_data_cleaning import run as clin_s2
-from app.domains.clinical.pipeline.stage_03_data_transformation import run as clin_s3
-from app.domains.clinical.pipeline.stage_04_model_trainer import run as clin_s4
-from app.domains.clinical.pipeline.stage_05_model_evaluation import run as clin_s5
-from app.services.registry.model_registry import ModelRegistryService
+from app.training.pipeline.stage_01_data_ingestion import run as img_s1
+from app.training.pipeline.stage_02_data_cleaning import run as img_s2
+from app.training.pipeline.stage_03_data_transformation import run as img_s3
+from app.training.pipeline.stage_04_model_trainer import run as img_s4
+from app.training.pipeline.stage_05_model_evaluation import run as img_s5
+from app.registry.model_registry import ModelRegistryService
 
-from app.services.monitoring.prometheus_metrics import (
+from app.core.exceptions import TrainingException
+
+from app.monitoring.prometheus_metrics import (
     TRAINING_RUNS_TOTAL,
     TRAINING_FAILURES_TOTAL,
     ACTIVE_TRAINING_JOBS,
@@ -31,9 +28,9 @@ from app.services.monitoring.prometheus_metrics import (
 )
 
 try:
-    from app.services.platform.websocket_client import get_websocket_client
+    from app.platform.event_client import get_event_client
 
-    _ws_client = get_websocket_client()
+    _ws_client = get_event_client()
 except ImportError:
     _ws_client = None
     logger.warning("WebSocket client not available, skipping real-time events")
@@ -95,7 +92,6 @@ def _emit_training_completed_event(
     job_id: str,
     pipeline: str,
     imaging_version: str | None = None,
-    clinical_version: str | None = None,
 ) -> None:
     """Emit training.completed event to trigger LLMOps workflows."""
     import httpx
@@ -117,7 +113,6 @@ def _emit_training_completed_event(
             "job_id": job_id,
             "pipeline": pipeline,
             "imaging_version": imaging_version,
-            "clinical_version": clinical_version,
             "timestamp": datetime.utcnow().isoformat(),
         },
     }
@@ -222,7 +217,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
     try:
         _configure_mlflow()
 
-        if pipeline in ("imaging", "both"):
+        if pipeline == "imaging":
             max_samples = int(os.environ.get("MAX_SAMPLES", "35000"))
             _emit_stage_event(
                 job_id,
@@ -234,7 +229,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                 metrics={"samples": max_samples},
             )
             if is_job_cancelled(job_id):
-                raise Exception("Job cancelled by user")
+                raise TrainingException("Job cancelled by user")
             try:
                 img_s1()
                 _emit_stage_event(
@@ -268,7 +263,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                 metrics={"stage": "filtering"},
             )
             if is_job_cancelled(job_id):
-                raise Exception("Job cancelled by user")
+                raise TrainingException("Job cancelled by user")
             try:
                 img_s2()
                 _emit_stage_event(
@@ -296,7 +291,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                 metrics={"images": 0, "size": 300},
             )
             if is_job_cancelled(job_id):
-                raise Exception("Job cancelled by user")
+                raise TrainingException("Job cancelled by user")
             try:
                 img_s3()
                 _emit_stage_event(
@@ -332,7 +327,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                 metrics={"epochs": epochs, "batch_size": batch_size},
             )
             if is_job_cancelled(job_id):
-                raise Exception("Job cancelled by user")
+                raise TrainingException("Job cancelled by user")
             try:
                 img_s4()
                 _emit_stage_event(
@@ -365,7 +360,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                 "Evaluating model on test set...",
             )
             if is_job_cancelled(job_id):
-                raise Exception("Job cancelled by user")
+                raise TrainingException("Job cancelled by user")
             try:
                 img_s5()
                 _emit_stage_event(
@@ -375,173 +370,6 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                     "completed",
                     100,
                     "Model evaluation complete",
-                )
-            except Exception as e:
-                _emit_stage_event(
-                    job_id,
-                    pipeline,
-                    "model_evaluation",
-                    "failed",
-                    0,
-                    str(e),
-                    error=str(e),
-                )
-                raise
-
-        if pipeline in ("clinical", "both"):
-            clin_samples = 5000
-            _emit_stage_event(
-                job_id,
-                pipeline,
-                "data_ingestion",
-                "started",
-                0,
-                f"Loading clinical dataset ({clin_samples} samples)...",
-                metrics={"samples": clin_samples},
-            )
-            if is_job_cancelled(job_id):
-                raise Exception("Job cancelled by user")
-            try:
-                clin_s1()
-                _emit_stage_event(
-                    job_id,
-                    pipeline,
-                    "data_ingestion",
-                    "completed",
-                    100,
-                    f"Loaded {clin_samples} clinical samples",
-                    metrics={"samples": clin_samples},
-                )
-            except Exception as e:
-                _emit_stage_event(
-                    job_id,
-                    pipeline,
-                    "data_ingestion",
-                    "failed",
-                    0,
-                    str(e),
-                    error=str(e),
-                )
-                raise
-
-            _emit_stage_event(
-                job_id,
-                pipeline,
-                "data_cleaning",
-                "started",
-                0,
-                "Cleaning clinical data - handling missing values and outliers...",
-                metrics={"stage": "cleaning"},
-            )
-            if is_job_cancelled(job_id):
-                raise Exception("Job cancelled by user")
-            try:
-                clin_s2()
-                _emit_stage_event(
-                    job_id,
-                    pipeline,
-                    "data_cleaning",
-                    "completed",
-                    100,
-                    "Cleaned clinical data - handled missing values",
-                    metrics={"removed": 0},
-                )
-            except Exception as e:
-                _emit_stage_event(
-                    job_id, pipeline, "data_cleaning", "failed", 0, str(e), error=str(e)
-                )
-                raise
-
-            _emit_stage_event(
-                job_id,
-                pipeline,
-                "data_transformation",
-                "started",
-                0,
-                "Transforming clinical features - encoding and scaling...",
-                metrics={"features": 15},
-            )
-            if is_job_cancelled(job_id):
-                raise Exception("Job cancelled by user")
-            try:
-                clin_s3()
-                _emit_stage_event(
-                    job_id,
-                    pipeline,
-                    "data_transformation",
-                    "completed",
-                    100,
-                    "Transformed 15 clinical features",
-                    metrics={"features": 15},
-                )
-            except Exception as e:
-                _emit_stage_event(
-                    job_id,
-                    pipeline,
-                    "data_transformation",
-                    "failed",
-                    0,
-                    str(e),
-                    error=str(e),
-                )
-                raise
-
-            clin_epochs = int(os.environ.get("CLINICAL_EPOCHS", "50"))
-            _emit_stage_event(
-                job_id,
-                pipeline,
-                "model_training",
-                "started",
-                0,
-                f"Training XGBoost with {clin_epochs} iterations...",
-                metrics={"iterations": clin_epochs},
-            )
-            if is_job_cancelled(job_id):
-                raise Exception("Job cancelled by user")
-            try:
-                clin_s4()
-                _emit_stage_event(
-                    job_id,
-                    pipeline,
-                    "model_training",
-                    "completed",
-                    100,
-                    f"Trained XGBoost with {clin_epochs} iterations",
-                    metrics={"iterations": clin_epochs},
-                )
-            except Exception as e:
-                _emit_stage_event(
-                    job_id,
-                    pipeline,
-                    "model_training",
-                    "failed",
-                    0,
-                    str(e),
-                    error=str(e),
-                )
-                raise
-
-            _emit_stage_event(
-                job_id,
-                pipeline,
-                "model_evaluation",
-                "started",
-                0,
-                "Evaluating clinical model on test set...",
-                metrics={"test_samples": 1000},
-            )
-            if is_job_cancelled(job_id):
-                raise Exception("Job cancelled by user")
-            try:
-                clin_s5()
-                _emit_stage_event(
-                    job_id,
-                    pipeline,
-                    "model_evaluation",
-                    "completed",
-                    100,
-                    "Clinical model evaluation complete",
-                    metrics={"accuracy": 0.82},
                 )
             except Exception as e:
                 _emit_stage_event(
@@ -567,17 +395,15 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
             )
 
             from app.config.settings import settings
-            from app.services.orchestration.training_pipeline import TrainingPipeline
+            from app.training.orchestration.training_pipeline import TrainingPipeline
 
             # Initialize registry and create version
             training_pipeline = TrainingPipeline()
 
             # Generate version numbers
             imaging_version = training_pipeline._generate_version("imaging")
-            clinical_version = training_pipeline._generate_version("clinical")
 
-            # Register imaging model if pipeline includes imaging
-            if pipeline in ("imaging", "both") and settings.imaging_model_path.exists():
+            if settings.imaging_model_path.exists():
                 # Load metrics from the evaluation output
                 imaging_metrics = {}
                 if settings.imaging_metrics_path.exists():
@@ -594,34 +420,13 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                     metrics=imaging_metrics,
                 )
 
-            # Register clinical model if pipeline includes clinical
-            if (
-                pipeline in ("clinical", "both")
-                and settings.clinical_model_path.exists()
-            ):
-                # Load metrics from the evaluation output
-                clinical_metrics = {}
-                if settings.clinical_metrics_path.exists():
-                    try:
-                        with open(settings.clinical_metrics_path) as f:
-                            clinical_metrics = json.load(f)
-                    except Exception as e:
-                        logger.warning(f"Failed to load clinical metrics: {e}")
-
-                training_pipeline._register_model(
-                    pipeline="clinical",
-                    version=clinical_version,
-                    model_path=settings.clinical_model_path,
-                    metrics=clinical_metrics,
-                )
-
             _emit_stage_event(
                 job_id,
                 pipeline,
                 "model_registration",
                 "completed",
                 100,
-                f"Models registered: imaging={imaging_version}, clinical={clinical_version}",
+                f"Models registered: imaging={imaging_version}",
             )
 
         except Exception as e:
@@ -648,15 +453,13 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
             "Training pipeline completed successfully",
         )
 
-        _emit_training_completed_event(
-            job_id, pipeline, imaging_version, clinical_version
-        )
+        _emit_training_completed_event(job_id, pipeline, imaging_version)
         logger.info(f"pipeline job completed: job_id={job_id}")
 
         try:
             from app.config.settings import settings as app_settings
-            from app.services.monitoring.drift_detection import DriftDetectionService
-            from app.services.monitoring.evidently_report import (
+            from app.monitoring.drift_detection import DriftDetectionService
+            from app.monitoring.evidently_report import (
                 EvidentlyReportGenerator,
             )
 
@@ -667,20 +470,9 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
             )
             evidently = EvidentlyReportGenerator(reports_dir)
 
-            pipes_to_check = (
-                ["imaging", "clinical"] if pipeline == "both" else [pipeline]
-            )
-            for pipe in pipes_to_check:
-                train_csv = (
-                    app_settings.imaging_train_csv
-                    if pipe == "imaging"
-                    else app_settings.clinical_train_csv
-                )
-                test_csv = (
-                    app_settings.imaging_test_csv
-                    if pipe == "imaging"
-                    else app_settings.clinical_test_csv
-                )
+            for pipe in ["imaging"]:
+                train_csv = app_settings.imaging_train_csv
+                test_csv = app_settings.imaging_test_csv
                 if not train_csv.exists() or not test_csv.exists():
                     logger.warning(
                         f"Skipping drift check for {pipe}: CSV files not found"
@@ -756,10 +548,6 @@ def _write_last_training_metrics() -> None:
             with open(settings.imaging_metrics_path) as f:
                 metrics["imaging"] = json.load(f)
 
-        if settings.clinical_metrics_path.exists():
-            with open(settings.clinical_metrics_path) as f:
-                metrics["clinical"] = json.load(f)
-
         if metrics:
             target = (
                 settings.artifacts_root / "monitoring" / "last_training_metrics.json"
@@ -775,10 +563,20 @@ def cancel_job(job_id: str) -> bool:
     """Cancel a running job by setting status to cancelled."""
     if job_id not in _job_store:
         return False
-    _job_store[job_id]["status"] = "cancelled"
-    _job_store[job_id]["completed_at"] = datetime.utcnow().isoformat()
-    _job_store[job_id]["error"] = "Cancelled by user"
+    job = _job_store[job_id]
+    job["status"] = "cancelled"
+    job["completed_at"] = datetime.utcnow().isoformat()
+    job["error"] = "Cancelled by user"
     _save_jobs()
+    _emit_stage_event(
+        job_id=job_id,
+        pipeline=job.get("pipeline", "imaging"),
+        stage="pipeline",
+        status="cancelled",
+        progress=0,
+        message="Training cancelled by user",
+        error="Cancelled by user",
+    )
     logger.info(f"Job {job_id} marked as cancelled")
     return True
 

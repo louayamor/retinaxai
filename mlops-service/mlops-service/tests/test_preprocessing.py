@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from app.domains.imaging.preprocessing import (
+from app.training.preprocessing import (
     circular_crop,
     apply_clahe_l_channel,
     preprocess_fundus_image,

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from app.api.dependencies import get_settings
 from app.config.settings import Settings
 from app.api.rag_schemas import RagManifestResponse
-from app.services.inference.rag_manifest_service import build_rag_manifest
+from app.inference.rag_manifest_service import build_rag_manifest
 
 
 router = APIRouter()

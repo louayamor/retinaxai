@@ -13,24 +13,24 @@ from loguru import logger
 from PIL import Image
 from torchvision import transforms
 
-from app.api.schemas import ClinicalFeatures
+
 from app.config.settings import Settings
-from app.domains.imaging.preprocessing import preprocess_fundus_image
-from app.services.inference.gradcam_service import GradCAMService
-from app.services.inference.fundus_classifier import FundusClassifierService
+from app.training.preprocessing import preprocess_fundus_image
+from app.inference.gradcam_service import GradCAMService
+from app.inference.fundus_classifier import FundusClassifierService
 from app.utils.common import load_json, read_yaml
 from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
-from app.services.monitoring.prometheus_metrics import (
+from app.monitoring.prometheus_metrics import (
     INFERENCE_LATENCY,
     INFERENCE_OOM_KILLS,
     GPU_MEMORY_USED_BYTES,
     GPU_UTILIZATION_PERCENT,
 )
-from app.services.registry.model_registry import ModelRegistryService
-from app.services.registry.model_registry import (
+from app.registry.model_registry import ModelRegistryService
+from app.registry.model_registry import (
     ModelNotFoundError as ModelRegistryNotFoundError,
 )
-from app.services.platform.feature_store import get_feature_store
+from app.platform.feature_store import get_feature_store
 
 
 DR_CLASSES = {0: "No DR", 1: "Mild", 2: "Moderate", 3: "Severe", 4: "Proliferative DR"}
@@ -72,10 +72,7 @@ class InferenceService:
             logger.info("[INFERENCE] CUDA not available, using CPU")
 
         self._imaging_model = None
-        self._clinical_model = None
         self._feature_meta = None
-        self._clinical_encoders = None
-        self._clinical_numeric_medians = None
         self._fundus_classifier = None
 
         # Add model registry service for loading models
@@ -115,18 +112,12 @@ class InferenceService:
             logger.warning(f"Failed to load from registry for {pipeline}: {e}")
 
         # Fall back to settings paths
-        return (
-            self.settings.imaging_model_path
-            if pipeline == "imaging"
-            else self.settings.clinical_model_path
-        )
+        return self.settings.imaging_model_path
 
     def _move_to_cpu(self) -> None:
         self.device = torch.device("cpu")
         if self._imaging_model is not None:
             self._imaging_model.to(self.device)
-        if self._clinical_model is not None and hasattr(self._clinical_model, "to"):
-            self._clinical_model.to(self.device)
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
@@ -177,257 +168,6 @@ class InferenceService:
         self._imaging_model = model
         logger.info("[IMAGING MODEL] loaded successfully")
         return model
-
-    def _load_clinical_model(self):
-        if self._clinical_model is not None:
-            return self._clinical_model, self._feature_meta
-        logger.info(
-            f"[CLINICAL MODEL] model_path={self.settings.clinical_model_path} exists={self.settings.clinical_model_path.exists()}"
-        )
-        logger.info(
-            f"[CLINICAL MODEL] feature_meta_path={self.settings.clinical_feature_importance_path} exists={self.settings.clinical_feature_importance_path.exists()}"
-        )
-
-        if not self.settings.clinical_model_path.exists():
-            raise FileNotFoundError(
-                f"clinical model not found: {self.settings.clinical_model_path}"
-            )
-        if not self.settings.clinical_feature_importance_path.exists():
-            raise FileNotFoundError(
-                f"clinical feature metadata not found: {self.settings.clinical_feature_importance_path}"
-            )
-
-        if self.settings.clinical_model_path.stat().st_size == 0:
-            raise ValueError(
-                f"clinical model file is empty: {self.settings.clinical_model_path}"
-            )
-
-        logger.info("[CLINICAL MODEL] loading pickle model")
-        try:
-            model_path = self._get_current_production_model_path("clinical")
-            with open(model_path, "rb") as f:
-                model = pickle.load(f)
-        except Exception as e:
-            raise RuntimeError(f"Failed to load clinical model: {e}") from e
-
-        try:
-            feature_meta = load_json(self.settings.clinical_feature_importance_path)
-        except Exception as e:
-            raise RuntimeError(f"Failed to load clinical feature metadata: {e}") from e
-
-        self._clinical_model = model
-        self._feature_meta = feature_meta
-        self._clinical_encoders = feature_meta.get("categorical_encoders", {}) or {}
-        self._clinical_numeric_medians = feature_meta.get("numeric_medians", {}) or {}
-        logger.info("[CLINICAL MODEL] loaded successfully")
-        return model, feature_meta
-
-    def _build_transform(self):
-        norm = self.params.augmentation.normalize
-        image_size = self._global_image_size
-        return transforms.Compose(
-            [
-                transforms.Lambda(
-                    lambda img: preprocess_fundus_image(img, image_size=image_size)
-                ),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=norm.mean, std=norm.std),
-            ]
-        )
-
-    def _load_fundus_classifier(self) -> FundusClassifierService:
-        """Lazy load the fundus classifier on first use."""
-        if self._fundus_classifier is not None:
-            return self._fundus_classifier
-
-        fc_cfg = self.params.get("fundus_classifier", {})
-        model_name = fc_cfg.get("model_name", "mobilenetv3_small_100")
-        image_size = fc_cfg.get("image_size", 300)
-        threshold = fc_cfg.get("threshold", 0.3)
-
-        model_path = (
-            self.settings.artifacts_root / "model" / "imaging" / "fundus_classifier.pth"
-        )
-
-        self._fundus_classifier = FundusClassifierService(
-            model_path=model_path,
-            model_name=model_name,
-            image_size=image_size,
-            device=self.device,
-            threshold=threshold,
-        )
-
-        logger.info(
-            f"[FUNDUS] classifier initialized: {model_name} threshold={threshold}"
-        )
-        return self._fundus_classifier
-
-    def _validate_fundus(self, image_bytes: bytes, eye_side: str) -> float:
-        """
-        Validate that the image is a valid fundus photograph.
-
-        Raises ValueError if the image is rejected.
-        Returns the fundus score if accepted.
-        """
-        classifier = self._load_fundus_classifier()
-
-        try:
-            is_valid, fundus_score, message = classifier.is_fundus(image_bytes)
-        except FileNotFoundError as e:
-            logger.warning(f"[FUNDUS] classifier not found, skipping validation: {e}")
-            return 1.0
-
-        if not is_valid:
-            raise ValueError(f"{eye_side} eye: rejected — {message}")
-
-        return fundus_score
-
-    def get_embedding(self, image_tensor: torch.Tensor) -> list[float]:
-        """Extract the 1536-dim EfficientNet-B3 embedding before classification."""
-        model = self._load_imaging_model()
-
-        if hasattr(model, "module"):
-            model = model.module
-
-        with torch.inference_mode():
-            features = model.forward_features(image_tensor)
-            embedding = model.global_pool(features)
-            if embedding.ndim > 2:
-                embedding = embedding.flatten(start_dim=1)
-
-        return embedding.squeeze(0).detach().cpu().numpy().astype(float).tolist()
-
-    def predict_imaging(self, image_bytes: bytes) -> dict:
-        start = time.time()
-        model = self._load_imaging_model()
-
-        try:
-            img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        except Exception as e:
-            raise ValueError(f"Failed to open image: {e}") from e
-
-        tf: nn.Module = self._build_transform()  # type: ignore[assignment]
-        tensor = tf(img).unsqueeze(0).to(self.device)  # type: ignore[operator]
-
-        try:
-            with torch.inference_mode():
-                with torch.amp.autocast("cuda", enabled=self.device.type == "cuda"):
-                    outputs = model(tensor)
-                probs = torch.softmax(outputs, dim=1).cpu().numpy()[0]
-        except RuntimeError as e:
-            if self.device.type == "cuda" and "out of memory" in str(e).lower():
-                logger.warning("[IMAGING] CUDA OOM during inference; retrying on CPU")
-                INFERENCE_OOM_KILLS.labels(model="imaging").inc()
-                self._move_to_cpu()
-                model = self._load_imaging_model()
-                tensor = tensor.to(self.device)
-                with torch.inference_mode():
-                    outputs = model(tensor)
-                probs = torch.softmax(outputs, dim=1).cpu().numpy()[0]
-            else:
-                raise
-
-        pred_class = int(np.argmax(probs))
-        confidence = float(probs[pred_class])
-
-        INFERENCE_LATENCY.labels(model="imaging").observe(time.time() - start)
-        _emit_gpu_metrics()
-
-        if self.device.type == "cuda":
-            torch.cuda.empty_cache()
-
-        del tensor, outputs
-
-        threshold = 0.0
-        try:
-            threshold = float(
-                self.params.get("inference", {}).get("confidence_threshold", 0.0)
-            )
-        except (AttributeError, TypeError):
-            pass
-        if confidence < threshold:
-            return {
-                "predicted_grade": -1,
-                "predicted_label": "Uncertain",
-                "severity": "unknown",
-                "confidence": round(confidence, 4),
-                "uncertain": True,
-                "probabilities": {DR_CLASSES[i]: float(p) for i, p in enumerate(probs)},
-            }
-
-        return {
-            "predicted_grade": pred_class,
-            "predicted_label": DR_CLASSES[pred_class],
-            "severity": DR_SEVERITY.get(pred_class, "unknown"),
-            "confidence": round(confidence, 4),
-            "probabilities": {DR_CLASSES[i]: float(p) for i, p in enumerate(probs)},
-        }
-
-    def predict_clinical(self, features: ClinicalFeatures) -> dict:
-        start = time.time()
-        model, feature_meta = self._load_clinical_model()
-        feature_meta = feature_meta or {}
-        label_offset = feature_meta.get("label_offset", 0)
-        feature_cols = feature_meta.get("feature_cols", [])
-        if not feature_cols:
-            raise ValueError("clinical feature metadata is missing feature_cols")
-        categorical_encoders = self._clinical_encoders or {}
-        numeric_medians = self._clinical_numeric_medians or {}
-
-        feature_dict = features.model_dump()
-
-        store = get_feature_store()
-        cache_key = f"clinical:{hash(frozenset(feature_dict.items()))}"
-
-        if store.exists(cache_key):
-            cached = store.get(cache_key)
-            logger.info(f"Clinical prediction cache hit: {cache_key}")
-            return cached
-
-        row = {}
-        for col in feature_cols:
-            val = feature_dict.get(col)
-            if col in categorical_encoders:
-                classes = categorical_encoders[col]
-                normalized = "unknown" if val is None else str(val)
-                if normalized not in classes:
-                    normalized = "unknown" if "unknown" in classes else classes[0]
-                row[col] = classes.index(normalized)
-            else:
-                if val is None:
-                    row[col] = float(numeric_medians.get(col, 0.0))
-                else:
-                    row[col] = float(val)
-
-        X = pd.DataFrame([row])[feature_cols].values
-        pred_0indexed = int(model.predict(X)[0])
-        pred_original = pred_0indexed + label_offset
-        probs = model.predict_proba(X)[0]
-
-        risk_labels = {
-            0: "No DR",
-            1: "Mild NPDR",
-            2: "Moderate NPDR",
-            3: "Severe NPDR",
-            4: "Proliferative DR",
-        }
-
-        INFERENCE_LATENCY.labels(model="xgboost_clinical").observe(time.time() - start)
-
-        result = {
-            "predicted_grade": pred_original,
-            "predicted_label": risk_labels.get(pred_original, "Unknown"),
-            "severity": DR_SEVERITY.get(pred_original, "unknown"),
-            "risk_score": round(float(max(probs)), 4),
-            "probabilities": {
-                risk_labels.get(i + label_offset, str(i + label_offset)): float(p)
-                for i, p in enumerate(probs)
-            },
-        }
-
-        store.set(cache_key, result, ttl_seconds=3600)
-
-        return result
 
     def predict_imaging_with_gradcam(
         self, image_bytes: bytes, eye_side: str = "unknown"

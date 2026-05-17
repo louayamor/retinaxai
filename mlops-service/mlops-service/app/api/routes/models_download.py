@@ -1,43 +1,37 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from fastapi.responses import FileResponse
 from pathlib import Path
 
 from app.api.dependencies import get_settings
+from app.core.exceptions import (
+    ForbiddenException,
+    NotFoundException,
+    UnprocessableEntityException,
+)
 
 router = APIRouter(prefix="/models", tags=["models"])
 
 ALLOWED_ARTIFACT_EXTENSIONS = {".png", ".json", ".csv", ".jsonl"}
 
 
+def _validate_pipeline(pipeline: str) -> None:
+    if pipeline not in ["imaging"]:
+        raise UnprocessableEntityException("pipeline must be 'imaging'")
+
+
 @router.get("/download/{pipeline}/model")
 async def download_model(
     pipeline: str,
 ) -> FileResponse:
-    """Download the current production model for a pipeline.
-
-    Args:
-        pipeline: Either 'clinical' or 'imaging'
-
-    Returns:
-        Model file (pkl for clinical, pth for imaging)
-    """
+    """Download the current production model for the imaging pipeline."""
     settings = get_settings()
+    _validate_pipeline(pipeline)
 
-    if pipeline == "clinical":
-        model_path = settings.artifacts_root / "model" / "clinical" / "model.pkl"
-        media_type = "application/octet-stream"
-    elif pipeline == "imaging":
-        model_path = settings.artifacts_root / "model" / "imaging" / "model.pth"
-        media_type = "application/octet-stream"
-    else:
-        raise HTTPException(
-            status_code=400, detail="pipeline must be 'clinical' or 'imaging'"
-        )
+    model_path = settings.artifacts_root / "model" / "imaging" / "model.pth"
+    media_type = "application/octet-stream"
 
     if not model_path.exists():
-        raise HTTPException(
-            status_code=404, detail=f"Model not found for pipeline: {pipeline}"
-        )
+        raise NotFoundException("Model", pipeline)
 
     return FileResponse(
         path=model_path,
@@ -52,19 +46,13 @@ async def download_model_metadata(
 ) -> dict:
     """Download model metadata (feature names, metrics, etc.) for a pipeline."""
     settings = get_settings()
-
-    if pipeline not in ["clinical", "imaging"]:
-        raise HTTPException(
-            status_code=400, detail="pipeline must be 'clinical' or 'imaging'"
-        )
+    _validate_pipeline(pipeline)
 
     metadata_dir = settings.artifacts_root / "model" / pipeline
     if not metadata_dir.exists():
-        raise HTTPException(
-            status_code=404, detail=f"Model metadata not found for: {pipeline}"
-        )
+        raise NotFoundException("Model metadata", pipeline)
 
-    result = {"pipeline": pipeline, "files": []}
+    result: dict = {"pipeline": pipeline, "files": []}
 
     for f in metadata_dir.glob("*"):
         if f.is_file() and f.suffix in [".json", ".pkl", ".pth"]:
@@ -82,13 +70,6 @@ async def download_model_metadata(
         with open(metrics_path) as f:
             result["metrics"] = json.load(f)
 
-    importance_path = metadata_dir / "feature_importance.json"
-    if importance_path.exists():
-        import json
-
-        with open(importance_path) as f:
-            result["feature_importance"] = json.load(f)
-
     return result
 
 
@@ -102,24 +83,20 @@ async def download_artifact(
     Only files with allowed extensions in the pipeline directory are served.
     """
     settings = get_settings()
-
-    if pipeline not in ["clinical", "imaging"]:
-        raise HTTPException(
-            status_code=400, detail="pipeline must be 'clinical' or 'imaging'"
-        )
+    _validate_pipeline(pipeline)
 
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_ARTIFACT_EXTENSIONS:
-        raise HTTPException(status_code=400, detail=f"File type '{suffix}' not allowed")
+        raise UnprocessableEntityException(f"File type '{suffix}' not allowed")
 
     file_path = (settings.artifacts_root / "model" / pipeline / filename).resolve()
     artifacts_dir = (settings.artifacts_root / "model" / pipeline).resolve()
 
     if not str(file_path).startswith(str(artifacts_dir)):
-        raise HTTPException(status_code=403, detail="Path traversal not allowed")
+        raise ForbiddenException("Path traversal not allowed")
 
     if not file_path.is_file():
-        raise HTTPException(status_code=404, detail=f"Artifact not found: {filename}")
+        raise NotFoundException("Artifact", filename)
 
     media_type = "image/png" if suffix == ".png" else "application/json"
     return FileResponse(
@@ -136,19 +113,13 @@ async def list_misclassified(
 ) -> dict:
     """List misclassified image filenames and count for a given split."""
     settings = get_settings()
-
-    if pipeline not in ["clinical", "imaging"]:
-        raise HTTPException(
-            status_code=400, detail="pipeline must be 'clinical' or 'imaging'"
-        )
+    _validate_pipeline(pipeline)
 
     misclassified_dir = (
         settings.artifacts_root / "model" / pipeline / "misclassified" / split
     )
     if not misclassified_dir.is_dir():
-        raise HTTPException(
-            status_code=404, detail=f"Misclassified split not found: {split}"
-        )
+        raise NotFoundException("Misclassified split", split)
 
     files = sorted(
         [
@@ -174,14 +145,10 @@ async def download_misclassified_image(
 ) -> FileResponse:
     """Serve a single misclassified image."""
     settings = get_settings()
-
-    if pipeline not in ["clinical", "imaging"]:
-        raise HTTPException(
-            status_code=400, detail="pipeline must be 'clinical' or 'imaging'"
-        )
+    _validate_pipeline(pipeline)
 
     if not filename.endswith(".png"):
-        raise HTTPException(status_code=400, detail="Only .png files are served")
+        raise UnprocessableEntityException("Only .png files are served")
 
     file_path = (
         settings.artifacts_root
@@ -196,10 +163,10 @@ async def download_misclassified_image(
     ).resolve()
 
     if not str(file_path).startswith(str(misclassified_dir)):
-        raise HTTPException(status_code=403, detail="Path traversal not allowed")
+        raise ForbiddenException("Path traversal not allowed")
 
     if not file_path.is_file():
-        raise HTTPException(status_code=404, detail=f"Image not found: {filename}")
+        raise NotFoundException("Image", filename)
 
     return FileResponse(
         path=file_path,

@@ -6,7 +6,7 @@ from loguru import logger
 from evidently import Report
 from evidently.presets import DataDriftPreset
 
-from app.services.monitoring.prometheus_metrics import (
+from app.monitoring.prometheus_metrics import (
     EVIDENTLY_DRIFT_DATASET_SHIFT,
     EVIDENTLY_DRIFT_FEATURES_DRIFTED,
 )
@@ -78,52 +78,6 @@ class EvidentlyReportGenerator:
         logger.info(f"imaging data drift report saved: {output_path}")
         return self._extract_drift_values(snapshot)
 
-    def clinical_data_drift(
-        self,
-        reference_csv: Path,
-        current_csv: Path,
-        output_path: Path,
-    ) -> dict:
-        logger.info("generating clinical data drift report")
-        reference = pd.read_csv(reference_csv)
-        current = pd.read_csv(current_csv)
-
-        report = Report([DataDriftPreset()])
-        snapshot = report.run(reference, current)
-        snapshot.save_html(str(output_path))
-        logger.info(f"clinical data drift report saved: {output_path}")
-        return self._extract_drift_values(snapshot)
-
-    def imaging_classification_performance(
-        self,
-        reference_csv: Path,
-        current_csv: Path,
-        output_path: Path,
-    ) -> None:
-        logger.info("generating imaging classification performance report")
-        reference = pd.read_csv(reference_csv)
-        current = pd.read_csv(current_csv)
-
-        report = Report([DataDriftPreset()])
-        result = report.run(reference, current)
-        result.save_html(str(output_path))
-        logger.info(f"imaging classification report saved: {output_path}")
-
-    def clinical_classification_performance(
-        self,
-        reference_csv: Path,
-        current_csv: Path,
-        output_path: Path,
-    ) -> None:
-        logger.info("generating clinical classification performance report")
-        reference = pd.read_csv(reference_csv)
-        current = pd.read_csv(current_csv)
-
-        report = Report([DataDriftPreset()])
-        result = report.run(reference, current)
-        result.save_html(str(output_path))
-        logger.info(f"clinical classification report saved: {output_path}")
-
     def domain_shift_report(
         self,
         eyepacs_csv: Path,
@@ -188,14 +142,7 @@ class EvidentlyReportGenerator:
 
             output_path = self.reports_dir / f"{pipeline}_evidently_drift_report.html"
 
-            if pipeline == "imaging":
-                metrics = self.imaging_data_drift(
-                    reference_csv, current_csv, output_path
-                )
-            else:
-                metrics = self.clinical_data_drift(
-                    reference_csv, current_csv, output_path
-                )
+            metrics = self.imaging_data_drift(reference_csv, current_csv, output_path)
 
             dataset_drift = self._safe_float(metrics, "DatasetDriftMetric")
             drifted_count = self._safe_int(metrics, "DriftedColumnsCount")
@@ -223,8 +170,6 @@ class EvidentlyReportGenerator:
         imaging_train_csv: Path,
         imaging_test_csv: Path,
         imaging_samaya_csv: Path,
-        clinical_train_csv: Path,
-        clinical_test_csv: Path,
     ) -> None:
         logger.info("=" * 60)
         logger.info("running all evidently reports")
@@ -234,12 +179,6 @@ class EvidentlyReportGenerator:
             reference_csv=imaging_train_csv,
             current_csv=imaging_test_csv,
             output_path=self.reports_dir / "imaging_drift_report.html",
-        )
-
-        self.clinical_data_drift(
-            reference_csv=clinical_train_csv,
-            current_csv=clinical_test_csv,
-            output_path=self.reports_dir / "clinical_drift_report.html",
         )
 
         if imaging_samaya_csv.exists():

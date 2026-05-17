@@ -12,6 +12,8 @@ from loguru import logger
 
 BACKEND_WS_URL = os.environ.get("BACKEND_WS_URL", "ws://localhost:8000/ws")
 BACKEND_API_KEY = os.environ.get("ML_SERVICE_API_KEY", "")
+MAX_RETRIES = 2
+INITIAL_BACKOFF = 0.5
 
 
 def _sanitize_json(obj: Any) -> Any:
@@ -27,15 +29,13 @@ def _sanitize_json(obj: Any) -> Any:
     return obj
 
 
-class WebSocketClient:
-    _instance: "WebSocketClient | None" = None
-
+class EventClient:
     def __init__(self) -> None:
         self._base_url = BACKEND_WS_URL.replace("ws://", "http://").replace("/ws", "")
 
     @classmethod
-    def get_instance(cls) -> "WebSocketClient":
-        if cls._instance is None:
+    def get_instance(cls) -> EventClient:
+        if not hasattr(cls, "_instance") or cls._instance is None:
             cls._instance = cls()
         return cls._instance
 
@@ -69,34 +69,48 @@ class WebSocketClient:
 
         room = f"training:{pipeline}"
         emit_url = f"{self._base_url}/emit"
+        headers = {"X-API-Key": BACKEND_API_KEY} if BACKEND_API_KEY else {}
 
+        success = await _send_with_retry(
+            emit_url,
+            {"event": "training_stage", "data": payload.get("data", {}), "room": room},
+            headers,
+        )
+        if success:
+            logger.debug(f"Sent training event: {stage} - {status} to room {room}")
+
+
+async def _send_with_retry(
+    url: str,
+    payload: dict[str, Any],
+    headers: dict[str, str] | None = None,
+    max_retries: int = MAX_RETRIES,
+) -> bool:
+    last_error: str | None = None
+    for attempt in range(max_retries):
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(
-                    emit_url,
-                    json={
-                        "event": "training_stage",
-                        "data": payload.get("data", {}),
-                        "room": room,
-                    },
-                    headers={"X-API-Key": BACKEND_API_KEY} if BACKEND_API_KEY else {},
-                )
+                response = await client.post(url, json=payload, headers=headers or {})
                 if response.status_code < 400:
-                    logger.debug(
-                        f"Sent training event: {stage} - {status} to room {room}"
-                    )
-                else:
-                    logger.warning(
-                        f"Failed to emit event: {response.status_code} {response.text}"
-                    )
+                    return True
+                last_error = f"HTTP {response.status_code}"
+                logger.warning(
+                    f"Attempt {attempt + 1}/{max_retries} failed: {last_error}"
+                )
         except Exception as e:
-            logger.warning(f"Failed to send training event: {e}")
+            last_error = str(e)
+            logger.warning(f"Attempt {attempt + 1}/{max_retries} failed: {e}")
+        if attempt < max_retries - 1:
+            backoff = INITIAL_BACKOFF * (2**attempt)
+            await asyncio.sleep(backoff)
+    logger.warning(f"All {max_retries} attempts failed. Last error: {last_error}")
+    return False
 
 
 @lru_cache(maxsize=1)
-def get_websocket_client() -> WebSocketClient:
-    """Get WebSocket client instance (cached singleton)."""
-    return WebSocketClient.get_instance()
+def get_event_client() -> EventClient:
+    """Get event client instance (cached singleton)."""
+    return EventClient.get_instance()
 
 
 async def send_prediction_event(
@@ -142,39 +156,85 @@ async def send_prediction_event(
     room = f"prediction:{patient_id}"
     emit_url = f"{BACKEND_WS_URL.replace('ws://', 'http://').replace('/ws', '')}/emit"
 
-    sanitized_payload = _sanitize_json(payload)
-    json_data = json.dumps(
-        {
-            "event": event_type,
-            "data": sanitized_payload,
-            "room": room,
-        },
-        allow_nan=False,
-    )
-
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                emit_url,
-                content=json_data,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-API-Key": BACKEND_API_KEY,
-                }
-                if BACKEND_API_KEY
-                else {"Content-Type": "application/json"},
-            )
-            if response.status_code < 400:
-                logger.debug(f"Sent prediction event: {event_type} for {prediction_id}")
-            else:
-                logger.warning(
-                    f"Failed to emit prediction event: {response.status_code}"
-                )
+        sanitized_payload = _sanitize_json(payload)
+        json_data = json.dumps(
+            {"event": event_type, "data": sanitized_payload, "room": room},
+            allow_nan=False,
+        )
     except (TypeError, ValueError) as e:
         logger.error(f"JSON serialization failed (NaN/Inf in payload): {e}")
         logger.debug(f"Payload keys: {list(payload.keys())}")
-    except Exception as e:
-        logger.warning(f"Failed to send prediction event: {e}")
+        return
+
+    headers: dict[str, str] = (
+        {"Content-Type": "application/json", "X-API-Key": BACKEND_API_KEY}
+        if BACKEND_API_KEY
+        else {"Content-Type": "application/json"}
+    )
+
+    success = await _send_with_retry(emit_url, json.loads(json_data), headers)
+    if success:
+        logger.debug(f"Sent prediction event: {event_type} for {prediction_id}")
+
+
+async def send_raw_event(
+    event: str,
+    data: dict[str, Any],
+    room: str = "notifications",
+) -> bool:
+    """Send a generic event to the backend WebSocket server.
+
+    Args:
+        event: Event name (e.g. "notification", "model.registered").
+        data: Payload to send.
+        room: WebSocket room to broadcast to.
+
+    Returns:
+        True if the event was sent successfully.
+    """
+    from datetime import datetime
+
+    if "timestamp" not in data:
+        data["timestamp"] = datetime.utcnow().isoformat()
+
+    emit_url = f"{BACKEND_WS_URL.replace('ws://', 'http://').replace('/ws', '')}/emit"
+
+    headers: dict[str, str] = (
+        {"Content-Type": "application/json", "X-API-Key": BACKEND_API_KEY}
+        if BACKEND_API_KEY
+        else {"Content-Type": "application/json"}
+    )
+
+    payload = {
+        "event": event,
+        "data": _sanitize_json(data),
+        "room": room,
+    }
+
+    success = await _send_with_retry(emit_url, payload, headers)
+    if success:
+        logger.debug(f"Sent event: {event} to room {room}")
+    return success
+
+
+async def send_notification(
+    title: str,
+    message: str,
+    notif_type: str = "general",
+    room: str = "notifications",
+) -> bool:
+    """Send a notification event to the backend for persistence + broadcast."""
+    return await send_raw_event(
+        event="notification",
+        data={
+            "id": "",
+            "type": notif_type,
+            "title": title,
+            "message": message,
+        },
+        room=room,
+    )
 
 
 async def send_prediction_log(
@@ -199,31 +259,24 @@ async def send_prediction_log(
     room = f"prediction:{patient_id}"
     emit_url = f"{BACKEND_WS_URL.replace('ws://', 'http://').replace('/ws', '')}/emit"
 
-    sanitized_payload = _sanitize_json(payload)
-    json_data = json.dumps(
-        {
-            "event": "prediction.log",
-            "data": sanitized_payload,
-            "room": room,
-        },
-        allow_nan=False,
-    )
-
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                emit_url,
-                content=json_data,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-API-Key": BACKEND_API_KEY,
-                }
-                if BACKEND_API_KEY
-                else {"Content-Type": "application/json"},
-            )
-            if response.status_code < 400:
-                logger.debug(f"Sent log: {step} - {status}")
+        sanitized_payload = _sanitize_json(payload)
     except (TypeError, ValueError) as e:
         logger.error(f"JSON serialization failed in send_prediction_log: {e}")
-    except Exception as e:
-        logger.warning(f"Failed to send prediction log: {e}")
+        return
+
+    headers: dict[str, str] = (
+        {"Content-Type": "application/json", "X-API-Key": BACKEND_API_KEY}
+        if BACKEND_API_KEY
+        else {"Content-Type": "application/json"}
+    )
+
+    emit_payload = {
+        "event": "prediction.log",
+        "data": sanitized_payload,
+        "room": room,
+    }
+
+    success = await _send_with_retry(emit_url, emit_payload, headers)
+    if success:
+        logger.debug(f"Sent log: {step} - {status}")

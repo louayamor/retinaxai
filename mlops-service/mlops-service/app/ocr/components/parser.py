@@ -1,6 +1,6 @@
 import re
 from loguru import logger
-from app.entity.ocr_schema import (
+from app.ocr.ocr_schema import (
     OCTReport, ReportMetadata, PatientInfo,
     RetinalThickness, ClinicalFindings,
 )

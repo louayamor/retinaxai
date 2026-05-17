@@ -3,7 +3,7 @@ from typing import Optional
 from datasets import load_from_disk, Dataset
 from loguru import logger
 
-from app.entity.config_entity import ImagingCleaningConfig
+from app.config.config_entity import ImagingCleaningConfig
 
 
 class ImagingDataCleaning:

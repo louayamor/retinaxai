@@ -9,17 +9,17 @@ from typing import Optional
 
 from loguru import logger
 
-from app.services.orchestration.training_service import create_job, run_pipeline_task
-from app.services.monitoring.drift_detection import DriftDetectionService, DriftStatus
-from app.services.monitoring.prometheus_metrics import (
+from app.training.orchestration.training_service import create_job, run_pipeline_task
+from app.monitoring.drift_detection import DriftDetectionService, DriftStatus
+from app.monitoring.prometheus_metrics import (
     AUTOMATION_SCHEDULER_RUNNING,
     DRIFT_DETECTED,
     DRIFT_PSI_SCORE,
     sanitize_label_value,
 )
-from app.services.platform.automation_history import AutomationHistory
-from app.services.registry.model_registry import ModelRegistryService
-from app.services.monitoring.evidently_report import EvidentlyReportGenerator
+from app.platform.automation_history import AutomationHistory
+from app.registry.model_registry import ModelRegistryService
+from app.monitoring.evidently_report import EvidentlyReportGenerator
 from app.config.settings import Settings
 
 
@@ -79,7 +79,7 @@ class AutomationService:
             if now - last_run < timedelta(hours=self._settings.retrain_cooldown_hours):
                 return
 
-        if not self._passes_gate("imaging") or not self._passes_gate("clinical"):
+        if not self._passes_gate():
             self._history.record(
                 "scheduled_retrain_skipped",
                 {"reason": "gate_failed"},
@@ -152,7 +152,7 @@ class AutomationService:
                     )
                     return {"status": "no_retraining", "psi": report.overall_psi}
 
-            if not self._passes_gate(pipeline):
+            if not self._passes_gate():
                 self._history.record(
                     "drift_retrain_skipped",
                     {
@@ -201,15 +201,11 @@ class AutomationService:
             "psi": report.overall_psi,
         }
 
-    def _passes_gate(self, pipeline: str) -> bool:
-        metric = (
-            self._settings.retrain_imaging_metric
-            if pipeline == "imaging"
-            else self._settings.retrain_clinical_metric
-        )
+    def _passes_gate(self) -> bool:
+        metric = self._settings.retrain_imaging_metric
         threshold = self._settings.retrain_min_improvement
 
-        current_metrics = self._registry.get_production_metrics(pipeline)
+        current_metrics = self._registry.get_production_metrics("imaging")
         current_value = float(current_metrics.get(metric, 0.0))
 
         history_file = (
@@ -221,14 +217,14 @@ class AutomationService:
         with open(history_file) as f:
             last_metrics = json.load(f)
 
-        new_value = float(last_metrics.get(pipeline, {}).get(metric, 0.0))
+        new_value = float(last_metrics.get("imaging", {}).get(metric, 0.0))
 
         if new_value - current_value >= threshold:
             return True
         self._history.record(
             "retrain_gate_failed",
             {
-                "pipeline": pipeline,
+                "pipeline": "imaging",
                 "metric": metric,
                 "current": current_value,
                 "new": new_value,

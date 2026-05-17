@@ -16,7 +16,7 @@ from datasets import load_from_disk
 from PIL import Image
 import numpy as np
 
-from app.domains.imaging.preprocessing import preprocess_fundus_image
+from app.training.preprocessing import preprocess_fundus_image
 from app.utils.common import read_yaml, set_seed
 from app.constants import PARAMS_FILE_PATH
 

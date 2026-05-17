@@ -42,7 +42,6 @@ class Settings(BaseSettings):
     max_training_jobs: int = 2
     max_training_jobs_per_pipeline: int = 1
     retrain_imaging_metric: str = "quadratic_weighted_kappa"
-    retrain_clinical_metric: str = "f1_score"
     retrain_min_improvement: float = 0.01
     retrain_cooldown_hours: int = 24
 
@@ -91,24 +90,8 @@ class Settings(BaseSettings):
         return self.artifacts_root / "model" / "imaging"
 
     @property
-    def clinical_artifacts_dir(self) -> Path:
-        return self.artifacts_root / "model" / "clinical"
-
-    @property
     def imaging_model_path(self) -> Path:
         return self.imaging_artifacts_dir / "model.pth"
-
-    @property
-    def clinical_model_path(self) -> Path:
-        return self.clinical_artifacts_dir / "model.pkl"
-
-    @property
-    def clinical_feature_importance_path(self) -> Path:
-        return self.clinical_artifacts_dir / "feature_importance.json"
-
-    @property
-    def clinical_features_path(self) -> Path:
-        return self.clinical_data_dir / "features.json"
 
     @property
     def evidently_metrics_path(self) -> Path:
@@ -119,16 +102,8 @@ class Settings(BaseSettings):
         return self.imaging_artifacts_dir / "metrics.json"
 
     @property
-    def clinical_metrics_path(self) -> Path:
-        return self.clinical_artifacts_dir / "metrics.json"
-
-    @property
     def imaging_data_dir(self) -> Path:
         return self.artifacts_root / "data" / "processed" / "imaging"
-
-    @property
-    def clinical_data_dir(self) -> Path:
-        return self.artifacts_root / "data" / "processed" / "clinical"
 
     @property
     def monitoring_dir(self) -> Path:
@@ -162,14 +137,6 @@ class Settings(BaseSettings):
     @property
     def imaging_samaya_csv(self) -> Path:
         return self.imaging_data_dir / "samaya.csv"
-
-    @property
-    def clinical_train_csv(self) -> Path:
-        return self.clinical_data_dir / "train.csv"
-
-    @property
-    def clinical_test_csv(self) -> Path:
-        return self.clinical_data_dir / "test.csv"
 
 
 settings = Settings()

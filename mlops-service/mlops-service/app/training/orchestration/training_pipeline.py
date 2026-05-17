@@ -2,25 +2,16 @@ from loguru import logger
 from pathlib import Path
 from app.constants import PARAMS_FILE_PATH
 from app.utils.common import read_yaml
-from app.domains.imaging.pipeline.stage_01_data_ingestion import run as imaging_ingest
-from app.domains.imaging.pipeline.stage_02_data_cleaning import run as imaging_clean
-from app.domains.imaging.pipeline.stage_03_data_transformation import (
+from app.training.pipeline.stage_01_data_ingestion import run as imaging_ingest
+from app.training.pipeline.stage_02_data_cleaning import run as imaging_clean
+from app.training.pipeline.stage_03_data_transformation import (
     run as imaging_transform,
 )
-from app.domains.imaging.pipeline.stage_04_model_trainer import run as imaging_train
-from app.domains.imaging.pipeline.stage_05_model_evaluation import (
+from app.training.pipeline.stage_04_model_trainer import run as imaging_train
+from app.training.pipeline.stage_05_model_evaluation import (
     run as imaging_evaluate,
 )
-from app.domains.clinical.pipeline.stage_01_data_ingestion import run as clinical_ingest
-from app.domains.clinical.pipeline.stage_02_data_cleaning import run as clinical_clean
-from app.domains.clinical.pipeline.stage_03_data_transformation import (
-    run as clinical_transform,
-)
-from app.domains.clinical.pipeline.stage_04_model_trainer import run as clinical_train
-from app.domains.clinical.pipeline.stage_05_model_evaluation import (
-    run as clinical_evaluate,
-)
-from app.services.registry.model_registry import ModelRegistryService
+from app.registry.model_registry import ModelRegistryService
 from app.config.settings import settings
 
 
@@ -63,15 +54,6 @@ class TrainingPipeline:
                         "roc_auc_macro", 0
                     ),
                     "macro_f1": metrics.get("eyepacs_test", {}).get("macro_f1", 0),
-                }
-            elif pipeline == "clinical":
-                model_metrics = {
-                    "accuracy": metrics.get("accuracy", 0),
-                    "quadratic_weighted_kappa": metrics.get(
-                        "quadratic_weighted_kappa", 0
-                    ),
-                    "roc_auc_macro": metrics.get("roc_auc_macro", 0),
-                    "macro_f1": metrics.get("macro_f1", 0),
                 }
 
             # Generate version if not provided
@@ -120,28 +102,6 @@ class TrainingPipeline:
         logger.info("=== imaging pipeline complete ===")
         return {"pipeline": "imaging", "metrics": metrics, "version": version}
 
-    def run_clinical(self) -> dict:
-        """Run clinical training pipeline."""
-        logger.info("=== clinical pipeline started ===")
-
-        clinical_ingest()
-        clinical_clean()
-        clinical_transform()
-        clinical_train()
-
-        # Get metrics from evaluation
-        metrics = clinical_evaluate()
-
-        # Register the trained model
-        model_path = settings.clinical_model_path
-        version = self._generate_version("clinical")
-        self._register_model(
-            pipeline="clinical", version=version, model_path=model_path, metrics=metrics
-        )
-
-        logger.info("=== clinical pipeline complete ===")
-        return {"pipeline": "clinical", "metrics": metrics, "version": version}
-
     def run_imaging_phase_based(self) -> dict:
         """Run imaging training (2-phase by default).
 
@@ -154,12 +114,5 @@ class TrainingPipeline:
         return self.run_imaging()
 
     def run(self) -> dict:
-        """Run unified training pipeline."""
-        logger.info("=== unified training pipeline started ===")
-
-        imaging_result = self.run_imaging()
-        clinical_result = self.run_clinical()
-
-        logger.info("=== unified training pipeline complete ===")
-
-        return {"imaging": imaging_result, "clinical": clinical_result}
+        """Run imaging training pipeline."""
+        return self.run_imaging()

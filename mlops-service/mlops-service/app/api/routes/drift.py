@@ -1,18 +1,20 @@
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from loguru import logger
 from pydantic import BaseModel
 
 from app.api.dependencies import get_settings
 from app.config.settings import Settings
-from app.services.monitoring.drift_detection import (
+from app.core.exceptions import MLOpsException
+from app.platform.event_client import send_raw_event
+from app.monitoring.drift_detection import (
     DRIFT_THRESHOLD_PSI,
     DriftDetectionService,
     DriftStatus,
 )
-from app.services.monitoring.prometheus_metrics import (
+from app.monitoring.prometheus_metrics import (
     DRIFT_DETECTED,
     DRIFT_PSI_SCORE,
     sanitize_label_value,
@@ -93,6 +95,18 @@ async def check_drift(
                 feature=sanitize_label_value(feature_result.feature_name),
             ).set(feature_result.psi)
 
+        if report.drift_detected:
+            await send_raw_event(
+                event="drift.detected",
+                data={
+                    "pipeline": request.pipeline,
+                    "overall_psi": report.overall_psi,
+                    "threshold": DRIFT_THRESHOLD_PSI,
+                    "status": report.status,
+                },
+                room="drift",
+            )
+
         return DriftCheckResponse(
             pipeline=report.pipeline,
             status=report.status,
@@ -105,7 +119,9 @@ async def check_drift(
 
     except Exception as e:
         logger.error(f"Drift check failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise MLOpsException(
+            status_code=500, detail=str(e), error_code="DRIFT_CHECK_ERROR"
+        )
 
 
 @router.get("/status/{pipeline}", response_model=DriftStatusResponse)

@@ -10,7 +10,7 @@ from typing import Optional
 from loguru import logger
 
 from app.api.schemas import ModelStage, ModelVersion
-from app.services.monitoring.prometheus_metrics import (
+from app.monitoring.prometheus_metrics import (
     MODEL_PROMOTIONS_TOTAL,
     MODEL_ROLLBACKS_TOTAL,
 )

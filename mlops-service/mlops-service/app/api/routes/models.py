@@ -2,7 +2,7 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from loguru import logger
 
@@ -18,7 +18,14 @@ from app.api.schemas import (
     CurrentProductionResponse,
 )
 from app.config.settings import Settings
-from app.services.registry.model_registry import (
+from app.core.exceptions import (
+    ConflictException,
+    MLOpsException,
+    NotFoundException,
+    UnprocessableEntityException,
+)
+from app.platform.event_client import send_raw_event
+from app.registry.model_registry import (
     ModelRegistryError,
     ModelNotFoundError,
     ModelRegistryService,
@@ -33,6 +40,25 @@ def get_registry_service(
     """Get model registry service instance."""
     registry_dir = settings.model_registry_dir
     return ModelRegistryService(registry_dir)
+
+
+def _validate_pipeline(pipeline: str) -> None:
+    if pipeline not in ["imaging"]:
+        raise UnprocessableEntityException("pipeline must be 'imaging'")
+
+
+def _handle_model_not_found(version: str) -> None:
+    """Convert ModelNotFoundError to NotFoundException. Call from except block."""
+    raise NotFoundException("Model version", version)
+
+
+def _handle_unexpected(context: str, exc: Exception) -> None:
+    logger.error(f"{context} failed: {exc}")
+    raise MLOpsException(
+        status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+        detail=f"{context} failed: {str(exc)}",
+        error_code=f"{context.upper().replace(' ', '_')}_ERROR",
+    )
 
 
 @router.post(
@@ -50,43 +76,18 @@ async def register_model_version(
     settings: Settings = Depends(get_settings),
     service: ModelRegistryService = Depends(get_registry_service),
 ) -> ModelRegisterResponse:
-    """Register a new model version in the registry.
-
-    The model is initially placed in the 'staging' stage and can be promoted
-    to production after validation.
-
-    Args:
-        version: Semantic version string (e.g., "v1.2.0")
-        pipeline: Pipeline type ("imaging" or "clinical")
-        source_path: Path to model artifact
-        metrics: Model performance metrics
-        metadata: Optional additional metadata
-
-    Returns:
-        Model registration response
-
-    Raises:
-        HTTPException: If registration fails
-    """
+    """Register a new model version in the registry."""
     logger.info(f"Registering model {version} for pipeline {pipeline}")
 
     try:
-        # Validate pipeline type
-        if pipeline not in ["imaging", "clinical"]:
-            raise HTTPException(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail="pipeline must be 'imaging' or 'clinical'",
-            )
+        _validate_pipeline(pipeline)
 
-        # Parse source path
         source_path_obj = Path(source_path)
         if not source_path_obj.exists():
-            raise HTTPException(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail=f"Source path does not exist: {source_path}",
+            raise UnprocessableEntityException(
+                f"Source path does not exist: {source_path}"
             )
 
-        # Register model version
         model_version = service.register_version(
             version=version,
             pipeline=pipeline,
@@ -97,6 +98,15 @@ async def register_model_version(
 
         logger.info(f"Successfully registered model {version}")
 
+        await send_raw_event(
+            event="model.registered",
+            data={
+                "version": version,
+                "pipeline": pipeline,
+            },
+            room="models",
+        )
+
         return ModelRegisterResponse(
             model=model_version,
             message=f"Model {version} registered successfully in staging",
@@ -105,13 +115,11 @@ async def register_model_version(
 
     except ModelRegistryError as e:
         logger.error(f"Registry error: {e}")
-        raise HTTPException(status_code=HTTPStatus.CONFLICT, detail=str(e))
+        raise ConflictException(str(e))
+    except UnprocessableEntityException:
+        raise
     except Exception as e:
-        logger.error(f"Unexpected error during registration: {e}")
-        raise HTTPException(
-            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            detail=f"Registration failed: {str(e)}",
-        )
+        _handle_unexpected("Registration", e)
 
 
 @router.post(
@@ -124,36 +132,29 @@ async def promote_model(
     reason: Optional[str] = None,
     service: ModelRegistryService = Depends(get_registry_service),
 ) -> ModelPromotionResponse:
-    """Promote a model version to production.
-
-    Automatically creates a backup of the current production model
-    and archives it before promoting the new version.
-
-    Args:
-        version: Version string to promote
-        reason: Optional reason for promotion
-
-    Returns:
-        Promotion response with details
-
-    Raises:
-        HTTPException: If promotion fails
-    """
+    """Promote a model version to production."""
     logger.info(f"Promoting model {version} to production")
 
     try:
-        # Get current production model for backup info
         model_version = service.get_version(version)
         current_production = service.get_current_production(model_version.pipeline)
 
         previous_version = current_production.version if current_production else None
 
-        # Promote model
         promoted = service.promote_version(
             version=version, target_stage=ModelStage.PRODUCTION, reason=reason
         )
 
         logger.info(f"Successfully promoted {version} to production")
+
+        await send_raw_event(
+            event="model.promoted",
+            data={
+                "version": version,
+                "previous_version": previous_version,
+            },
+            room="models",
+        )
 
         return ModelPromotionResponse(
             success=True,
@@ -163,15 +164,10 @@ async def promote_model(
             notes=f"Model {version} is now in production. Previous version has been archived.",
         )
 
-    except ModelNotFoundError as e:
-        logger.error(f"Model not found: {e}")
-        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(e))
+    except ModelNotFoundError:
+        _handle_model_not_found(version)
     except Exception as e:
-        logger.error(f"Promotion failed: {e}")
-        raise HTTPException(
-            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            detail=f"Promotion failed: {str(e)}",
-        )
+        _handle_unexpected("Promotion", e)
 
 
 @router.post(
@@ -184,34 +180,28 @@ async def rollback_model(
     request: ModelRollbackRequest,
     service: ModelRegistryService = Depends(get_registry_service),
 ) -> ModelPromotionResponse:
-    """Rollback to a previous model version.
-
-    Archives current production model and promotes the specified
-    version to production.
-
-    Args:
-        version: Version string to rollback to
-        request: Rollback request with reason
-
-    Returns:
-        Rollback response
-
-    Raises:
-        HTTPException: If rollback fails
-    """
+    """Rollback to a previous model version."""
     logger.info(f"Rolling back to model {version}")
 
     try:
-        # Get current production for rollback info
         rollout_version = service.get_version(version)
         current_production = service.get_current_production(rollout_version.pipeline)
 
         current_version = current_production.version if current_production else None
 
-        # Perform rollback
         rolled_back = service.rollback_version(version, request.reason)
 
         logger.info(f"Successfully rolled back to {version}")
+
+        await send_raw_event(
+            event="model.rolled_back",
+            data={
+                "version": version,
+                "previous_version": current_version,
+                "reason": request.reason,
+            },
+            room="models",
+        )
 
         return ModelPromotionResponse(
             success=True,
@@ -221,15 +211,10 @@ async def rollback_model(
             notes=f"Rolled back from {current_version} to {version}. Reason: {request.reason}",
         )
 
-    except ModelNotFoundError as e:
-        logger.error(f"Model not found: {e}")
-        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(e))
+    except ModelNotFoundError:
+        _handle_model_not_found(version)
     except Exception as e:
-        logger.error(f"Rollback failed: {e}")
-        raise HTTPException(
-            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            detail=f"Rollback failed: {str(e)}",
-        )
+        _handle_unexpected("Rollback", e)
 
 
 @router.get("/", response_model=ModelListResponse, summary="List all model versions")
@@ -238,22 +223,10 @@ async def list_models(
     stage: Optional[ModelStage] = None,
     service: ModelRegistryService = Depends(get_registry_service),
 ) -> ModelListResponse:
-    """List all model versions with optional filtering.
-
-    Args:
-        pipeline: Filter by pipeline ("imaging" or "clinical")
-        stage: Filter by lifecycle stage
-
-    Returns:
-        List of model versions with summary statistics
-    """
+    """List all model versions with optional filtering."""
     try:
-        # Validate pipeline filter
-        if pipeline and pipeline not in ["imaging", "clinical"]:
-            raise HTTPException(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail="pipeline must be 'imaging' or 'clinical'",
-            )
+        if pipeline:
+            _validate_pipeline(pipeline)
 
         models = service.list_versions(pipeline=pipeline, stage=stage)
 
@@ -268,11 +241,7 @@ async def list_models(
         )
 
     except Exception as e:
-        logger.error(f"Failed to list models: {e}")
-        raise HTTPException(
-            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list models: {str(e)}",
-        )
+        _handle_unexpected("Failed to list models", e)
 
 
 @router.get(
@@ -284,17 +253,7 @@ async def get_model(
     version: str,
     service: ModelRegistryService = Depends(get_registry_service),
 ) -> ModelDetailResponse:
-    """Get detailed information for a specific model version.
-
-    Args:
-        version: Version string
-
-    Returns:
-        Detailed version information
-
-    Raises:
-        HTTPException: If version not found
-    """
+    """Get detailed information for a specific model version."""
     try:
         model = service.get_version(version)
         current_production = (
@@ -313,15 +272,10 @@ async def get_model(
             promotion_history=promotion_history,
         )
 
-    except ModelNotFoundError as e:
-        logger.error(f"Model not found: {e}")
-        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(e))
+    except ModelNotFoundError:
+        _handle_model_not_found(version)
     except Exception as e:
-        logger.error(f"Failed to get model: {e}")
-        raise HTTPException(
-            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get model: {str(e)}",
-        )
+        _handle_unexpected("Failed to get model", e)
 
 
 @router.get(
@@ -332,27 +286,17 @@ async def get_model(
 async def get_current_production(
     service: ModelRegistryService = Depends(get_registry_service),
 ) -> CurrentProductionResponse:
-    """Get the currently deployed production models for each pipeline.
-
-    Returns:
-        Current production models for imaging and clinical pipelines
-    """
+    """Get the currently deployed production models for each pipeline."""
     try:
         imaging_model = service.get_current_production("imaging")
-        clinical_model = service.get_current_production("clinical")
 
         return CurrentProductionResponse(
             imaging=imaging_model,
-            clinical=clinical_model,
             promoted_at=(imaging_model.promoted_at if imaging_model else None),
         )
 
     except Exception as e:
-        logger.error(f"Failed to get production models: {e}")
-        raise HTTPException(
-            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get production models: {str(e)}",
-        )
+        _handle_unexpected("Failed to get production models", e)
 
 
 @router.post(
@@ -362,16 +306,7 @@ async def stage_model(
     version: str,
     service: ModelRegistryService = Depends(get_registry_service),
 ) -> JSONResponse:
-    """Re-stage an archived or production model back to staging.
-
-    Useful for testing or re-validation before re-promoting.
-
-    Args:
-        version: Model version to stage
-
-    Returns:
-        Success confirmation
-    """
+    """Re-stage an archived or production model back to staging."""
     try:
         service.promote_version(
             version, ModelStage.STAGING, reason="Re-staging for testing"
@@ -387,12 +322,7 @@ async def stage_model(
             },
         )
 
-    except ModelNotFoundError as e:
-        logger.error(f"Model not found: {e}")
-        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=str(e))
+    except ModelNotFoundError:
+        _handle_model_not_found(version)
     except Exception as e:
-        logger.error(f"Staging failed: {e}")
-        raise HTTPException(
-            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            detail=f"Staging failed: {str(e)}",
-        )
+        _handle_unexpected("Staging", e)
