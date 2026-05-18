@@ -35,4 +35,5 @@ python-socketio>=5.11.0
 httpx>=0.27.0
 plotly>=5.18.0
 nbformat>=4.2.0
-
+watchdog>=4.0.0
+redis>=5.0.0

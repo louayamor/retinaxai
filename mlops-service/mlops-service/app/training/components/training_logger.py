@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import signal
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -290,6 +291,20 @@ class TrainingLogger:
             logger.warning("best checkpoint missing; skipping mlflow model log")
             return
         logger.info(f"logging best model to mlflow: {checkpoint_path}")
+
+        timeout_seconds = int(
+            self._trainer.params.get("mlflow", {}).get("model_log_timeout_seconds", 600)
+        )
+
+        class _LogTimeout(Exception):
+            pass
+
+        def _timeout_handler(signum, frame):
+            raise _LogTimeout("model logging timed out")
+
+        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+        signal.alarm(timeout_seconds)
+
         try:
             _safe_mlflow(mlflow.log_param, "checkpoint_path", str(checkpoint_path))
             import timm
@@ -309,5 +324,10 @@ class TrainingLogger:
                 registered_model_name="efficientnet_b3",
             )
             logger.info("model logged to mlflow model registry")
+        except _LogTimeout:
+            logger.warning(f"mlflow model logging timed out after {timeout_seconds}s")
         except Exception as e:
             logger.warning(f"failed to log model to mlflow registry: {e}")
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)

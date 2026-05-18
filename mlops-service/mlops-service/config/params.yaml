@@ -12,7 +12,7 @@
 global:
   seed: 42
   num_classes: 5
-  image_size: 456
+  image_size: 300
   device: cuda
 
 # ── Data ──────────────────────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ augmentation:
 
 training:
   sampler_weight_cap: 8.0
-  class_weights: [1.0, 4.0, 2.5, 6.0, 8.0]
+  class_weights: [1.0, 7.0, 3.5, 9.0, 11.0]
   weighted_sampling: true
   use_class_weights_in_loss: true
   early_stopping_metric: qwk
@@ -60,10 +60,10 @@ training:
   weight_decay: 0.001
   scheduler: cosine
   lr_warmup_epochs: 2
-  batch_size: 3
-  num_workers: 4
+  batch_size: 16
+  num_workers: 8
   pin_memory: true
-  gradient_accumulation_steps: 11
+  gradient_accumulation_steps: 12
 
   phase1:
     epochs: 20
@@ -116,8 +116,8 @@ inference:
 
 evaluation:
   dl:
-    batch_size: 4
-    num_workers: 4
+    batch_size: 16
+    num_workers: 8
     metrics:
       - accuracy
       - quadratic_weighted_kappa

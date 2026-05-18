@@ -40,6 +40,15 @@ class PrometheusMetricsResponse(BaseModel):
     evidently_features_drifted_imaging: float | None = None
     inference_latency_p95: float | None = None
     gpu_utilization: float | None = None
+    gpu_memory_used_bytes: float | None = None
+    gpu_memory_total_bytes: float | None = None
+    cpu_utilization: float | None = None
+    memory_total_bytes: float | None = None
+    memory_available_bytes: float | None = None
+    disk_total_bytes: float | None = None
+    disk_free_bytes: float | None = None
+    network_receive_bytes_per_second: float | None = None
+    network_transmit_bytes_per_second: float | None = None
 
 
 @router.get("/prometheus", response_model=PrometheusMetricsResponse)
@@ -58,7 +67,16 @@ async def get_prometheus_metrics():
                 "evidently_dataset_shift_imaging": "retinaxai_evidently_dataset_shift{pipeline='imaging'}",
                 "evidently_features_drifted_imaging": "retinaxai_evidently_features_drifted{pipeline='imaging'}",
                 "inference_latency_p95": "histogram_quantile(0.95, sum(rate(retinaxai_inference_latency_seconds_bucket[5m])) by (le))",
-                "gpu_utilization": "retinaxai_gpu_utilization_percent",
+                "gpu_utilization": "avg(retinaxai_gpu_utilization_percent)",
+                "gpu_memory_used_bytes": "sum(retinaxai_gpu_memory_used_bytes)",
+                "gpu_memory_total_bytes": "sum(retinaxai_gpu_memory_total_bytes)",
+                "cpu_utilization": "100 - (avg by (instance)(rate(node_cpu_seconds_total{mode='idle'}[5m])) * 100)",
+                "memory_total_bytes": "node_memory_MemTotal_bytes",
+                "memory_available_bytes": "node_memory_MemAvailable_bytes",
+                "disk_total_bytes": "node_filesystem_size_bytes{mountpoint='/',fstype!~'tmpfs|overlay|squashfs'}",
+                "disk_free_bytes": "node_filesystem_free_bytes{mountpoint='/',fstype!~'tmpfs|overlay|squashfs'}",
+                "network_receive_bytes_per_second": "sum(rate(node_network_receive_bytes_total{device!~'lo'}[5m]))",
+                "network_transmit_bytes_per_second": "sum(rate(node_network_transmit_bytes_total{device!~'lo'}[5m]))",
             }
 
             results = {}

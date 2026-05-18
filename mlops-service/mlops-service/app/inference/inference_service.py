@@ -91,6 +91,12 @@ class InferenceService:
             phase1_cfg.get("dropout", training_cfg.get("dropout", 0.5))
         )
 
+        inference_cfg = self.params.get("inference", {}) or {}
+        self._confidence_threshold = float(
+            inference_cfg.get("confidence_threshold", 0.0)
+        )
+        self._apply_fda_inverse = bool(inference_cfg.get("apply_fda_inverse", False))
+
     def _get_current_production_model_path(self, pipeline: str) -> Optional[Path]:
         """Get current production model path from registry, or fall back to settings paths."""
         try:
@@ -221,9 +227,12 @@ class InferenceService:
             )
         )
 
+        low_confidence = confidence < self._confidence_threshold
         logger.info(
-            f"[IMAGING] {eye_side} eye: fundus={fundus_score:.3f} → "
-            f"DR grade={pred_class} ({DR_CLASSES[pred_class]}) conf={confidence:.4f}"
+            f"[IMAGING] {eye_side} eye: fundus={fundus_score:.3f} -> "
+            f"DR grade={pred_class} ({DR_CLASSES[pred_class]}) "
+            f"conf={confidence:.4f} "
+            f"{'LOW_CONFIDENCE' if low_confidence else ''}"
         )
 
         INFERENCE_LATENCY.labels(model="imaging").observe(time.time() - start)
@@ -245,4 +254,6 @@ class InferenceService:
             "regions": regions,
             "top_hotspots": top_hotspots,
             "fundus_score": fundus_score,
+            "confidence_threshold": self._confidence_threshold,
+            "low_confidence": low_confidence,
         }

@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     retrain_cooldown_hours: int = 24
 
     frontend_url: str = "http://localhost:3000"
+    redis_url: str = "redis://localhost:6379"
+    mlops_monitor_channel: str = "mlops.monitor"
 
     @property
     def data_dir(self) -> Path:

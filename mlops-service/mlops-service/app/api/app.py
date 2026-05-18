@@ -34,6 +34,7 @@ from app.monitoring.prometheus_metrics import (
     update_evaluation_metrics_from_files,
     start_evaluation_background_refresh,
 )
+from app.monitoring.mlops_monitor_publisher import MLOpsMonitorPublisher
 
 logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING)
 logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
@@ -79,7 +80,20 @@ async def lifespan(app: FastAPI):
         automation_service.start_scheduler(
             interval_hours=settings.automation_interval_hours
         )
+    monitor_publisher = MLOpsMonitorPublisher(
+        redis_url=settings.redis_url,
+        channel=settings.mlops_monitor_channel,
+    )
+    monitor_publisher.start(
+        watch_paths=[
+            settings.imaging_metrics_path,
+            settings.imaging_artifacts_dir / "training_summary.json",
+            settings.monitoring_dir / "drift" / "drift_history.json",
+            settings.evidently_metrics_path,
+        ]
+    )
     yield
+    await monitor_publisher.stop()
     logger.info("shutting down mlops service")
 
 

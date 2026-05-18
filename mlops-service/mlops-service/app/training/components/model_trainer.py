@@ -106,6 +106,9 @@ class ImagingModelTrainer:
         self._training_lr_warmup_epochs = int(training_cfg.get("lr_warmup_epochs", 0))
         self._training_label_smoothing = float(training_cfg.get("label_smoothing", 0.0))
         self._training_pin_memory = bool(training_cfg.get("pin_memory", True))
+        self._gradient_accumulation_steps = int(
+            training_cfg.get("gradient_accumulation_steps", 1)
+        )
 
         self.use_phase_based = phase in ("phase1", "phase2")
 
@@ -362,6 +365,25 @@ class ImagingModelTrainer:
         train_dataset = RetinalDataset(train_csv_path, train_tf)
         val_dataset = RetinalDataset(self.transformation_config.val_csv, val_tf)
 
+        data_cfg = self.params.get("data", {}) or {}
+        keep_no_dr_ratio = float(data_cfg.get("keep_no_dr_ratio", 1.0))
+        if keep_no_dr_ratio < 1.0:
+            df = train_dataset.df
+            class0_mask = df["label"] == 0
+            if class0_mask.any():
+                class0 = df[class0_mask]
+                n_orig = len(class0)
+                n_keep = max(1, int(n_orig * keep_no_dr_ratio))
+                kept_class0 = class0.sample(n=n_keep, random_state=self._global_seed)
+                non_class0 = df[~class0_mask]
+                train_dataset.df = pd.concat(
+                    [kept_class0, non_class0], ignore_index=True
+                )
+                logger.info(
+                    f"keep_no_dr_ratio={keep_no_dr_ratio}: class 0 {n_orig} -> {n_keep} "
+                    f"(dataset now {len(train_dataset)} samples)"
+                )
+
         training_cfg = self.params.get("training", {}) or {}
 
         use_weighted_sampling = training_cfg.get("weighted_sampling", False)
@@ -388,6 +410,8 @@ class ImagingModelTrainer:
             sampler=sampler,
             num_workers=self._training_num_workers,
             pin_memory=self._training_pin_memory,
+            prefetch_factor=4,
+            persistent_workers=self._training_num_workers > 0,
         )
         val_loader = DataLoader(
             val_dataset,
@@ -395,6 +419,8 @@ class ImagingModelTrainer:
             shuffle=False,
             num_workers=self._training_num_workers,
             pin_memory=self._training_pin_memory,
+            prefetch_factor=4,
+            persistent_workers=self._training_num_workers > 0,
         )
 
         model = self._build_model()
@@ -506,20 +532,26 @@ class ImagingModelTrainer:
                 f"for ordinal DR grading (preserves grade ordering)"
             )
 
-        best_val_qwk = -1.0
+        early_stopping_metric_name = training_cfg.get("early_stopping_metric", "qwk")
+        best_val = -1.0
         best_val_acc = 0.0
         best_epoch_idx = -1
         patience_counter = 0
         checkpoint_path = self.config.checkpoint_path
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
+        accum_steps = self._gradient_accumulation_steps
+        use_accum = accum_steps > 1
+        num_batches = len(train_loader)
+
         with TrainingLogger(self) as run_logger:
             for epoch in range(self.phase_epochs):
                 epoch_start = time.perf_counter()
                 model.train()
                 train_loss, train_total = 0.0, 0
+                optimizer.zero_grad()
 
-                for images, labels in train_loader:
+                for i, (images, labels) in enumerate(train_loader):
                     images, labels = images.to(self.device), labels.to(self.device)
 
                     if self._use_mixup:
@@ -529,40 +561,50 @@ class ImagingModelTrainer:
                         mixed_images = lam * images + (1.0 - lam) * images[index]
                         labels_a, labels_b = labels, labels[index]
 
-                        optimizer.zero_grad()
                         if scaler:
                             with torch.amp.autocast("cuda"):
                                 outputs = model(mixed_images)
                                 loss = lam * criterion(outputs, labels_a) + (
                                     1.0 - lam
                                 ) * criterion(outputs, labels_b)
-                            scaler.scale(loss).backward()
-                            scaler.unscale_(optimizer)
-                            torch.nn.utils.clip_grad_norm_(
-                                model.parameters(), max_norm=1.0
-                            )
-                            scaler.step(optimizer)
-                            scaler.update()
+                            scaler.scale(loss / accum_steps).backward()
                         else:
                             outputs = model(mixed_images)
                             loss = lam * criterion(outputs, labels_a) + (
                                 1.0 - lam
                             ) * criterion(outputs, labels_b)
-                            loss.backward()
-                            torch.nn.utils.clip_grad_norm_(
-                                model.parameters(), max_norm=1.0
-                            )
-                            optimizer.step()
+                            (loss / accum_steps).backward()
 
                         train_loss += loss.item() * images.size(0)
                         train_total += images.size(0)
                     else:
-                        optimizer.zero_grad()
                         if scaler:
                             with torch.amp.autocast("cuda"):
                                 outputs = model(images)
                                 loss = criterion(outputs, labels)
-                            scaler.scale(loss).backward()
+                            scaler.scale(loss / accum_steps).backward()
+                        else:
+                            outputs = model(images)
+                            loss = criterion(outputs, labels)
+                            (loss / accum_steps).backward()
+
+                        train_loss += loss.item() * images.size(0)
+                        train_total += images.size(0)
+
+                    if (i + 1) % 200 == 0:
+                        elapsed = time.perf_counter() - epoch_start
+                        lr_current = optimizer.param_groups[0]["lr"]
+                        avg_loss = train_loss / max(train_total, 1)
+                        logger.info(
+                            f"epoch {epoch + 1}/{self.phase_epochs} "
+                            f"batch {i + 1}/{num_batches} "
+                            f"loss={avg_loss:.4f} "
+                            f"lr={lr_current:.6f} "
+                            f"elapsed={elapsed:.1f}s"
+                        )
+
+                    if (i + 1) % accum_steps == 0:
+                        if scaler:
                             scaler.unscale_(optimizer)
                             torch.nn.utils.clip_grad_norm_(
                                 model.parameters(), max_norm=1.0
@@ -570,16 +612,22 @@ class ImagingModelTrainer:
                             scaler.step(optimizer)
                             scaler.update()
                         else:
-                            outputs = model(images)
-                            loss = criterion(outputs, labels)
-                            loss.backward()
                             torch.nn.utils.clip_grad_norm_(
                                 model.parameters(), max_norm=1.0
                             )
                             optimizer.step()
+                        optimizer.zero_grad()
 
-                        train_loss += loss.item() * images.size(0)
-                        train_total += images.size(0)
+                if use_accum and num_batches % accum_steps != 0:
+                    if scaler:
+                        scaler.unscale_(optimizer)
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                        optimizer.step()
+                    optimizer.zero_grad()
 
                 scheduler.step()
 
@@ -640,8 +688,9 @@ class ImagingModelTrainer:
                     f"duration={metrics.duration_s:.1f}s"
                 )
 
-                if metrics.qwk > best_val_qwk:
-                    best_val_qwk = metrics.qwk
+                current_val = getattr(metrics, early_stopping_metric_name)
+                if current_val > best_val:
+                    best_val = current_val
                     best_val_acc = metrics.val_acc
                     best_epoch_idx = epoch
                     patience_counter = 0
@@ -653,7 +702,9 @@ class ImagingModelTrainer:
                         ) from e
                     run_logger.mark_checkpoint(metrics.qwk, metrics.val_f1)
                     logger.info(
-                        f"checkpoint saved: qwk={metrics.qwk:.4f} f1={metrics.val_f1:.4f}"
+                        f"checkpoint saved: "
+                        f"{early_stopping_metric_name}={current_val:.4f} "
+                        f"qwk={metrics.qwk:.4f} f1={metrics.val_f1:.4f}"
                     )
                 else:
                     patience_counter += 1

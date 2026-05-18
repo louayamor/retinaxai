@@ -78,6 +78,9 @@ class ImagingModelEvaluation:
             phase1_cfg.get("dropout", training_cfg.get("dropout", 0.5))
         )
 
+        eval_dl_cfg = self.params.get("evaluation", {}).get("dl", {}) or {}
+        self._eval_enabled_metrics: set[str] = set(eval_dl_cfg.get("metrics", []))
+
     def _load_model(self) -> nn.Module:
         model_name = getattr(self.config, "model_name", "efficientnet_b3")
 
@@ -295,6 +298,10 @@ class ImagingModelEvaluation:
 
         model = self._load_model()
 
+        enabled_metrics = self._eval_enabled_metrics
+        if enabled_metrics:
+            logger.info(f"evaluation.dl.metrics enabled: {enabled_metrics}")
+
         self._fda_eval: FDAAugment | None = None
         fda_inverse = None
         fda_cfg = self.params.get("fda", {}) or {}
@@ -482,30 +489,40 @@ class ImagingModelEvaluation:
 
         run_suffix = f"_{int(time.time()) % 1000:03d}"
         with mlflow.start_run(run_name=self.config.run_name + "_eval" + run_suffix):
-            test_mlflow_metrics: dict[str, float] = {
-                "test_accuracy": test_metrics["accuracy"],
-                "test_qwk": test_metrics["quadratic_weighted_kappa"],
-                "test_auc": test_metrics["roc_auc_macro"] or 0.0,
-                "test_macro_f1": test_metrics["macro_f1"],
-                "test_precision_macro": test_metrics["precision_macro"],
-                "test_recall_macro": test_metrics["recall_macro"],
-            }
-            for grade_label, grade_vals in test_metrics[
-                "classification_report"
-            ].items():
-                maybe_digit = (
-                    grade_label if isinstance(grade_label, str) else str(grade_label)
-                )
-                if maybe_digit.isdigit():
-                    test_mlflow_metrics[f"test_class_{maybe_digit}_f1"] = grade_vals[
-                        "f1-score"
-                    ]
-                    test_mlflow_metrics[f"test_class_{maybe_digit}_precision"] = (
-                        grade_vals["precision"]
+            test_mlflow_metrics: dict[str, float] = {}
+            if not enabled_metrics or "accuracy" in enabled_metrics:
+                test_mlflow_metrics["test_accuracy"] = test_metrics["accuracy"]
+            if not enabled_metrics or "quadratic_weighted_kappa" in enabled_metrics:
+                test_mlflow_metrics["test_qwk"] = test_metrics[
+                    "quadratic_weighted_kappa"
+                ]
+            if not enabled_metrics or "roc_auc" in enabled_metrics:
+                test_mlflow_metrics["test_auc"] = test_metrics["roc_auc_macro"] or 0.0
+            if not enabled_metrics or "macro_f1" in enabled_metrics:
+                test_mlflow_metrics["test_macro_f1"] = test_metrics["macro_f1"]
+            if not enabled_metrics or "classification_report" in enabled_metrics:
+                test_mlflow_metrics["test_precision_macro"] = test_metrics[
+                    "precision_macro"
+                ]
+                test_mlflow_metrics["test_recall_macro"] = test_metrics["recall_macro"]
+                for grade_label, grade_vals in test_metrics[
+                    "classification_report"
+                ].items():
+                    maybe_digit = (
+                        grade_label
+                        if isinstance(grade_label, str)
+                        else str(grade_label)
                     )
-                    test_mlflow_metrics[f"test_class_{maybe_digit}_recall"] = (
-                        grade_vals["recall"]
-                    )
+                    if maybe_digit.isdigit():
+                        test_mlflow_metrics[f"test_class_{maybe_digit}_f1"] = (
+                            grade_vals["f1-score"]
+                        )
+                        test_mlflow_metrics[f"test_class_{maybe_digit}_precision"] = (
+                            grade_vals["precision"]
+                        )
+                        test_mlflow_metrics[f"test_class_{maybe_digit}_recall"] = (
+                            grade_vals["recall"]
+                        )
             mlflow.log_metrics(test_mlflow_metrics)
 
             cm_fig_path = (
@@ -534,32 +551,48 @@ class ImagingModelEvaluation:
                 logger.warning(f"Failed to save confusion matrix: {e}")
 
             if samaya_metrics:
-                samaya_mlflow_metrics: dict[str, float] = {
-                    "samaya_accuracy": samaya_metrics["accuracy"],
-                    "samaya_qwk": samaya_metrics["quadratic_weighted_kappa"],
-                    "samaya_auc": samaya_metrics["roc_auc_macro"] or 0.0,
-                    "samaya_macro_f1": samaya_metrics["macro_f1"],
-                    "samaya_precision_macro": samaya_metrics["precision_macro"],
-                    "samaya_recall_macro": samaya_metrics["recall_macro"],
-                }
-                for grade_label, grade_vals in samaya_metrics[
-                    "classification_report"
-                ].items():
-                    maybe_digit = (
-                        grade_label
-                        if isinstance(grade_label, str)
-                        else str(grade_label)
+                samaya_mlflow_metrics: dict[str, float] = {}
+                if not enabled_metrics or "accuracy" in enabled_metrics:
+                    samaya_mlflow_metrics["samaya_accuracy"] = samaya_metrics[
+                        "accuracy"
+                    ]
+                if not enabled_metrics or "quadratic_weighted_kappa" in enabled_metrics:
+                    samaya_mlflow_metrics["samaya_qwk"] = samaya_metrics[
+                        "quadratic_weighted_kappa"
+                    ]
+                if not enabled_metrics or "roc_auc" in enabled_metrics:
+                    samaya_mlflow_metrics["samaya_auc"] = (
+                        samaya_metrics["roc_auc_macro"] or 0.0
                     )
-                    if maybe_digit.isdigit():
-                        samaya_mlflow_metrics[f"samaya_class_{maybe_digit}_f1"] = (
-                            grade_vals["f1-score"]
+                if not enabled_metrics or "macro_f1" in enabled_metrics:
+                    samaya_mlflow_metrics["samaya_macro_f1"] = samaya_metrics[
+                        "macro_f1"
+                    ]
+                if not enabled_metrics or "classification_report" in enabled_metrics:
+                    samaya_mlflow_metrics["samaya_precision_macro"] = samaya_metrics[
+                        "precision_macro"
+                    ]
+                    samaya_mlflow_metrics["samaya_recall_macro"] = samaya_metrics[
+                        "recall_macro"
+                    ]
+                    for grade_label, grade_vals in samaya_metrics[
+                        "classification_report"
+                    ].items():
+                        maybe_digit = (
+                            grade_label
+                            if isinstance(grade_label, str)
+                            else str(grade_label)
                         )
-                        samaya_mlflow_metrics[
-                            f"samaya_class_{maybe_digit}_precision"
-                        ] = grade_vals["precision"]
-                        samaya_mlflow_metrics[f"samaya_class_{maybe_digit}_recall"] = (
-                            grade_vals["recall"]
-                        )
+                        if maybe_digit.isdigit():
+                            samaya_mlflow_metrics[f"samaya_class_{maybe_digit}_f1"] = (
+                                grade_vals["f1-score"]
+                            )
+                            samaya_mlflow_metrics[
+                                f"samaya_class_{maybe_digit}_precision"
+                            ] = grade_vals["precision"]
+                            samaya_mlflow_metrics[
+                                f"samaya_class_{maybe_digit}_recall"
+                            ] = grade_vals["recall"]
                 mlflow.log_metrics(samaya_mlflow_metrics)
 
                 for k, v in domain_shift_metrics.items():
