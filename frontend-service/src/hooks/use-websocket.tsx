@@ -1,7 +1,6 @@
 'use client';
 
 import { createContext, useContext, ReactNode, useEffect, useRef, useState, useCallback } from 'react';
-import { toast } from 'sonner';
 
 const WS_URL = (process.env.NEXT_PUBLIC_API_URL?.replace('http', 'ws') || 'ws://localhost:8000') + '/ws';
 
@@ -18,14 +17,22 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(false);
   const listenersRef = useRef<Map<string, Set<(data: unknown) => void>>>(new Map());
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const MAX_RECONNECT_ATTEMPTS = 15;
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
+
+    if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
+      console.log('[WS] Max reconnect attempts reached, giving up');
+      return;
+    }
     
     wsRef.current = new WebSocket(WS_URL);
     
     wsRef.current.onopen = () => {
       setConnected(true);
+      reconnectAttemptRef.current = 0;
       console.log('[WS] Connected');
       // Subscribe to training events
       wsRef.current?.send(JSON.stringify({
@@ -56,16 +63,23 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         event: 'subscribe',
         data: { room: 'xai:severity' }
       }));
+      wsRef.current?.send(JSON.stringify({
+        event: 'subscribe',
+        data: { room: 'mlops.monitor' }
+      }));
     };
     
     wsRef.current.onclose = () => {
       setConnected(false);
-      console.log('[WS] Disconnected, reconnecting in 3s...');
-      reconnectTimeoutRef.current = setTimeout(connect, 3000);
+      reconnectAttemptRef.current += 1;
+      const backoff = Math.min(2 ** reconnectAttemptRef.current, 30) * 1000;
+      console.log(`[WS] Disconnected, reconnecting in ${backoff / 1000}s (attempt ${reconnectAttemptRef.current}/${MAX_RECONNECT_ATTEMPTS})...`);
+      reconnectTimeoutRef.current = setTimeout(connect, backoff);
     };
     
     wsRef.current.onerror = () => {
       console.log('[WS] Connection error');
+      wsRef.current?.close();
     };
     
     wsRef.current.onmessage = (event) => {
@@ -74,28 +88,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         console.log('[WS] Message received:', message);
         const data = message.data || message;
         
-        if (message.event === 'prediction.completed') {
-          toast.success('Prediction Complete', {
-            description: `DR Grade: ${data.dr_grade}, Severity: ${data.overall_severity}`
-          });
-        } else if (message.event === 'prediction.failed') {
-          toast.error('Prediction Failed', { description: data.error });
-        } else if (message.event === 'training.pipeline') {
-          if (data.status === 'completed') {
-            toast.success('Training completed', { description: data.message });
-          } else if (data.status === 'failed') {
-            toast.error('Training failed', { description: data.message });
-          }
-        } else if (message.event?.startsWith('xai.')) {
-          if (data.status === 'completed') {
-            toast.success('XAI completed', { description: data.message });
-          } else if (data.status === 'failed') {
-            toast.error('XAI failed', { description: data.message });
-          }
-        } else if (message.event === 'notification') {
-          toast(data.message as string);
-        }
-
         const callbacks = listenersRef.current.get(message.event);
         if (callbacks) {
           callbacks.forEach(cb => cb(data));

@@ -112,6 +112,7 @@ export default function PatientProfilePage() {
   const [xaiData, setXaiData] = useState<Record<string, XAIResponse>>({});
   const [activeTab, setActiveTab] = useState<TabId>('scans');
   const [needsRefresh, setNeedsRefresh] = useState({ predictions: false, reports: false, xai: false });
+  const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const xaiFetchedIdsRef = useRef<Set<string>>(new Set());
   const xaiFetchInFlightRef = useRef<Set<string>>(new Set());
 
@@ -379,7 +380,11 @@ export default function PatientProfilePage() {
 
             {/* Identity card */}
             <div className="rounded-md border border-border bg-card overflow-hidden">
-              <div className="bg-[var(--sidebar)] px-4 py-5 flex flex-col items-center gap-3 border-b border-border">
+              <button
+                type="button"
+                onClick={() => setSidebarExpanded(!sidebarExpanded)}
+                className="w-full bg-[var(--sidebar)] px-4 py-5 flex flex-col items-center gap-3 border-b border-border hover:brightness-95 transition-all"
+              >
                 <Avatar className="h-16 w-16 ring-2 ring-[var(--brand-teal)]/30">
                   <AvatarFallback
                     className="text-xl font-semibold text-white"
@@ -400,70 +405,84 @@ export default function PatientProfilePage() {
                     {patient.gender === 'M' ? 'Male' : 'Female'} · {patient.age} yrs
                   </p>
                 </div>
-              </div>
+                {latestGradeMeta && (
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded border ${latestGradeMeta.bg} ${latestGradeMeta.border} ${latestGradeMeta.color}`}>
+                    {latestGradeMeta.label}
+                  </span>
+                )}
+                <span className="text-[11px] text-muted-foreground/60">
+                  {sidebarExpanded ? 'Show less' : 'Show details'}
+                </span>
+              </button>
 
-              <div className="divide-y divide-border">
-                <DataRow icon={Hash} label="MRN" value={patient.medical_record_number} mono />
-                <DataRow icon={Phone} label="Phone" value={patient.phone || '—'} />
-                <DataRow
-                  icon={Calendar}
-                  label="Registered"
-                  value={new Date(patient.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                />
-              </div>
+              {sidebarExpanded && (
+                <div className="divide-y divide-border">
+                  <DataRow icon={Hash} label="MRN" value={patient.medical_record_number} mono />
+                  <DataRow icon={Phone} label="Phone" value={patient.phone || '—'} />
+                  <DataRow
+                    icon={Calendar}
+                    label="Registered"
+                    value={new Date(patient.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  />
+                </div>
+              )}
             </div>
 
-            {/* Latest DR status */}
-            {latestPrediction && (
-              <div className="rounded-md border border-border bg-card overflow-hidden">
-                <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
-                  <Activity className="h-3.5 w-3.5 text-[var(--brand-teal)]" />
-                  <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Latest DR</span>
-                </div>
-                <div className="p-3 flex flex-col gap-3">
-                  {latestGradeMeta && (
-                    <div className={`rounded border px-3 py-2 ${latestGradeMeta.bg} ${latestGradeMeta.border}`}>
-                      <p className="text-xs text-muted-foreground mb-0.5">Grade</p>
-                      <p className={`text-base font-bold ${latestGradeMeta.color}`}>{latestGradeMeta.label}</p>
+            {sidebarExpanded && (
+              <>
+                {/* Latest DR status */}
+                {latestPrediction && (
+                  <div className="rounded-md border border-border bg-card overflow-hidden">
+                    <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
+                      <Activity className="h-3.5 w-3.5 text-[var(--brand-teal)]" />
+                      <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Latest DR</span>
                     </div>
-                  )}
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Confidence</p>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-[var(--brand-teal)]"
-                          style={{ width: `${(latestPrediction.confidence_score ?? 0) * 100}%` }}
-                        />
+                    <div className="p-3 flex flex-col gap-3">
+                      {latestGradeMeta && (
+                        <div className={`rounded border px-3 py-2 ${latestGradeMeta.bg} ${latestGradeMeta.border}`}>
+                          <p className="text-xs text-muted-foreground mb-0.5">Grade</p>
+                          <p className={`text-base font-bold ${latestGradeMeta.color}`}>{latestGradeMeta.label}</p>
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Confidence</p>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-[var(--brand-teal)]"
+                              style={{ width: `${(latestPrediction.confidence_score ?? 0) * 100}%` }}
+                            />
+                          </div>
+                          <span className="text-xs font-mono font-medium">
+                            {latestPrediction.confidence_score ? `${(latestPrediction.confidence_score * 100).toFixed(1)}%` : '—'}
+                          </span>
+                        </div>
                       </div>
-                      <span className="text-xs font-mono font-medium">
-                        {latestPrediction.confidence_score ? `${(latestPrediction.confidence_score * 100).toFixed(1)}%` : '—'}
-                      </span>
+                      {latestSeverity && (
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-0.5">Severity</p>
+                          <p className="text-sm font-semibold capitalize">{latestSeverity}</p>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  {latestSeverity && (
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-0.5">Severity</p>
-                      <p className="text-sm font-semibold capitalize">{latestSeverity}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+                )}
 
-            {/* Summary stats */}
-            <div className="rounded-md border border-border bg-card overflow-hidden">
-              <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
-                <Layers className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Summary</span>
-              </div>
-              <div className="grid grid-cols-2 divide-x divide-y divide-border">
-                <StatCell label="Retinal Images" value={scans.length} accent="teal" />
-                <StatCell label="Predictions" value={predictions.length} accent="gold" />
-                <StatCell label="Reports" value={reports.length} accent="blue" />
-                <StatCell label="XAI" value={successPredictions.length} accent="purple" />
-              </div>
-            </div>
+                {/* Summary stats */}
+                <div className="rounded-md border border-border bg-card overflow-hidden">
+                  <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
+                    <Layers className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Summary</span>
+                  </div>
+                  <div className="grid grid-cols-2 divide-x divide-y divide-border">
+                    <StatCell label="Retinal Images" value={scans.length} accent="teal" />
+                    <StatCell label="Predictions" value={predictions.length} accent="gold" />
+                    <StatCell label="Reports" value={reports.length} accent="blue" />
+                    <StatCell label="XAI" value={successPredictions.length} accent="purple" />
+                  </div>
+                </div>
+              </>
+            )}
           </aside>
 
           {/* RIGHT COLUMN — Tabbed clinical content */}
@@ -522,7 +541,7 @@ export default function PatientProfilePage() {
                               <span className="text-xs font-mono font-medium">{scan.id.slice(0, 12).toUpperCase()}</span>
                             </div>
                             <span className="text-xs text-muted-foreground">
-                              {new Date((scan as unknown as Record<string, string>).scanned_at || scan.uploaded_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              {new Date(scan.scanned_at || scan.uploaded_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </span>
                           </div>
                           <div className="p-4 grid grid-cols-2 gap-3">

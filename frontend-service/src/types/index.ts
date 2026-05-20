@@ -70,6 +70,8 @@ export interface MRIScan {
   patient_id: string;
   left_scan_path: string;
   right_scan_path: string;
+  scanned_at: string;
+  created_at: string;
   uploaded_at: string;
 }
 

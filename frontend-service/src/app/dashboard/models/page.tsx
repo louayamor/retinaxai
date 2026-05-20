@@ -125,6 +125,45 @@ function formatVal(v: number): string {
   return v.toFixed(4);
 }
 
+/**
+ * Normalize training errors into a user-friendly summary.
+ */
+function formatTrainingError(error: string | null | undefined): {
+  title: string;
+  summary: string;
+  hint?: string;
+  details?: string;
+} | null {
+  if (!error) return null;
+  const text = String(error).trim();
+  if (!text) return null;
+
+  if (/cuda out of memory/i.test(text)) {
+    return {
+      title: 'GPU out of memory',
+      summary: 'Training ran out of GPU memory during this run.',
+      hint:
+        'Try lowering batch size or gradient accumulation, or stop other GPU processes.',
+      details: text,
+    };
+  }
+
+  if (/connection|timeout|network/i.test(text)) {
+    return {
+      title: 'Network issue',
+      summary: 'The training service could not reach a required dependency.',
+      hint: 'Check MLOps/LLMOps services and network connectivity.',
+      details: text,
+    };
+  }
+
+  return {
+    title: 'Training failed',
+    summary: text.length > 160 ? `${text.slice(0, 160)}…` : text,
+    details: text,
+  };
+}
+
 function MetricCard({
   label,
   value,
@@ -393,6 +432,287 @@ function TrainingHistoryPanel({
   );
 }
 
+type MetricKey = 'qwk' | 'macro_f1' | 'roc_auc' | 'per_class_recall';
+
+const METRIC_OPTIONS: { value: MetricKey; label: string }[] = [
+  { value: 'qwk', label: 'QWK' },
+  { value: 'macro_f1', label: 'Macro F1' },
+  { value: 'roc_auc', label: 'ROC-AUC' },
+  { value: 'per_class_recall', label: 'Per-Class Recall' },
+];
+
+function fmt(v: number): string {
+  return (v * 100).toFixed(1) + '%';
+}
+
+function MetricsComparisonChart({
+  eyepacsMetrics,
+  samayaMetrics,
+}: {
+  eyepacsMetrics: SplitMetrics | undefined;
+  samayaMetrics: SplitMetrics | undefined;
+}) {
+  const [metric, setMetric] = useState<MetricKey>('qwk');
+
+  const bars: { label: string; value: number; color: string }[] = [];
+
+  if (metric === 'per_class_recall') {
+    for (let g = 0; g < 5; g++) {
+      const key = `class_${g}_recall` as keyof SplitMetrics;
+      const ev = eyepacsMetrics?.[key] as number | undefined;
+      const sv = samayaMetrics?.[key] as number | undefined;
+      if (ev != null) bars.push({ label: `EyePACS G${g}`, value: ev, color: 'var(--brand-teal)' });
+      if (sv != null) bars.push({ label: `Samaya  G${g}`, value: sv, color: '#E89020' });
+    }
+  } else {
+    const vals: [string, number | undefined, string][] = [];
+    if (eyepacsMetrics) {
+      const v = metric === 'qwk' ? eyepacsMetrics.quadratic_weighted_kappa
+        : metric === 'macro_f1' ? eyepacsMetrics.macro_f1
+        : eyepacsMetrics.roc_auc_macro;
+      vals.push(['EyePACS Test', v, 'var(--brand-teal)']);
+    }
+    if (samayaMetrics) {
+      const v = metric === 'qwk' ? samayaMetrics.quadratic_weighted_kappa
+        : metric === 'macro_f1' ? samayaMetrics.macro_f1
+        : samayaMetrics.roc_auc_macro;
+      vals.push(['Samaya Validation', v, '#E89020']);
+    }
+    for (const [label, value, color] of vals) {
+      if (value != null) bars.push({ label, value, color });
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <BarChart3 className="h-4 w-4 text-[var(--brand-teal)]" />
+            Metrics Comparison
+          </CardTitle>
+          <select
+            value={metric}
+            onChange={(e) => setMetric(e.target.value as MetricKey)}
+            className="text-xs rounded border bg-background px-2 py-1 focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            {METRIC_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+        <CardDescription className="text-xs">
+          {metric === 'per_class_recall'
+            ? 'Recall per DR grade across datasets'
+            : `${METRIC_OPTIONS.find((o) => o.value === metric)?.label} across datasets`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {bars.length === 0 && (
+          <p className="text-sm text-muted-foreground">No metrics available.</p>
+        )}
+        {bars.map((b) => (
+          <div key={b.label} className="space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">{b.label}</span>
+              <span className="font-mono tabular-nums font-medium">{fmt(b.value)}</span>
+            </div>
+            <div className="h-2.5 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{ width: `${Math.min(b.value * 100, 100)}%`, backgroundColor: b.color }}
+              />
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PerClassMetricsGrid({
+  eyepacsMetrics,
+  samayaMetrics,
+}: {
+  eyepacsMetrics: SplitMetrics | undefined;
+  samayaMetrics: SplitMetrics | undefined;
+}) {
+  const rows: { grade: number; label: string; ep: { precision: number; recall: number; f1: number } | null; sv: { precision: number; recall: number; f1: number } | null }[] = [];
+  for (let g = 0; g < 5; g++) {
+    rows.push({
+      grade: g,
+      label: DR_LABELS[g],
+      ep: eyepacsMetrics ? {
+        precision: eyepacsMetrics[`class_${g}_precision` as keyof SplitMetrics] as number,
+        recall: eyepacsMetrics[`class_${g}_recall` as keyof SplitMetrics] as number,
+        f1: eyepacsMetrics[`class_${g}_f1` as keyof SplitMetrics] as number,
+      } : null,
+      sv: samayaMetrics ? {
+        precision: samayaMetrics[`class_${g}_precision` as keyof SplitMetrics] as number,
+        recall: samayaMetrics[`class_${g}_recall` as keyof SplitMetrics] as number,
+        f1: samayaMetrics[`class_${g}_f1` as keyof SplitMetrics] as number,
+      } : null,
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <Layers className="h-4 w-4 text-[var(--brand-teal)]" />
+          Per-Class Metrics
+        </CardTitle>
+        <CardDescription className="text-xs">Precision / Recall / F1 by DR grade</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b text-muted-foreground">
+                <th className="text-left py-1.5 pr-2 font-medium">Grade</th>
+                <th className="text-right px-1 font-medium" colSpan={3}>EyePACS</th>
+                <th className="text-right px-1 font-medium" colSpan={3}>Samaya</th>
+              </tr>
+              <tr className="border-b text-muted-foreground/70">
+                <th />
+                <th className="text-right px-1 font-medium text-[10px]">P</th>
+                <th className="text-right px-1 font-medium text-[10px]">R</th>
+                <th className="text-right px-1 font-medium text-[10px]">F1</th>
+                <th className="text-right px-1 font-medium text-[10px]">P</th>
+                <th className="text-right px-1 font-medium text-[10px]">R</th>
+                <th className="text-right px-1 font-medium text-[10px]">F1</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.grade} className="border-b last:border-0">
+                  <td className="py-2 pr-2 font-medium">{r.label}</td>
+                  <td className="text-right px-1 py-2 tabular-nums">{r.ep ? fmt(r.ep.precision) : '—'}</td>
+                  <td className="text-right px-1 py-2 tabular-nums">{r.ep ? fmt(r.ep.recall) : '—'}</td>
+                  <td className="text-right px-1 py-2 tabular-nums">{r.ep ? fmt(r.ep.f1) : '—'}</td>
+                  <td className="text-right px-1 py-2 tabular-nums">{r.sv ? fmt(r.sv.precision) : '—'}</td>
+                  <td className="text-right px-1 py-2 tabular-nums">{r.sv ? fmt(r.sv.recall) : '—'}</td>
+                  <td className="text-right px-1 py-2 tabular-nums">{r.sv ? fmt(r.sv.f1) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ModelHealthCard({
+  domainShift,
+  trainingSummary,
+}: {
+  domainShift: { confidence_ece: number; embedding_mmd: number } | undefined;
+  trainingSummary: Record<string, unknown> | undefined;
+}) {
+  const epochLog = (trainingSummary?.epoch_log ?? []) as Array<Record<string, unknown>>;
+  const bestEpoch = trainingSummary?.best_epoch as number | undefined;
+  const bestValQwk = trainingSummary?.best_val_qwk as number | undefined;
+  const bestValAcc = trainingSummary?.best_val_acc as number | undefined;
+  const bestValMae = trainingSummary?.best_val_mae as number | undefined;
+  const maxQwk = epochLog.length > 0
+    ? Math.max(...epochLog.map((e) => e.val_qwk as number))
+    : 1;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <Activity className="h-4 w-4 text-[var(--brand-teal)]" />
+          Model Health
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Domain shift and training trajectory
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {domainShift && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Domain Shift</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded border bg-muted/30 p-2">
+                <p className="text-[10px] text-muted-foreground">ECE</p>
+                <p className="text-sm font-mono font-semibold">{(domainShift.confidence_ece * 100).toFixed(1)}%</p>
+                <div className="h-1.5 w-full rounded-full bg-muted mt-1 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-amber-500"
+                    style={{ width: `${Math.min(domainShift.confidence_ece * 100, 100)}%` }}
+                  />
+                </div>
+              </div>
+              <div className="rounded border bg-muted/30 p-2">
+                <p className="text-[10px] text-muted-foreground">MMD</p>
+                <p className="text-sm font-mono font-semibold">{domainShift.embedding_mmd.toFixed(4)}</p>
+                <div className="h-1.5 w-full rounded-full bg-muted mt-1 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-blue-500"
+                    style={{ width: `${Math.min(domainShift.embedding_mmd * 100, 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {epochLog.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">QWK over epochs</p>
+            <div className="flex items-end gap-[2px] h-12">
+              {epochLog.map((ep, i) => {
+                const q = ep.val_qwk as number;
+                const height = maxQwk > 0 ? (q / maxQwk) * 100 : 0;
+                return (
+                  <div
+                    key={i}
+                    className="flex-1 rounded-t transition-all hover:opacity-80"
+                    style={{
+                      height: `${Math.max(height, 5)}%`,
+                      backgroundColor: (ep.epoch as number) === bestEpoch
+                        ? 'var(--brand-teal)'
+                        : 'hsl(var(--primary) / 0.4)',
+                    }}
+                    title={`Epoch ${ep.epoch}: QWK=${(q * 100).toFixed(1)}%`}
+                  />
+                );
+              })}
+            </div>
+            <div className="flex justify-between text-[10px] text-muted-foreground">
+              <span>Epoch 1</span>
+              <span>Epoch {epochLog.length}</span>
+            </div>
+          </div>
+        )}
+
+        {bestEpoch != null && (
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className="rounded border bg-muted/30 p-2 text-center">
+              <p className="text-[10px] text-muted-foreground">Best Epoch</p>
+              <p className="font-semibold">#{bestEpoch}</p>
+            </div>
+            <div className="rounded border bg-muted/30 p-2 text-center">
+              <p className="text-[10px] text-muted-foreground">Best QWK</p>
+              <p className="font-semibold tabular-nums">{bestValQwk != null ? (bestValQwk * 100).toFixed(1) + '%' : '—'}</p>
+            </div>
+            <div className="rounded border bg-muted/30 p-2 text-center">
+              <p className="text-[10px] text-muted-foreground">Best MAE</p>
+              <p className="font-semibold tabular-nums">{bestValMae != null ? bestValMae.toFixed(4) : '—'}</p>
+            </div>
+          </div>
+        )}
+
+        {!domainShift && !trainingSummary && (
+          <p className="text-sm text-muted-foreground">No health or training data available.</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function ModelsPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
@@ -409,6 +729,7 @@ export default function ModelsPage() {
   } | null>(null);
 
   const { connected, subscribe } = useWebSocket();
+  const formattedTrainingError = formatTrainingError(jobStatus?.error);
 
   useEffect(() => {
     const unsubStage = subscribe('training_stage', (data: unknown) => {
@@ -432,6 +753,16 @@ export default function ModelsPage() {
     return () => {
       unsubStage();
     };
+  }, [subscribe]);
+
+  // Live refresh on model registry events
+  useEffect(() => {
+    const unsubs = [
+      subscribe('model.registered', () => { void fetchMetrics(); void fetchStatus(); }),
+      subscribe('model.promoted', () => { void fetchMetrics(); void fetchStatus(); }),
+      subscribe('model.rolled_back', () => { void fetchMetrics(); void fetchStatus(); }),
+    ];
+    return () => unsubs.forEach(u => u());
   }, [subscribe]);
 
   const fetchMetrics = async () => {
@@ -484,7 +815,6 @@ export default function ModelsPage() {
     paused: analyticsPaused,
     refresh: refreshAnalytics,
     retrySection: retryAnalyticsSection,
-    containerRef: analyticsContainerRef,
   } = useLazyAnalytics();
 
   const isTraining = jobStatus?.status === 'running' || jobStatus?.status === 'pending';
@@ -500,7 +830,7 @@ export default function ModelsPage() {
     </span>
   ) : null;
 
-  const triggerTraining = async (pipeline: 'imaging' | 'clinical') => {
+  const triggerTraining = async (pipeline: 'imaging') => {
     setTraining(pipeline);
     try {
       const data = await startMLOpsTraining(pipeline);
@@ -583,18 +913,6 @@ export default function ModelsPage() {
               )}
               Train Imaging
             </Button>
-            <Button
-              onClick={() => void triggerTraining('clinical')}
-              disabled={isTraining || training === 'clinical'}
-              variant="outline"
-            >
-              {training === 'clinical' ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Play className="mr-2 h-4 w-4" />
-              )}
-              Train Clinical
-            </Button>
             {isTraining && (
               <Button onClick={stopTraining} variant="destructive" size="sm">
                 <Square className="mr-2 h-4 w-4" />
@@ -624,8 +942,29 @@ export default function ModelsPage() {
               />
             </div>
           )}
-          {jobStatus?.error && (
-            <p className="text-sm text-destructive mt-4">{jobStatus.error}</p>
+          {formattedTrainingError && (
+            <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-destructive">
+                <AlertTriangle className="h-4 w-4" />
+                {formattedTrainingError.title}
+              </div>
+              <p className="mt-1 text-sm text-destructive/90">
+                {formattedTrainingError.summary}
+              </p>
+              {formattedTrainingError.hint && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {formattedTrainingError.hint}
+                </p>
+              )}
+              {formattedTrainingError.details && (
+                <details className="mt-2 text-xs text-muted-foreground">
+                  <summary className="cursor-pointer">Show error details</summary>
+                  <pre className="mt-2 whitespace-pre-wrap break-words rounded bg-muted/60 p-2 text-[11px]">
+                    {formattedTrainingError.details}
+                  </pre>
+                </details>
+              )}
+            </div>
           )}
         </div>
 
@@ -759,7 +1098,7 @@ export default function ModelsPage() {
         <div className="flex items-center gap-3">
           <h3 className="font-semibold text-sm flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-[var(--brand-teal)]" />
-            AI Model Analytics
+            Model Analytics
           </h3>
           {analyticsMetadata}
         </div>
@@ -769,36 +1108,48 @@ export default function ModelsPage() {
         </Button>
       </div>
 
-      {analyticsOnline === false ? (
-        <Card className="border-destructive/30">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <WifiOff className="h-4 w-4 text-destructive" />
-              Analytics Engine Unavailable
-            </CardTitle>
-            <CardDescription className="text-xs text-muted-foreground">
-              Start the LLMOps service to load AI model analytics.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button variant="outline" size="sm" onClick={refreshAnalytics}>
-              <RefreshCw className="mr-1.5 h-3 w-3" />
-              Retry
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div ref={analyticsContainerRef} className="grid gap-4 lg:grid-cols-2">
-          {analyticsSections.map((section) => (
-            <div key={section.key} data-analytics-card={section.key}>
-              <AnalyticsSectionCard
-                section={section}
-                onRetry={() => retryAnalyticsSection(section.key)}
-              />
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {analyticsOnline !== false && analyticsSections.map((section) => (
+          <div key={section.key} data-analytics-card={section.key}>
+            <AnalyticsSectionCard
+              section={section}
+              onRetry={() => retryAnalyticsSection(section.key)}
+            />
+          </div>
+        ))}
+        {analyticsOnline === false && (
+          <Card className="border-destructive/30">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <WifiOff className="h-4 w-4 text-destructive" />
+                AI Analytics Unavailable
+              </CardTitle>
+              <CardDescription className="text-xs text-muted-foreground">
+                LLMOps service offline.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="outline" size="sm" onClick={refreshAnalytics}>
+                <RefreshCw className="mr-1.5 h-3 w-3" />
+                Retry
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        <MetricsComparisonChart
+          eyepacsMetrics={eyepacsMetrics}
+          samayaMetrics={samayaMetrics}
+        />
+        <PerClassMetricsGrid
+          eyepacsMetrics={eyepacsMetrics}
+          samayaMetrics={samayaMetrics}
+        />
+        <ModelHealthCard
+          domainShift={domainShift}
+          trainingSummary={trainingSummary}
+        />
+      </div>
     </PageContainer>
   );
 }

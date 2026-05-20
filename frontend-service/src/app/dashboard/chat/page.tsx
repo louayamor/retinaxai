@@ -2,9 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import PageContainer from '@/components/layout/page-container';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AIChartRenderer } from '@/components/charts/ai-chart-renderer';
 import {
@@ -13,13 +11,13 @@ import {
   getChatSession,
   listChatSessions,
   sendChatMessage,
-  updateChatSessionTitle,
 } from '@/lib/api';
 import type {
   ChatMessage,
   ChatSessionDetail,
   ChatSessionItem,
 } from '@/lib/api';
+import { useChatWebSocket } from '@/hooks/use-chat-websocket';
 import {
   MessageSquare,
   Plus,
@@ -27,10 +25,11 @@ import {
   Send,
   Loader2,
   Sparkles,
-  AlertTriangle,
   BarChart3,
   User,
   Stethoscope,
+  Brain,
+  Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -40,10 +39,10 @@ export default function ChatPage() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessionDetail, setSessionDetail] = useState<ChatSessionDetail | null>(null);
   const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
 
+  const chatWs = useChatWebSocket();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -122,7 +121,7 @@ export default function ChatPage() {
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || sending) return;
+    if (!text || chatWs.status === 'connecting' || chatWs.status === 'sending') return;
 
     let sessionId = activeSessionId;
     if (!sessionId) {
@@ -146,6 +145,8 @@ export default function ChatPage() {
       }
     }
 
+    setInput('');
+
     const userMsg: ChatMessage = {
       id: `temp-${Date.now()}`,
       role: 'user',
@@ -158,36 +159,46 @@ export default function ChatPage() {
       return { ...prev, messages: [...prev.messages, userMsg] };
     });
 
-    setInput('');
-    setSending(true);
+    const history = sessionDetail?.messages ?? [];
 
     try {
-      const resp = await sendChatMessage(sessionId, text);
+      const final = await chatWs.send(text, history);
+      if (final.error) {
+        toast.error(final.error);
+        return;
+      }
+
+      const assistantMsg: ChatMessage = {
+        id: `msg-${Date.now()}`,
+        role: 'assistant',
+        content: final.summary,
+        chart: final.chart ?? undefined,
+        sources: final.sources.length > 0 ? final.sources : undefined,
+        created_at: new Date().toISOString(),
+      };
+
       setSessionDetail((prev) => {
         if (!prev) return prev;
-        const msgs = prev.messages.filter((m) => m.id !== userMsg.id);
-        msgs.push(resp.user_message);
-        msgs.push(resp.assistant_message);
-        return { ...prev, messages: msgs, title: text.length > 50 ? text.slice(0, 50) + '...' : text };
+        const msgs = [...prev.messages, assistantMsg];
+        return { ...prev, messages: msgs };
       });
 
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === sessionId
-            ? { ...s, title: text.length > 50 ? text.slice(0, 50) + '...' : text, updated_at: new Date().toISOString(), message_count: s.message_count + 2 }
-            : s,
-        ),
-      );
+      try {
+        await sendChatMessage(sessionId, text);
+      } catch {
+        // REST fallback for persistence — non-critical
+      }
     } catch {
       toast.error('Failed to get response. The AI service may be unavailable.');
       setSessionDetail((prev) => {
         if (!prev) return prev;
-        return { ...prev, messages: prev.messages.filter((m) => m.id !== userMsg.id) };
+        return {
+          ...prev,
+          messages: prev.messages.filter((m) => m.id !== userMsg.id),
+        };
       });
-    } finally {
-      setSending(false);
     }
-  }, [input, sending, activeSessionId]);
+  }, [input, chatWs, activeSessionId, sessionDetail]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -332,11 +343,29 @@ export default function ChatPage() {
                     <ChatBubble key={msg.id} message={msg} />
                   ))
                 )}
-                {sending && (
+                {(chatWs.status === 'connecting' || chatWs.status === 'sending') && (
                   <div className="flex justify-start">
                     <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-muted">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      <span className="text-xs text-muted-foreground">Thinking...</span>
+                      {chatWs.thinking && chatWs.thinking.stage === 'retrieving' ? (
+                        <Search className="h-3.5 w-3.5 animate-pulse text-muted-foreground" />
+                      ) : (
+                        <Brain className="h-3.5 w-3.5 animate-pulse text-muted-foreground" />
+                      )}
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs text-muted-foreground">
+                          {chatWs.thinking?.message ?? 'Thinking...'}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground/60 capitalize">
+                          {chatWs.thinking?.stage ?? ''}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {chatWs.status === 'error' && chatWs.error && (
+                  <div className="flex justify-start">
+                    <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-destructive/10 text-destructive text-xs">
+                      Connection failed. Please try again.
                     </div>
                   </div>
                 )}
@@ -352,16 +381,16 @@ export default function ChatPage() {
                     onKeyDown={handleKeyDown}
                     placeholder="Ask about DR, model performance, or clinical data..."
                     rows={2}
-                    disabled={sending}
+                    disabled={chatWs.status === 'connecting' || chatWs.status === 'sending'}
                     className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
                   />
                   <Button
                     onClick={() => { void handleSend(); }}
-                    disabled={!input.trim() || sending}
+                    disabled={!input.trim() || chatWs.status === 'connecting' || chatWs.status === 'sending'}
                     size="icon"
                     className="shrink-0"
                   >
-                    {sending ? (
+                    {chatWs.status === 'connecting' || chatWs.status === 'sending' ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <Send className="h-4 w-4" />

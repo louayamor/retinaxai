@@ -100,6 +100,8 @@ export function usePatientWebSocket({
   const [connected, setConnected] = useState(false);
   const [lastEvent, setLastEvent] = useState<WebSocketMessage | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const MAX_RECONNECT_ATTEMPTS = 15;
   const patientIdRef = useRef(patientId);
   const isConnectingRef = useRef(false);
   const pendingMessagesRef = useRef<Array<{ event: string; data: Record<string, unknown> }>>([]);
@@ -214,6 +216,11 @@ export function usePatientWebSocket({
       return;
     }
 
+    if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
+      console.log('[PatientWS] Max reconnect attempts reached, giving up');
+      return;
+    }
+
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
@@ -226,6 +233,7 @@ export function usePatientWebSocket({
     wsRef.current.onopen = () => {
       isConnectingRef.current = false;
       setConnected(true);
+      reconnectAttemptRef.current = 0;
       console.log('[PatientWS] Connected for patient:', patientIdRef.current);
 
       const predictionRoomMessage = JSON.stringify({
@@ -265,23 +273,21 @@ export function usePatientWebSocket({
       wsRef.current?.send(trainingClinicalMessage);
     };
 
-    wsRef.current.onclose = () => {
+    wsRef.current.onerror = (error) => {
       isConnectingRef.current = false;
-      console.log('[PatientWS] connection closed', { patientId: patientIdRef.current });
-      pendingMessagesRef.current = [];
-      if (wsRef.current) {
-        setConnected(false);
-        wsRef.current = null;
-      }
-    };
-    
-    wsRef.current.onerror = () => {
-      isConnectingRef.current = false;
-      console.log('[PatientWS] connection error flag set', { patientId: patientIdRef.current });
+      console.error('[PatientWS] Connection error:', error);
+      wsRef.current?.close();
     };
 
-    wsRef.current.onerror = (error) => {
-      console.error('[PatientWS] Connection error:', error);
+    wsRef.current.onclose = () => {
+      isConnectingRef.current = false;
+      setConnected(false);
+      pendingMessagesRef.current = [];
+      reconnectAttemptRef.current += 1;
+      const backoff = Math.min(2 ** reconnectAttemptRef.current, 30) * 1000;
+      console.log(`[PatientWS] Disconnected, reconnecting in ${backoff / 1000}s (attempt ${reconnectAttemptRef.current}/${MAX_RECONNECT_ATTEMPTS})...`);
+      wsRef.current = null;
+      reconnectTimeoutRef.current = setTimeout(connect, backoff);
     };
 
     wsRef.current.onmessage = (event) => {

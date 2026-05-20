@@ -824,24 +824,9 @@ export interface AnalyticsSection {
 
 export const ANALYTIC_QUERIES: Omit<AnalyticsSection, 'response' | 'loading' | 'error'>[] = [
   {
-    key: 'patient_overview',
-    title: 'Patient Overview',
-    question: 'Analyze patient demographics (total patients, gender distribution, age groups) AND DR severity distribution (grades 0-4 with counts and percentages). Show proportions. Include recent prediction activity.',
-  },
-  {
     key: 'model_performance',
     title: 'Model Performance',
-    question: 'Compare both imaging (EfficientNet) and clinical (XGBoost) model metrics side by side. Show accuracy, QWK, AUC, and F1 for each. Include EyePACS vs Samaya comparison where available.',
-  },
-  {
-    key: 'feature_importance',
-    title: 'Clinical Feature Importance',
-    question: 'What are the most important clinical features for DR prediction? List the top 10 features with their importance scores. Include information about available and missing features.',
-  },
-  {
-    key: 'model_health',
-    title: 'Model Health & History',
-    question: 'Analyze data drift metrics from Evidently monitoring for both pipelines. Also show model version history: versions, performance trends, and lifecycle stages.',
+    question: 'Compare imaging model metrics: show accuracy, QWK, AUC, and F1. Include EyePACS vs Samaya comparison.',
   },
 ];
 

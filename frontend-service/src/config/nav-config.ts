@@ -34,6 +34,14 @@ export const navGroups: NavGroup[] = [
         items: [],
       },
       {
+        title: 'Analytics',
+        url: '/dashboard/analytics',
+        icon: 'chart',
+        isActive: false,
+        shortcut: ['a', 'a'],
+        items: [],
+      },
+      {
         title: 'AI Chat',
         url: '/dashboard/chat',
         icon: 'message',
