@@ -116,7 +116,7 @@ bun dev  # runs on port 3001
 |-------|------------|
 | **Backend** | FastAPI, SQLAlchemy 2.0, asyncpg, Pydantic v2, PyJWT |
 | **Frontend** | Next.js 16, React 19, Tailwind CSS 4, shadcn/ui, Zustand |
-| **ML/AI** | PyTorch, timm, XGBoost, MLflow, DVC, evidently |
+| **ML/AI** | PyTorch, timm, XGBoost, MLflow, evidently |
 | **LLM/RAG** | LangChain, ChromaDB, sentence-transformers, GitHub AI Inference |
 | **Database** | PostgreSQL 16 |
 | **Infra** | Docker, Docker Compose, Kubernetes |

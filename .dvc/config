@@ -1,5 +1,0 @@
-[core]
-    remote = dagshub
-    autostage = true
-['remote "dagshub"']
-    url = https://dagshub.com/louayamor/retinaxai.dvc

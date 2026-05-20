@@ -1,3 +1,0 @@
-# DVC ignore patterns - files that should NOT be versioned by DVC
-artifacts/ocr/output/reports.csv
-artifacts/monitoring/

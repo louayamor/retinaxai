@@ -54,7 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Layout-based region detector
   - Regex-based field parser
   - Per-region PNG export and base64 encoding
-- DVC pipeline for reproducible training
 - MLflow integration with DagsHub
 - Evidently reports for data drift detection
 - Prometheus metrics endpoint

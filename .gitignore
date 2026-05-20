@@ -80,24 +80,11 @@ frontend-service/docs/
 shared/
 research/
 
-# mlops artifacts (tracked by DVC)
+# mlops artifacts
 mlops-service/mlops-service/artifacts/data/
 mlops-service/mlops-service/artifacts/model/
 mlops-service/mlops-service/artifacts/monitoring/
 mlops-service/mlops-service/artifacts/ocr/output/reports.csv
-
-# service-local data directories
-data/
-backend-service/backend-service/data/
-mlops-service/mlops-service/data/
-llmops-service/llmops-service/data/
-
-# DVC local credentials (never commit)
-.dvc/config.local
-**/dvc/config.local
-
-# DVC lock (commit this — DO NOT ignore)
-# dvc.lock
 
 # mlops logs
 mlops-service/mlops-service/logs/
@@ -109,6 +96,23 @@ llmops-service/llmops-service/artifacts/
 thoughts/
 research/
 shared/
+
+# Hive task/memory tracking
+.hive/
+
+# Ruff cache
+.ruff_cache/
+
+# Agent skills (project-local)
+.agents/
+
+# Skills lock file
+skills-lock.json
+
+# Service data directories
+backend-service/backend-service/data/
+llmops-service/llmops-service/data/
+mlops-service/mlops-service/data/
 
 # MLflow
 mlflow.db
@@ -140,3 +144,5 @@ infra/template.py
  # ML research and thesis documents
  mlops-service/mlops-thesis.md/
  llmops-service/llmops-thesis.md/
+
+Thesis-LouayAmor/*
