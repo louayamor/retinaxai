@@ -84,18 +84,16 @@ class InferenceService:
         training_cfg = self.params.get("training", {}) or {}
 
         self._global_num_classes = int(global_cfg.get("num_classes", 5))
-        self._global_image_size = int(global_cfg.get("image_size", 300))
+        self._global_image_size = int(global_cfg.get("image_size", 384))
 
         phase1_cfg = training_cfg.get("phase1", {}) or {}
-        self._training_dropout = float(
-            phase1_cfg.get("dropout", training_cfg.get("dropout", 0.5))
-        )
+        self._training_dropout = float(phase1_cfg.get("dropout", 0.5))
 
         inference_cfg = self.params.get("inference", {}) or {}
         self._confidence_threshold = float(
             inference_cfg.get("confidence_threshold", 0.0)
         )
-        self._apply_fda_inverse = bool(inference_cfg.get("apply_fda_inverse", False))
+        self._apply_fda_inverse = inference_cfg.get("apply_fda_inverse", False)
 
     def _get_current_production_model_path(self, pipeline: str) -> Optional[Path]:
         """Get current production model path from registry, or fall back to settings paths."""

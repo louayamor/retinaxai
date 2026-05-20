@@ -35,15 +35,18 @@ class FundusClassifierService:
         self._model: Optional[nn.Module] = None
         self._transform: Optional[transforms.Compose] = None
 
-        params = read_yaml(PARAMS_FILE_PATH)
-        norm = params.augmentation.normalize
+        params: dict = read_yaml(PARAMS_FILE_PATH).to_dict()
+        norm: dict = params.get("augmentation", {}).get("normalize", {})
         self._transform = transforms.Compose(
             [
                 transforms.Lambda(
                     lambda img: preprocess_fundus_image(img, image_size=image_size)
                 ),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=norm.mean, std=norm.std),
+                transforms.Normalize(
+                    mean=norm.get("mean", [0.485, 0.456, 0.406]),
+                    std=norm.get("std", [0.229, 0.224, 0.225]),
+                ),
             ]
         )
 

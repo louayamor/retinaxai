@@ -20,7 +20,7 @@ def _validate_dataset(ds) -> bool:
             except KeyError:
                 pass
         return True
-    except Exception as e:
+    except (IndexError, KeyError, OSError) as e:
         logger.warning(f"Dataset validation failed: {e}")
         return False
 
@@ -59,7 +59,7 @@ class ImagingDataIngestion:
                     )
                     existing_ds = None
                     existing_size = 0
-            except Exception as e:
+            except (OSError, ValueError, RuntimeError) as e:
                 logger.warning(
                     f"failed to load existing dataset at {save_path}, rebuilding from source: {e}"
                 )

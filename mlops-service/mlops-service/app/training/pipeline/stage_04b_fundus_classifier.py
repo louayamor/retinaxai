@@ -16,6 +16,8 @@ from datasets import load_from_disk
 from PIL import Image
 import numpy as np
 
+from mlflow.exceptions import MlflowException
+
 from app.training.preprocessing import preprocess_fundus_image
 from app.utils.common import read_yaml, set_seed
 from app.constants import PARAMS_FILE_PATH
@@ -65,7 +67,7 @@ class FundusValidationDataset(Dataset):
         img_path, label = self.samples[idx]
         try:
             img = Image.open(img_path).convert("RGB")
-        except Exception as e:
+        except (FileNotFoundError, OSError) as e:
             logger.warning(f"Failed to load {img_path}: {e}")
             return self.__getitem__((idx + 1) % len(self.samples))
 
@@ -136,7 +138,7 @@ def download_imagenet_subset(output_dir: Path, num_samples: int = 5000) -> None:
 
         logger.info(f"[FUNDUS] downloaded {len(indices)} ImageNet images")
         return
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         logger.warning(f"ImageNet download failed: {e}")
 
     logger.info("[FUNDUS] falling back to CIFAR-10 negatives")
@@ -150,7 +152,7 @@ def download_imagenet_subset(output_dir: Path, num_samples: int = 5000) -> None:
             img, _label = dataset[idx]
             img.save(output_dir / f"cifar10_{i:05d}.jpg")
         logger.info(f"[FUNDUS] downloaded {len(indices)} CIFAR-10 images")
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         logger.error(f"CIFAR-10 download failed: {e}")
         raise
 
@@ -227,7 +229,7 @@ def create_corrupted_fundus_from_raw(
                 img = Image.fromarray(img_np)
 
             img.save(output_dir / f"corrupted_{i:05d}.jpg")
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             logger.debug(f"Failed to corrupt image: {e}")
 
     logger.info(f"[FUNDUS] created {num_samples} corrupted fundus images")
@@ -237,7 +239,7 @@ def train_fundus_classifier(
     train_dir: Path,
     output_path: Path,
     model_name: str = "mobilenetv3_small_100",
-    image_size: int = 300,
+    image_size: int = 384,
     num_classes: int = 2,
     dropout: float = 0.1,
     batch_size: int = 32,
@@ -414,7 +416,7 @@ def run():
     fc_cfg = params.get("fundus_classifier", {})
 
     model_name = fc_cfg.get("model_name", "mobilenetv3_small_100")
-    image_size = fc_cfg.get("image_size", 300)
+    image_size = fc_cfg.get("image_size", 384)
     num_classes = fc_cfg.get("num_classes", 2)
     threshold = fc_cfg.get("threshold", 0.3)
 
@@ -457,7 +459,7 @@ def run():
 
             mlflow.log_artifact(str(output_path), artifact_path="fundus_classifier")
             logger.info(f"[FUNDUS] model logged to MLflow: {output_path}")
-    except Exception as e:
+    except MlflowException as e:
         logger.warning(f"[FUNDUS] MLflow disabled: {e}")
 
         non_fundus_dir = PROCESSED_DATA_DIR / "non_fundus"

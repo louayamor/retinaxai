@@ -79,12 +79,12 @@ def _emit_stage_event(
                 metrics=metrics,
                 error=error,
             )
-        except Exception as e:
+        except (RuntimeError, OSError) as e:
             logger.warning(f"Failed to emit WebSocket event: {e}")
 
     try:
         _run_async_in_loop(emit_event())
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         logger.warning(f"Failed to run async emit event: {e}")
 
 
@@ -104,7 +104,7 @@ def _emit_training_completed_event(
             "8001", "8000"
         )
         llmops_trigger_url = f"{backend_url}/emit"
-    except Exception:
+    except (ImportError, AttributeError, RuntimeError):
         llmops_trigger_url = "http://localhost:8000/emit"
 
     payload = {
@@ -153,7 +153,7 @@ def _load_jobs() -> dict:
         try:
             with open(_JOB_FILE) as f:
                 _job_store = json.load(f)
-        except Exception:
+        except (OSError, json.JSONDecodeError):
             _job_store = {}
     return _job_store
 
@@ -241,7 +241,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                     f"Downloaded {max_samples} samples from EyePACS",
                     metrics={"samples": max_samples},
                 )
-            except Exception as e:
+            except (OSError, RuntimeError, ValueError) as e:
                 _emit_stage_event(
                     job_id,
                     pipeline,
@@ -275,7 +275,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                     "Filtered low-quality images and removed duplicates",
                     metrics={"removed": 0},
                 )
-            except Exception as e:
+            except (OSError, RuntimeError, ValueError) as e:
                 _emit_stage_event(
                     job_id, pipeline, "data_cleaning", "failed", 0, str(e), error=str(e)
                 )
@@ -303,7 +303,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                     "Transformed images to 300x300 with ImageNet normalization",
                     metrics={"images": 0, "size": 300},
                 )
-            except Exception as e:
+            except (OSError, RuntimeError, ValueError) as e:
                 _emit_stage_event(
                     job_id,
                     pipeline,
@@ -339,7 +339,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                     f"Trained EfficientNet-B3 for {epochs} epochs",
                     metrics={"epochs": epochs, "batch_size": batch_size},
                 )
-            except Exception as e:
+            except (OSError, RuntimeError, ValueError) as e:
                 _emit_stage_event(
                     job_id,
                     pipeline,
@@ -371,7 +371,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                     100,
                     "Model evaluation complete",
                 )
-            except Exception as e:
+            except (OSError, RuntimeError, ValueError) as e:
                 _emit_stage_event(
                     job_id,
                     pipeline,
@@ -410,7 +410,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                     try:
                         with open(settings.imaging_metrics_path) as f:
                             imaging_metrics = json.load(f)
-                    except Exception as e:
+                    except (OSError, json.JSONDecodeError) as e:
                         logger.warning(f"Failed to load imaging metrics: {e}")
 
                 training_pipeline._register_model(
@@ -429,7 +429,7 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                 f"Models registered: imaging={imaging_version}",
             )
 
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             logger.error(f"Failed to register models: {e}")
             # Non-critical - don't fail job if registration fails
             _emit_stage_event(
@@ -499,10 +499,10 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                 logger.info(
                     f"Drift check completed after training: {pipe} psi={report.overall_psi:.4f}"
                 )
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             logger.warning(f"Drift check after training failed (non-fatal): {e}")
 
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError, TrainingException) as e:
         _job_store[job_id]["status"] = "failed"
         _job_store[job_id]["error"] = str(e)
         _job_store[job_id]["completed_at"] = datetime.utcnow().isoformat()
@@ -555,7 +555,7 @@ def _write_last_training_metrics() -> None:
             target.parent.mkdir(parents=True, exist_ok=True)
             with open(target, "w") as f:
                 json.dump(metrics, f, indent=2)
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         logger.warning(f"Failed to write last training metrics: {e}")
 
 

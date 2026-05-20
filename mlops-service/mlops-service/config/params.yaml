@@ -12,7 +12,7 @@
 global:
   seed: 42
   num_classes: 5
-  image_size: 300
+  image_size: 384
   device: cuda
 
 # ── Data ──────────────────────────────────────────────────────────────────────
@@ -50,30 +50,30 @@ augmentation:
 # ── Training ──────────────────────────────────────────────────────────────────
 
 training:
-  sampler_weight_cap: 8.0
-  class_weights: [1.0, 7.0, 3.5, 9.0, 11.0]
+  sampler_weight_cap: 5.0
+  class_weights: [0.5, 4.0, 1.5, 7.0, 9.0]
   weighted_sampling: true
   use_class_weights_in_loss: true
   early_stopping_metric: qwk
-  early_stopping_patience: 8
-  label_smoothing: 0.1
+  early_stopping_patience: 10
+  label_smoothing: 0.05
   weight_decay: 0.001
   scheduler: cosine
-  lr_warmup_epochs: 2
-  batch_size: 16
+  lr_warmup_epochs: 3
+  batch_size: 24
   num_workers: 8
   pin_memory: true
-  gradient_accumulation_steps: 12
+  gradient_accumulation_steps: 6
 
   phase1:
     epochs: 20
-    lr: 0.00005
+    lr: 0.0002
     backbone_lr_ratio: 0.1
     dropout: 0.45
     freeze_backbone: true
-    freeze_blocks: 4
+    freeze_blocks: 1
     unfreeze_last_blocks: true
-    focal_loss_gamma: 2.0
+    focal_loss_gamma: 1.5
     loss: focal_ordinal_weighted
 
   phase2:
@@ -94,6 +94,9 @@ training:
 # ── FDA (Fourier Domain Adaptation) ───────────────────────────────────────────
 
 fda:
+  enabled: false
+  beta: 0.15
+  probability: 0.5
   inference_beta: 0.1
   target_images_dir: artifacts/data/processed/imaging/images/samaya
   cache_path: artifacts/data/processed/imaging/samaya_amplitude_target.pt

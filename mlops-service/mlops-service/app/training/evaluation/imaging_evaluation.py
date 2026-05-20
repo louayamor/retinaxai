@@ -60,7 +60,7 @@ class ImagingModelEvaluation:
                         f"GPU memory low ({free_memory / 1e9:.1f}GB < 0.5GB required), "
                         f"using CPU for evaluation. Stop MLOps/LLMOps services to free GPU."
                     )
-            except Exception as e:
+            except (RuntimeError, OSError) as e:
                 self.device = torch.device("cpu")
                 logger.warning(f"GPU check failed, using CPU: {e}")
         else:
@@ -71,7 +71,7 @@ class ImagingModelEvaluation:
         training_cfg = self.params.get("training", {}) or {}
 
         self._global_num_classes = int(global_cfg.get("num_classes", 5))
-        self._global_image_size = int(global_cfg.get("image_size", 300))
+        self._global_image_size = int(global_cfg.get("image_size", 384))
 
         phase1_cfg = training_cfg.get("phase1", {}) or {}
         self._training_dropout = float(
@@ -80,6 +80,8 @@ class ImagingModelEvaluation:
 
         eval_dl_cfg = self.params.get("evaluation", {}).get("dl", {}) or {}
         self._eval_enabled_metrics: set[str] = set(eval_dl_cfg.get("metrics", []))
+        self._eval_batch_size = int(eval_dl_cfg.get("batch_size", 16))
+        self._eval_num_workers = int(eval_dl_cfg.get("num_workers", 8))
 
     def _load_model(self) -> nn.Module:
         model_name = getattr(self.config, "model_name", "efficientnet_b3")
@@ -102,7 +104,7 @@ class ImagingModelEvaluation:
                     f"model loaded from: {self.config.model_path} (device={self.device})"
                 )
                 return model
-            except Exception as e:
+            except (OSError, RuntimeError, KeyError) as e:
                 logger.warning(f"Failed to load model on GPU: {e}, falling back to CPU")
                 self.device = torch.device("cpu")
 
@@ -122,17 +124,22 @@ class ImagingModelEvaluation:
         return model
 
     def _build_transform(self):
-        norm = self.params.augmentation.normalize
+        aug: dict = self.params.get("augmentation", {}) or {}
+        norm: dict = aug.get("normalize", {}) or {}
         return transforms.Compose(
             [
                 transforms.Resize((self._global_image_size, self._global_image_size)),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=norm.mean, std=norm.std),
+                transforms.Normalize(
+                    mean=norm.get("mean", [0.485, 0.456, 0.406]),
+                    std=norm.get("std", [0.229, 0.224, 0.225]),
+                ),
             ]
         )
 
     def _build_samaya_transform(self, fda_inverse=None):
-        norm = self.params.augmentation.normalize
+        aug: dict = self.params.get("augmentation", {}) or {}
+        norm: dict = aug.get("normalize", {}) or {}
         image_size = self._global_image_size
         tf_list: list = [
             transforms.Lambda(
@@ -144,16 +151,21 @@ class ImagingModelEvaluation:
         if fda_inverse is not None:
             tf_list.append(transforms.Lambda(lambda t: fda_inverse(t)))  # type: ignore[arg-type]
 
-        tf_list.append(transforms.Normalize(mean=norm.mean, std=norm.std))
+        tf_list.append(
+            transforms.Normalize(
+                mean=norm.get("mean", [0.485, 0.456, 0.406]),
+                std=norm.get("std", [0.229, 0.224, 0.225]),
+            )
+        )
         return transforms.Compose(tf_list)
 
     def _run_inference(self, model: nn.Module, csv_path: Path, transform=None) -> tuple:
         tf = transform if transform is not None else self._build_transform()
         loader = DataLoader(
             RetinalDataset(csv_path, tf),
-            batch_size=self.params.evaluation.dl.batch_size,
+            batch_size=self._eval_batch_size,
             shuffle=False,
-            num_workers=self.params.evaluation.dl.num_workers,
+            num_workers=self._eval_num_workers,
             pin_memory=True,
         )
 
@@ -215,7 +227,7 @@ class ImagingModelEvaluation:
 
             return float(auc)
 
-        except Exception as e:
+        except ValueError as e:
             logger.warning(f"AUC computation failed: {e}")
             return None
 
@@ -317,7 +329,7 @@ class ImagingModelEvaluation:
             src_cache = self.config.root_dir / "eyepacs_amplitude_source.pt"
             self._fda_eval = FDAAugment(
                 target_images_dir=target_dir,
-                beta=float(fda_cfg.get("beta", 0.15)),
+                beta=float(fda_cfg.get("inference_beta", 0.1)),
                 cache_path=cache_path,
                 source_amp_cache_path=src_cache,
             )
@@ -376,12 +388,12 @@ class ImagingModelEvaluation:
             try:
                 samaya_tf = self._build_samaya_transform(fda_inverse=fda_inverse)
                 samaya_dataset = RetinalDataset(self.config.samaya_csv, samaya_tf)
-                samaya_batch_size = min(4, self.params.evaluation.dl.batch_size)
+                samaya_batch_size = min(4, self._eval_batch_size)
                 samaya_loader = DataLoader(
                     samaya_dataset,
                     batch_size=samaya_batch_size,
                     shuffle=False,
-                    num_workers=min(2, self.params.evaluation.dl.num_workers),
+                    num_workers=min(2, self._eval_num_workers),
                     pin_memory=True,
                 )
 
@@ -438,9 +450,9 @@ class ImagingModelEvaluation:
                             samaya_tf,
                         )
                         domain_shift_metrics["embedding_mmd"] = mmd_val
-                    except Exception as e:
+                    except (RuntimeError, ValueError, IndexError) as e:
                         logger.warning(f"embedding MMD computation failed: {e}")
-            except Exception as e:
+            except (OSError, RuntimeError, ValueError) as e:
                 logger.error(f"Samaya evaluation failed (non-fatal): {e}")
                 import traceback
 
@@ -481,7 +493,7 @@ class ImagingModelEvaluation:
                     f"(phase={training_summary.get('phase')}, "
                     f"best_epoch={training_summary.get('best_epoch')})"
                 )
-            except Exception as e:
+            except (OSError, json.JSONDecodeError) as e:
                 logger.warning(f"failed to merge training_summary: {e}")
 
         save_json(self.config.metric_file, full_metrics)
@@ -547,7 +559,7 @@ class ImagingModelEvaluation:
                 plt.savefig(cm_fig_path)
                 mlflow.log_artifact(str(cm_fig_path))
                 logger.info(f"Confusion matrix saved to mlflow: {cm_fig_path}")
-            except Exception as e:
+            except (OSError, RuntimeError) as e:
                 logger.warning(f"Failed to save confusion matrix: {e}")
 
             if samaya_metrics:
@@ -620,7 +632,7 @@ class ImagingModelEvaluation:
                     plt.tight_layout()
                     plt.savefig(samaya_cm_path)
                     mlflow.log_artifact(str(samaya_cm_path))
-                except Exception as e:
+                except (OSError, RuntimeError) as e:
                     logger.warning(f"Failed to save samaya confusion matrix: {e}")
 
             mlflow.log_artifact(str(self.config.metric_file))
@@ -675,9 +687,9 @@ class ImagingModelEvaluation:
             ds = RetinalDataset(csv_path, transform)
             loader = DataLoader(
                 ds,
-                batch_size=self.params.evaluation.dl.batch_size,
+                batch_size=self._eval_batch_size,
                 shuffle=False,
-                num_workers=self.params.evaluation.dl.num_workers,
+                num_workers=self._eval_num_workers,
             )
             embs = []
             with torch.no_grad():

@@ -1,5 +1,3 @@
-from pathlib import Path
+from app.constants import CONFIG_FILE_PATH, PARAMS_FILE_PATH, SCHEMA_FILE_PATH
 
-CONFIG_FILE_PATH = Path("config/config.yaml")
-PARAMS_FILE_PATH = Path("config/params.yaml")
-SCHEMA_FILE_PATH = Path("config/schema.yaml")
+__all__ = ["CONFIG_FILE_PATH", "PARAMS_FILE_PATH", "SCHEMA_FILE_PATH"]

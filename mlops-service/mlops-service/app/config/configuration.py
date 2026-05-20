@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 from app.config.settings import settings
@@ -43,7 +42,7 @@ class ConfigurationManager:
         return ImagingCleaningConfig(root_dir=root_dir, source_dir=root_dir)
 
     def get_imaging_transformation_config(self) -> ImagingTransformationConfig:
-        image_size = int(self.params.get("global", {}).get("image_size", 300))
+        image_size = int(self.params.get("global", {}).get("image_size", 384))
         create_directories(
             [settings.imaging_data_dir, settings.imaging_train_csv.parent]
         )
@@ -66,7 +65,7 @@ class ConfigurationManager:
             model_name=self.config.imaging_model.model_name,
             pretrained=self.config.imaging_model.pretrained,
             checkpoint_path=settings.imaging_model_path,
-            image_size=int(self.params.get("global", {}).get("image_size", 300)),
+            image_size=int(self.params.get("global", {}).get("image_size", 384)),
         )
 
     def get_imaging_model_evaluation_config(self) -> ImagingModelEvaluationConfig:
@@ -78,7 +77,7 @@ class ConfigurationManager:
             samaya_csv=settings.imaging_samaya_csv,
             model_path=settings.imaging_model_path,
             metric_file=settings.imaging_metrics_path,
-            mlflow_uri=os.environ.get("MLFLOW_TRACKING_URI", ""),
+            mlflow_uri=settings.mlflow_tracking_uri,
             experiment_name=self.config.mlflow.experiment_name,
             run_name=self.config.mlflow.imaging_run_name,
         )

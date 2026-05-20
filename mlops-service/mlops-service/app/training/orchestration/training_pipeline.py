@@ -76,7 +76,7 @@ class TrainingPipeline:
             )
             logger.info(f"Model {pipeline} v{version} registered successfully")
 
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             logger.error(f"Failed to register {pipeline} model: {e}")
             # Non-critical error - don't fail training if registration fails
 

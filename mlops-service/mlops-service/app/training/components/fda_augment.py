@@ -131,7 +131,7 @@ class FDAAugment:
                 fft = torch.fft.fft2(tensor)
                 amp = torch.abs(fft)
                 amplitudes.append(amp)
-            except Exception as e:
+            except (OSError, IOError, RuntimeError) as e:
                 logger.warning(f"skipping {img_path}: {e}")
 
         if not amplitudes:

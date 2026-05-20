@@ -37,7 +37,7 @@ class RetinalDataset(Dataset):
         row = self.df.iloc[idx]
         try:
             img = Image.open(row["image_path"]).convert("RGB")
-        except Exception as e:
+        except (FileNotFoundError, OSError, IOError) as e:
             raise RuntimeError(f"Failed to load image {row['image_path']}: {e}") from e
         if self.transform:
             img = self.transform(img)
@@ -81,7 +81,7 @@ class ImagingModelTrainer:
                         f"GPU memory low ({free_memory / 1e9:.1f}GB < 0.8GB required), "
                         f"using CPU for training. Stop MLOps/LLMOps services to free GPU."
                     )
-            except Exception as e:
+            except (RuntimeError, OSError) as e:
                 self.device = torch.device("cpu")
                 logger.warning(f"GPU check failed, using CPU: {e}")
         else:
@@ -96,7 +96,7 @@ class ImagingModelTrainer:
         global_cfg = self.params.get("global", {}) or {}
 
         self._global_num_classes = int(global_cfg.get("num_classes", 5))
-        self._global_image_size = int(global_cfg.get("image_size", 300))
+        self._global_image_size = int(global_cfg.get("image_size", 384))
         self._global_seed = int(global_cfg.get("seed", 42))
 
         self._training_batch_size = int(training_cfg.get("batch_size", 8))
@@ -105,7 +105,7 @@ class ImagingModelTrainer:
         self._training_scheduler = training_cfg.get("scheduler", "reduce_on_plateau")
         self._training_lr_warmup_epochs = int(training_cfg.get("lr_warmup_epochs", 0))
         self._training_label_smoothing = float(training_cfg.get("label_smoothing", 0.0))
-        self._training_pin_memory = bool(training_cfg.get("pin_memory", True))
+        self._training_pin_memory = training_cfg.get("pin_memory", True)
         self._gradient_accumulation_steps = int(
             training_cfg.get("gradient_accumulation_steps", 1)
         )
@@ -223,21 +223,22 @@ class ImagingModelTrainer:
             logger.info(f"MixUp enabled: alpha={self._mixup_alpha}")
 
     def _build_transforms(self):
-        aug = self.params.augmentation
-        norm = aug.normalize
-        dr = aug.get("domain_robustness", {}) or {}
+        aug: dict = self.params.get("augmentation", {}) or {}
+        norm = aug.get("normalize", {}) or {}
+        dr: dict = aug.get("domain_robustness", {}) or {}
         image_size = int(self.config.image_size)
+        cj: dict = aug.get("color_jitter", {}) or {}
 
         train_tf_list: list = [
             transforms.Resize((image_size, image_size)),
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
-            transforms.RandomRotation(aug.random_rotation),
+            transforms.RandomRotation(aug.get("random_rotation", 15)),
             transforms.ColorJitter(
-                brightness=aug.color_jitter.brightness,
-                contrast=aug.color_jitter.contrast,
-                saturation=aug.color_jitter.saturation,
-                hue=aug.color_jitter.hue,
+                brightness=cj.get("brightness", 0.2),
+                contrast=cj.get("contrast", 0.2),
+                saturation=cj.get("saturation", 0.1),
+                hue=cj.get("hue", 0.05),
             ),
         ]
 
@@ -266,14 +267,14 @@ class ImagingModelTrainer:
         if self._fda_augment is not None:
             train_tf_list.append(transforms.Lambda(lambda t: self._fda_augment(t)))  # type: ignore[arg-type]
 
-        train_tf_list.append(transforms.Normalize(mean=norm.mean, std=norm.std))
+        train_tf_list.append(transforms.Normalize(mean=norm.get("mean", [0.485, 0.456, 0.406]), std=norm.get("std", [0.229, 0.224, 0.225])))
 
         train_tf = transforms.Compose(train_tf_list)
 
         val_tf_list: list = [
             transforms.Resize((image_size, image_size)),
             transforms.ToTensor(),
-            transforms.Normalize(mean=norm.mean, std=norm.std),
+            transforms.Normalize(mean=norm.get("mean", [0.485, 0.456, 0.406]), std=norm.get("std", [0.229, 0.224, 0.225])),
         ]
         val_tf = transforms.Compose(val_tf_list)
         return train_tf, val_tf
@@ -696,7 +697,7 @@ class ImagingModelTrainer:
                     patience_counter = 0
                     try:
                         torch.save(model.state_dict(), checkpoint_path)
-                    except Exception as e:
+                    except (OSError, RuntimeError) as e:
                         raise RuntimeError(
                             f"Failed to save model checkpoint: {e}"
                         ) from e

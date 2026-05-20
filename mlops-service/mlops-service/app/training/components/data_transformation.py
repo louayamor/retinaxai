@@ -205,7 +205,7 @@ class ImagingDataTransformation:
                         logger.info(
                             f"output validation passed: EyePACS images are {expected_size}x{expected_size}"
                         )
-                except Exception as e:
+                except (OSError, IOError) as e:
                     logger.warning(f"failed to validate EyePACS images: {e}")
                     return False
         else:
@@ -229,7 +229,7 @@ class ImagingDataTransformation:
                         logger.info(
                             f"output validation passed: Samaya images are {expected_size}x{expected_size}"
                         )
-                except Exception as e:
+                except (OSError, IOError) as e:
                     logger.warning(f"failed to validate Samaya images: {e}")
                     return False
             else:

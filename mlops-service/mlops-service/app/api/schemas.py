@@ -184,9 +184,6 @@ class PredictResponse(BaseModel):
     embedding: Optional[list[float]] = Field(
         None, description="Global image embedding from EfficientNet-B3 features"
     )
-    shap_explanation: Optional[dict] = Field(
-        None, description="SHAP feature explanations for clinical model"
-    )
     fundus_score_left: Optional[float] = Field(
         None, description="Fundus classifier score for left eye (0-1)"
     )

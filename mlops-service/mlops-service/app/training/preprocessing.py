@@ -83,7 +83,7 @@ def apply_clahe_l_channel(img_np: np.ndarray) -> np.ndarray:
 
 def preprocess_fundus_image(
     img: Image.Image,
-    image_size: int = 300,
+    image_size: int = 384,
     apply_crop: bool = True,
     apply_clahe: bool = True,
 ) -> Image.Image:
@@ -100,7 +100,7 @@ def preprocess_fundus_image(
 
     Args:
         img: Input PIL Image
-        image_size: Target size for resizing (default: 300)
+        image_size: Target size for resizing (default: 384)
         apply_crop: Whether to apply circular crop
         apply_clahe: Whether to apply CLAHE contrast enhancement
 
@@ -126,7 +126,7 @@ def preprocess_fundus_image(
 
 def preprocess_image_bytes(
     image_bytes: bytes,
-    image_size: int = 300,
+    image_size: int = 384,
     apply_crop: bool = True,
     apply_clahe: bool = True,
 ) -> Image.Image:

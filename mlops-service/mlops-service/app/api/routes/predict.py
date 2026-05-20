@@ -150,7 +150,6 @@ async def predict(
             regions_right=right_imaging_result.get("regions"),
             top_hotspots_left=left_imaging_result.get("top_hotspots"),
             top_hotspots_right=right_imaging_result.get("top_hotspots"),
-            shap_explanation=None,
             fundus_score_left=left_imaging_result.get("fundus_score"),
             fundus_score_right=right_imaging_result.get("fundus_score"),
         )

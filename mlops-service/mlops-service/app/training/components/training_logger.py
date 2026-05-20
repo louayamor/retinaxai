@@ -17,6 +17,8 @@ import seaborn as sns
 import torch
 from loguru import logger
 
+from mlflow.exceptions import MlflowException
+
 from app.utils.common import save_json
 from app.training.components.epoch_metrics import EpochMetrics
 from app.monitoring.prometheus_metrics import (
@@ -48,7 +50,7 @@ if TYPE_CHECKING:
 def _safe_mlflow(log_call, *args, **kwargs):
     try:
         return log_call(*args, **kwargs)
-    except Exception as e:
+    except MlflowException as e:
         logger.warning(f"mlflow call failed (non-fatal, continuing): {e}")
         return None
 
@@ -108,7 +110,7 @@ class TrainingLogger:
         if self._mlflow_run is not None:
             try:
                 mlflow.end_run()
-            except Exception as e:
+            except MlflowException as e:
                 logger.warning(f"mlflow end_run failed (non-fatal): {e}")
         return False
 
@@ -150,7 +152,7 @@ class TrainingLogger:
                 GPU_UTILIZATION_PERCENT.labels(device="0").set(
                     torch.cuda.utilization(0)
                 )
-            except Exception:
+            except (RuntimeError, ModuleNotFoundError):
                 pass
 
         _safe_mlflow(
@@ -261,7 +263,7 @@ class TrainingLogger:
             active = mlflow.active_run()
             if active:
                 mlflow_run_id = active.info.run_id
-        except Exception:
+        except MlflowException:
             pass
 
         history_entry = {
@@ -326,7 +328,7 @@ class TrainingLogger:
             logger.info("model logged to mlflow model registry")
         except _LogTimeout:
             logger.warning(f"mlflow model logging timed out after {timeout_seconds}s")
-        except Exception as e:
+        except (MlflowException, OSError, RuntimeError) as e:
             logger.warning(f"failed to log model to mlflow registry: {e}")
         finally:
             signal.alarm(0)
