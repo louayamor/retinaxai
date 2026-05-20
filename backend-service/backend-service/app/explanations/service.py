@@ -74,7 +74,6 @@ class ExplanationService:
             "severity_report": None,
         }
         xai_failed = False
-        shap_values = None
 
         gradcam_regions_full = {
             "left_eye": left_regions_full,
@@ -97,20 +96,12 @@ class ExplanationService:
                             "prediction_id": str(prediction.id),
                             "dr_grade": dr_grade_value,
                             "confidence": confidence,
-                            "clinical_features": prediction.input_payload,
                             "gradcam_regions": gradcam_regions_full,
                         },
                     )
                     if resp.status_code == 200:
                         data = resp.json()
-                        shap_values = data.get("shap_values")
                         content = data.get("content", "")
-                        if shap_values:
-                            top_features = [
-                                f["name"]
-                                for f in shap_values.get("top_positive", [])[:3]
-                            ]
-                            content = f"{content}\n\n[SHAP Analysis: Top features include {', '.join(top_features)}]"
 
                         exp = PredictionExplanation(
                             id=uuid.uuid4(),
@@ -119,7 +110,6 @@ class ExplanationService:
                             summary=data.get("summary"),
                             model_used=data.get("model_used", "unknown"),
                             status=ExplanationStatus.COMPLETED,
-                            shap_values=shap_values,
                         )
                         self.db.add(exp)
                         results["prediction_explanation"] = exp
@@ -203,18 +193,14 @@ class ExplanationService:
             prediction.output_payload["explanation"] = results[
                 "prediction_explanation"
             ].content
-            if shap_values:
-                prediction.output_payload["shap_values"] = shap_values
             await self.db.commit()
 
         try:
-            from app.websockets.manager import get_socket_manager
-
-            socket_manager = get_socket_manager()
+            from app.api.v1.websockets import emit_xai_event
 
             if results["prediction_explanation"]:
                 asyncio.create_task(
-                    socket_manager.emit_xai_event(
+                    emit_xai_event(
                         event_type="xai.explanation_ready",
                         prediction_id=str(prediction.id),
                         patient_id=str(prediction.patient_id),
@@ -229,7 +215,7 @@ class ExplanationService:
 
             if results["gradcam_explanation"]:
                 asyncio.create_task(
-                    socket_manager.emit_xai_event(
+                    emit_xai_event(
                         event_type="xai.gradcam_ready",
                         prediction_id=str(prediction.id),
                         patient_id=str(prediction.patient_id),
@@ -250,7 +236,7 @@ class ExplanationService:
 
             if results["severity_report"]:
                 asyncio.create_task(
-                    socket_manager.emit_xai_event(
+                    emit_xai_event(
                         event_type="xai.severity_ready",
                         prediction_id=str(prediction.id),
                         patient_id=str(prediction.patient_id),

@@ -70,13 +70,12 @@ async def test_prediction_service_persists_embedding_into_output_payload(monkeyp
                 regions_right=None,
                 top_hotspots_left=None,
                 top_hotspots_right=None,
-                shap_explanation=None,
             )
         ),
     )
     monkeypatch.setattr(
-        "app.predictions.service.get_socket_manager",
-        lambda: SimpleNamespace(emit_prediction_event=AsyncMock()),
+        "app.predictions.service.emit_prediction_event",
+        AsyncMock(),
     )
     monkeypatch.setitem(
         __import__("sys").modules,

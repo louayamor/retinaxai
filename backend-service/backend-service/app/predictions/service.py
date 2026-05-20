@@ -15,7 +15,7 @@ from app.predictions.repository import PredictionRepository
 from app.schemas.prediction_schema import PredictionRequest
 from app.services.ml_client.ml_service import ml_client
 from app.services.ml_client.schemas import MLPredictRequest
-from app.websockets.manager import get_socket_manager
+from app.api.v1.websockets import emit_prediction_event
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +99,6 @@ class PredictionService:
                 output_payload["top_hotspots_right"] = [
                     h.model_dump() for h in ml_response.top_hotspots_right
                 ]
-            if ml_response.shap_explanation:
-                output_payload["shap_explanation"] = ml_response.shap_explanation
 
             prediction.output_payload = output_payload
             prediction.confidence_score = ml_response.confidence_score
@@ -118,9 +116,8 @@ class PredictionService:
             overall_severity = severity_map.get(dr_grade, "unknown")
 
             try:
-                socket_manager = get_socket_manager()
                 asyncio.create_task(
-                    socket_manager.emit_prediction_event(
+                    emit_prediction_event(
                         prediction_id=str(prediction.id),
                         patient_id=str(data.patient_id),
                         status="completed",
@@ -174,9 +171,8 @@ class PredictionService:
             )
 
             try:
-                socket_manager = get_socket_manager()
                 asyncio.create_task(
-                    socket_manager.emit_prediction_event(
+                    emit_prediction_event(
                         prediction_id=str(prediction.id),
                         patient_id=str(data.patient_id),
                         status="failed",

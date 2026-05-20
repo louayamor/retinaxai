@@ -43,7 +43,9 @@ _connected_clients: list[WebSocket] = []
 _client_rooms: dict[WebSocket, set[str]] = {}
 
 
-async def emit_to_clients(event: str, data: dict[str, Any], room: str | None = None) -> int:
+async def emit_to_clients(
+    event: str, data: dict[str, Any], room: str | None = None
+) -> int:
     message = {"event": event, "data": data}
     target_clients = _get_clients_in_room(room) if room else _connected_clients
     sent_count = 0
@@ -80,6 +82,93 @@ async def get_redis() -> aioredis.Redis | None:
 def _get_clients_in_room(room: str) -> list[WebSocket]:
     """Get all WebSocket clients subscribed to a specific room."""
     return [client for client, rooms in _client_rooms.items() if room in rooms]
+
+
+async def emit_prediction_event(
+    prediction_id: str,
+    patient_id: str,
+    status: str,
+    dr_grade: int,
+    confidence: float,
+    overall_severity: str,
+    triggers_xai: bool = True,
+    error: str | None = None,
+) -> None:
+    event_type = "prediction.failed" if error else "prediction.completed"
+    payload: dict[str, Any] = {
+        "prediction_id": prediction_id,
+        "patient_id": patient_id,
+        "status": status,
+        "dr_grade": dr_grade,
+        "confidence": confidence,
+        "overall_severity": overall_severity,
+        "triggers_xai": triggers_xai,
+        "timestamp": datetime.utcnow().isoformat(),
+        "error": error,
+    }
+    room = f"prediction:{patient_id}"
+    await emit_to_clients(event_type, payload, room=room)
+    await emit_to_clients(event_type, payload, room=None)
+
+    legacy_payload: dict[str, Any] = {
+        "prediction_id": prediction_id,
+        "patient_id": patient_id,
+        "step": "prediction",
+        "status": "success",
+        "message": f"Prediction complete: DR Grade {dr_grade}, {overall_severity}",
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    await emit_to_clients("prediction.log", legacy_payload, room=room)
+    await emit_to_clients("prediction.log", legacy_payload, room=None)
+
+    logger.info(f"Emitted prediction event: {event_type} for {prediction_id}")
+
+
+async def emit_xai_event(
+    event_type: str,
+    prediction_id: str,
+    patient_id: str | None,
+    status: str,
+    progress: int,
+    message: str,
+    explanation_id: str | None = None,
+    content: str | None = None,
+    summary: str | None = None,
+    details: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> None:
+    payload: dict[str, Any] = {
+        "prediction_id": prediction_id,
+        "patient_id": patient_id,
+        "status": status,
+        "progress": progress,
+        "message": message,
+        "explanation_id": explanation_id,
+        "content": content,
+        "summary": summary,
+        "details": details or {},
+        "error": error,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    if patient_id:
+        await emit_to_clients(event_type, payload, room=f"prediction:{patient_id}")
+    await emit_to_clients(event_type, payload, room=None)
+
+    if patient_id:
+        legacy_payload: dict[str, Any] = {
+            "prediction_id": prediction_id,
+            "patient_id": patient_id,
+            "step": "xai",
+            "status": "success" if status == "completed" else "info",
+            "message": message or f"XAI processing: {event_type}",
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        await emit_to_clients(
+            "prediction.log", legacy_payload, room=f"prediction:{patient_id}"
+        )
+        await emit_to_clients("prediction.log", legacy_payload, room=None)
+
+    logger.info(f"Emitted XAI event: {event_type} for prediction {prediction_id}")
 
 
 async def _trigger_llmops_training_workflow(

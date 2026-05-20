@@ -1,7 +1,5 @@
 import asyncio
 import uuid
-from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,7 +36,6 @@ class StoreXAIRequest(BaseModel):
     explanation_content: str | None = None
     explanation_summary: str | None = None
     explanation_model: str | None = None
-    shap_values: dict[str, Any] | None = None
     gradcam_left_explanation: str | None = None
     gradcam_right_explanation: str | None = None
     severity_content: str | None = None
@@ -47,21 +44,13 @@ class StoreXAIRequest(BaseModel):
     severity_recommendations: list[str] = Field(default_factory=list)
 
 
-class StoreXAIShapRequest(BaseModel):
-    prediction_id: str
-    shap_values: dict[str, Any]
-    content: str | None = None
-    summary: str | None = None
-    model: str = "shap"
-
-
 @router.post("/store")
 async def store_xai_results(
     request: StoreXAIRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """Store XAI results from LLMOps service."""
-    from app.websockets.manager import get_socket_manager
+    from app.api.v1.websockets import emit_xai_event
 
     prediction_repo = PredictionRepository(db)
     prediction = await prediction_repo.get_by_id(uuid.UUID(request.prediction_id))
@@ -71,15 +60,14 @@ async def store_xai_results(
 
     results = {"stored": []}
 
-    if request.explanation_content or request.shap_values:
+    if request.explanation_content:
         exp = PredictionExplanation(
             id=uuid.uuid4(),
             prediction_id=prediction.id,
-            content=request.explanation_content or "",
+            content=request.explanation_content,
             summary=request.explanation_summary,
             model_used=request.explanation_model or "unknown",
             status="completed",
-            shap_values=request.shap_values,
         )
         try:
             db.add(exp)
@@ -93,11 +81,7 @@ async def store_xai_results(
             )
 
         prediction.output_payload = prediction.output_payload or {}
-        if request.explanation_content:
-            prediction.output_payload["explanation"] = request.explanation_content
-        if request.shap_values:
-            prediction.output_payload["shap_values"] = request.shap_values
-
+        prediction.output_payload["explanation"] = request.explanation_content
         db.add(prediction)
 
     if request.gradcam_left_explanation or request.gradcam_right_explanation:
@@ -139,9 +123,8 @@ async def store_xai_results(
     await db.commit()
 
     try:
-        socket_manager = get_socket_manager()
         asyncio.create_task(
-            socket_manager.emit_xai_event(
+            emit_xai_event(
                 event_type="xai.explanation_ready",
                 prediction_id=str(prediction.id),
                 patient_id=str(prediction.patient_id),
@@ -154,37 +137,6 @@ async def store_xai_results(
         pass
 
     return {"status": "ok", "prediction_id": request.prediction_id, "results": results}
-
-
-@router.post("/store/shap")
-async def store_shap_results(
-    request: StoreXAIShapRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    """Store SHAP explanation results."""
-    prediction_repo = PredictionRepository(db)
-    prediction = await prediction_repo.get_by_id(uuid.UUID(request.prediction_id))
-
-    if not prediction:
-        return {"status": "error", "message": "Prediction not found"}
-
-    exp = PredictionExplanation(
-        id=uuid.uuid4(),
-        prediction_id=prediction.id,
-        content=request.content or "",
-        summary=request.summary,
-        model_used=request.model,
-        status=ExplanationStatus.COMPLETED,
-        shap_values=request.shap_values,
-    )
-    db.add(exp)
-
-    prediction.output_payload = prediction.output_payload or {}
-    prediction.output_payload["shap_values"] = request.shap_values
-
-    await db.commit()
-
-    return {"status": "ok", "prediction_id": request.prediction_id}
 
 
 class XAIResponse(BaseModel):
@@ -234,7 +186,6 @@ async def get_xai_explanations(
             "summary": prediction.explanation.summary,
             "model_used": prediction.explanation.model_used,
             "status": prediction.explanation.status.value,
-            "shap_values": prediction.explanation.shap_values,
         }
 
     if prediction.severity_report:

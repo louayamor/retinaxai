@@ -22,7 +22,8 @@ def user_id() -> uuid.UUID:
 
 @pytest.fixture
 def access_token(user_id: uuid.UUID) -> str:
-    return create_access_token(user_id)
+    token, _jti = create_access_token(user_id)
+    return token
 
 
 @pytest.fixture
@@ -46,7 +47,9 @@ def auth_session(user_id: uuid.UUID) -> SimpleNamespace:
 
 @pytest_asyncio.fixture
 async def api_client() -> AsyncGenerator[httpx.AsyncClient, None]:
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
         yield client
 
 

@@ -39,4 +39,4 @@ class MLPredictResponse(BaseModel):
     regions_right: list[RegionNumeric] | None = None
     top_hotspots_left: list[TopHotspot] | None = None
     top_hotspots_right: list[TopHotspot] | None = None
-    shap_explanation: dict | None = None
+
