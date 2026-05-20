@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import time
 
@@ -24,25 +23,7 @@ from app.services.prometheus_metrics import (
     XAI_PREDICTION_REQUESTS_TOTAL,
     XAI_RAG_AVAILABLE,
 )
-from app.services.shap_service import ShapService
-from app.services.websocket_client import send_xai_event
-
-
-XAI_EXPLANATION_SYSTEM_PROMPT = """Generate structured diabetic retinopathy explanations in JSON format.
-
-Output JSON with these exact keys:
-- diagnosis: {condition, severity, overall_grade (0-4), confidence (0.0-1.0), risk_level}
-- clinical_findings: {left_eye: {grade, severity, confidence, description}, right_eye: {...}}
-- feature_importance: {top_contributors: [{feature_name, contribution}], key_insights: []}
-- clinical_context: {risk_factors: [], visual_indicators: [], recommendations: []}
-- summary: 3-4 sentence clinical summary
-
-DATA REQUIREMENTS:
-- confidence: MUST be decimal like 0.79, NOT "79%" or 79
-- grade: MUST be integer 0-4
-- description: At least 2 sentences per eye with specific findings (microaneurysms, hemorrhages, etc.)
-
-Output complete valid JSON only."""
+from app.services.event_client import send_xai_event
 
 
 XAI_SEVERITY_SYSTEM_PROMPT = """Generate structured severity reports in JSON format.
@@ -144,13 +125,11 @@ class XAIPipeline:
         prediction_id: str,
         dr_grade: str,
         confidence: float,
-        clinical_features: dict | None = None,
         gradcam_regions: dict | None = None,
     ) -> dict:
-        """Generate natural language explanation of DR prediction using SHAP values or GradCAM regions."""
+        """Generate natural language explanation of DR prediction using GradCAM regions."""
         logger.info(
             f"explain_prediction_input: pred={prediction_id} grade={dr_grade} conf={confidence} "
-            f"clinical={clinical_features is not None} "
             f"gradcam_left={len(gradcam_regions.get('left_eye', [])) if gradcam_regions else None} "
             f"gradcam_right={len(gradcam_regions.get('right_eye', [])) if gradcam_regions else None}"
         )
@@ -167,8 +146,6 @@ class XAIPipeline:
         start_time = time.time()
         XAI_PREDICTION_REQUESTS_TOTAL.labels(status="started").inc()
 
-        shap_values = None
-        shap_explanation = None
         imaging_explanation = None
 
         if gradcam_regions and (
@@ -193,7 +170,6 @@ class XAIPipeline:
                     prediction_grade=grade_int,
                     confidence=confidence,
                 )
-                shap_values = imaging_explanation.to_dict()
                 logger.info(
                     f"Imaging explanation computed for prediction {prediction_id} using GradCAM regions"
                 )
@@ -202,36 +178,7 @@ class XAIPipeline:
                 logger.warning(
                     f"Imaging explanation calculation failed, continuing without it: {imaging_error}"
                 )
-                shap_values = None
                 imaging_explanation = None
-
-        elif clinical_features:
-            try:
-                from app.services.shap_service import get_shap_service
-
-                await send_xai_event(
-                    event="xai.prediction",
-                    stage="prediction",
-                    status="progress",
-                    progress=25,
-                    message="Calculating SHAP feature contributions...",
-                    prediction_id=prediction_id,
-                )
-
-                shap_service = get_shap_service()
-                shap_explanation = await shap_service.explain_prediction(
-                    features=clinical_features,
-                    pipeline="clinical",
-                )
-                shap_values = shap_explanation.to_dict()
-                logger.info(f"SHAP explanation computed for prediction {prediction_id}")
-
-            except Exception as shap_error:
-                logger.warning(
-                    f"SHAP calculation failed, continuing without it: {shap_error}"
-                )
-                shap_values = None
-                shap_explanation = None
 
         await send_xai_event(
             event="xai.prediction",
@@ -243,20 +190,12 @@ class XAIPipeline:
         )
 
         try:
-            if imaging_explanation:
-                prompt = self._build_imaging_prompt_with_regions(
-                    dr_grade,
-                    confidence,
-                    gradcam_regions,
-                    shap_values,
-                )
-            else:
-                prompt = self._build_prediction_prompt_with_shap(
-                    dr_grade,
-                    confidence,
-                    clinical_features,
-                    shap_values,
-                )
+            prompt = self._build_imaging_prompt_with_regions(
+                dr_grade,
+                confidence,
+                gradcam_regions,
+            )
+
             logger.info(f"Starting LLM generation for prediction {prediction_id}")
             result = await generate_with_fallback(self.client, prompt)
             response = result.content
@@ -281,13 +220,9 @@ class XAIPipeline:
                 "content": response,
                 "summary": response[:500],
             }
-            if shap_values:
-                result_details["shap_values"] = shap_values
-                if imaging_explanation:
-                    result_details["explanation_type"] = "gradcam_regions"
-                    result_details["top_regions"] = shap_values.get("top_regions", [])
-                else:
-                    result_details["top_features"] = shap_values.get("top_positive", [])
+            if imaging_explanation:
+                result_details["explanation_type"] = "gradcam_regions"
+                result_details["top_regions"] = imaging_explanation.to_dict().get("top_regions", [])
 
             await send_xai_event(
                 event="xai.explanation_ready",
@@ -304,10 +239,7 @@ class XAIPipeline:
                 "summary": response[:500],
                 "model_used": settings.resolved_model,
                 "status": "completed",
-                "shap_values": shap_values,
-                "explanation_type": "gradcam_regions"
-                if imaging_explanation
-                else "clinical_shap",
+                "explanation_type": "gradcam_regions" if imaging_explanation else "basic",
             }
         except Exception as e:
             XAI_PREDICTION_REQUESTS_TOTAL.labels(status="failed").inc()
@@ -327,7 +259,6 @@ class XAIPipeline:
         dr_grade: str,
         confidence: float,
         gradcam_regions: dict | None,
-        shap_values: dict | None,
     ) -> str:
         """Build prompt for imaging-based explanation using GradCAM regions.
 
@@ -433,21 +364,6 @@ class XAIPipeline:
                 ]
                 hotspots_text = "\n" + "\n".join(hotspot_lines)
 
-        shap_context = ""
-        if shap_values:
-            top_regions = shap_values.get("top_regions", [])
-            if top_regions:
-                regions_str = ", ".join(
-                    [
-                        f"{r['name']} (contribution: {r['contribution']:.3f})"
-                        for r in top_regions[:3]
-                    ]
-                )
-                shap_context = f"""
-Region Importance Analysis (GradCAM activation strength):
-{regions_str}
-"""
-
         prompt = f"""You are a retinal specialist explaining how the DR grading model arrived at its prediction.
 
 PATIENT STATUS:
@@ -464,8 +380,6 @@ RIGHT EYE (OD) REGIONS (ranked by model saliency):
 {right_eye_analysis if right_eye_analysis else "No regions activated."}
 
 TOP HOTSPOTS ACROSS BOTH EYES:{hotspots_text}
-
-{shap_context}
 
 OUTPUT FORMAT — Use these exact headers to separate per-eye analysis:
 
@@ -636,7 +550,7 @@ Use precise clinical terminology. Write as a retinal specialist documenting find
             store = ChromaStore(
                 settings.rag_chroma_persist_directory,
                 settings.rag_chroma_collection_name,
-                settings.rag_embedding_model,
+                settings.resolved_rag_embedding_model,
             )
             results = store.query(query_text, top_k=2)
         except Exception as e:
@@ -826,9 +740,8 @@ For EACH highlighted region, cover:
 Use precise clinical terminology. Write as a retinal specialist documenting 
 findings. Output complete clinical narrative only."""
 
-            result = await generate_with_fallback(
-                self.client, prompt, system_prompt=GRADCAM_SYSTEM_PROMPT
-            )
+            combined = f"{GRADCAM_SYSTEM_PROMPT}\n\n{prompt}"
+            result = await generate_with_fallback(self.client, combined)
             response = result.content
 
             XAI_GRADCAM_LATENCY.observe(time.time() - start_time)
@@ -846,26 +759,27 @@ findings. Output complete clinical narrative only."""
 
             # Parse per-eye sections from the response
             left_match = re.search(
-                r"###\s*LEFT EYE\s*\(?OS\)?\s*:\s*\n+(.*?)(?=\n*###\s*RIGHT EYE\s*\(?OD\)?\s*:\s*|\Z)",
+                r"(?:###\s*|\*\*)\s*LEFT EYE\s*\(?OS\)?\s*(?:\*\*)?\s*:\s*\n+(.*?)(?=\n*(?:###\s*|\*\*)\s*RIGHT EYE\s*\(?OD\)?\s*(?:\*\*)?\s*:\s*|\Z)",
                 response,
                 re.DOTALL | re.IGNORECASE,
             )
             right_match = re.search(
-                r"###\s*RIGHT EYE\s*\(?OD\)?\s*:\s*\n+(.*?)(?=\Z)",
+                r"(?:###\s*|\*\*)\s*RIGHT EYE\s*\(?OD\)?\s*(?:\*\*)?\s*:\s*\n+(.*?)(?=\Z)",
                 response,
                 re.DOTALL | re.IGNORECASE,
             )
-            left_explanation = left_match.group(1).strip() if left_match else response
-            right_explanation = (
-                right_match.group(1).strip() if right_match else response
-            )
-            if not left_match or not right_match:
+            left_explanation = left_match.group(1).strip() if left_match else ""
+            right_explanation = right_match.group(1).strip() if right_match else ""
+            if not left_explanation or not right_explanation:
                 logger.warning(
                     "gradcam_parse_fallback",
-                    has_left=left_match is not None,
-                    has_right=right_match is not None,
+                    has_left=bool(left_explanation),
+                    has_right=bool(right_explanation),
                     response_length=len(response),
                 )
+            if not left_explanation and not right_explanation:
+                left_explanation = response
+                right_explanation = response
 
             highlighted_region_names = {
                 "left_eye": [
@@ -1001,89 +915,6 @@ findings. Output complete clinical narrative only."""
                 error=str(e),
             )
             raise
-
-    def _build_prediction_prompt(
-        self,
-        dr_grade: str,
-        confidence: float,
-        clinical_features: dict | None,
-    ) -> str:
-        grade_int = _validate_dr_grade(dr_grade)
-        grade_label = ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"][
-            grade_int
-        ]
-
-        clinical_context = ""
-        if clinical_features:
-            clinical_context = f"\nClinical features: {json.dumps(clinical_features)}"
-
-        return f"""{XAI_EXPLANATION_SYSTEM_PROMPT}
-
-PREDICTION DATA:
-- DR Grade: {grade_int} ({grade_label})
-- Confidence: {confidence:.2f}
-{clinical_context}
-
-Generate structured explanation as JSON."""
-
-    def _build_prediction_prompt_with_shap(
-        self,
-        dr_grade: str,
-        confidence: float,
-        clinical_features: dict | None,
-        shap_values: dict | None,
-    ) -> str:
-        shap_context = ""
-        if shap_values:
-            top_positive = shap_values.get("top_positive", [])
-            top_negative = shap_values.get("top_negative", [])
-            expected_value = shap_values.get("expected_value", 0)
-
-            positive_features = (
-                ", ".join(
-                    [f"{f['name']} ({f['contribution']:.3f})" for f in top_positive[:3]]
-                )
-                if top_positive
-                else "None"
-            )
-            negative_features = (
-                ", ".join(
-                    [f"{f['name']} ({f['contribution']:.3f})" for f in top_negative[:3]]
-                )
-                if top_negative
-                else "None"
-            )
-
-            shap_context = f"""
-SHAP Feature Analysis:
-- Base value (expected): {expected_value:.3f}
-- Top positive contributing features: {positive_features}
-- Top negative contributing features: {negative_features}
-"""
-
-        clinical_context = ""
-        if clinical_features:
-            clinical_context = f"\nClinical Features: {clinical_features}"
-
-        prompt = f"""You are a medical AI assistant explaining diabetic retinopathy (DR) prediction results.
-
-Explain this prediction in patient-friendly terms addressing these key areas:
-
-1. DIAGNOSIS: The DR grade is {dr_grade} with {confidence:.1%} confidence.
-
-2. FEATURE CONTRIBUTIONS:{shap_context}
-
-3. CLINICAL CONTEXT:{clinical_context}
-
-Please provide:
-- A clear explanation of what this diagnosis means for the patient
-- How the key clinical features influenced the prediction
-- Recommended next steps and follow-up actions
-- Any warning signs the patient should watch for
-
-Keep the explanation professional but accessible to a non-medical patient."""
-
-        return f"{REPORT_SYSTEM_PROMPT}\n\n{prompt}"
 
     def _build_gradcam_prompt(
         self,

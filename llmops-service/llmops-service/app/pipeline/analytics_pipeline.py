@@ -32,7 +32,7 @@ class AnalyticsPipeline:
         self.store = ChromaStore(
             settings.rag_chroma_persist_directory,
             settings.rag_chroma_collection_name,
-            settings.rag_embedding_model,
+            settings.resolved_rag_embedding_model,
         )
         self._llm_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_LLM_CALLS)
         self._cache: dict[str, tuple[float, AnalyticsQueryResponse]] = {}
@@ -198,9 +198,8 @@ class AnalyticsPipeline:
 
     async def _generate(self, prompt: str) -> str:
         async with self._llm_semaphore:
-            result = await generate_with_fallback(
-                self.client, prompt, system_prompt=ANALYTICS_SYSTEM_PROMPT
-            )
+            combined = f"{ANALYTICS_SYSTEM_PROMPT}\n\n{prompt}"
+            result = await generate_with_fallback(self.client, combined)
             return result.content
 
     def _parse_response(

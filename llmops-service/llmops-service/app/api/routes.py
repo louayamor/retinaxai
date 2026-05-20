@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -29,8 +28,8 @@ from app.services.operation_state import (
     OperationStateManager,
     get_operation_state_manager,
 )
-from app.services.shap_service import ShapService, get_shap_service
-from app.services.websocket_client import WebSocketClient, get_websocket_client
+
+from app.services.event_client import EventClient, get_event_client
 from app.vectorstore.chroma_store import ChromaStore
 
 router = APIRouter(prefix="/api", tags=["llmops"])
@@ -213,7 +212,7 @@ def rag_status() -> RagStatusResponse:
     store = ChromaStore(
         settings.rag_chroma_persist_directory,
         settings.rag_chroma_collection_name,
-        settings.rag_embedding_model,
+        settings.resolved_rag_embedding_model,
     )
     state = store.read_state() or {}
     return RagStatusResponse(
@@ -263,7 +262,6 @@ class XAIPredictionRequest(BaseModel):
     prediction_id: str
     dr_grade: str | int
     confidence: float
-    clinical_features: dict | None = None
     gradcam_regions: dict | None = None
 
 
@@ -306,13 +304,12 @@ async def explain_prediction(
 ) -> dict:
     """
     Generate natural language explanation of DR prediction.
-    Uses GradCAM regions for imaging-based predictions or SHAP for clinical features.
+    Uses GradCAM regions for imaging-based predictions.
     """
     return await pipeline.explain_prediction(
         prediction_id=payload.prediction_id,
         dr_grade=payload.dr_grade,
         confidence=payload.confidence,
-        clinical_features=payload.clinical_features,
         gradcam_regions=payload.gradcam_regions,
     )
 
@@ -361,7 +358,7 @@ class TrainingCompleteRequest(BaseModel):
 @router.post("/workflows/training-complete")
 async def workflow_training_complete(
     payload: TrainingCompleteRequest,
-    ws_client: WebSocketClient = Depends(get_websocket_client),
+    ws_client: EventClient = Depends(get_event_client),
 ) -> dict:
     """
     Handle training completion event from MLOps.
@@ -424,143 +421,7 @@ async def workflow_training_complete(
     }
 
 
-class ShapExplainRequest(BaseModel):
-    features: dict[str, Any]
-    pipeline: str = "clinical"
 
-
-class ShapExplainResponse(BaseModel):
-    model_type: str
-    expected_value: float
-    pipeline: str
-    explanation: dict
-
-
-class GlobalImportanceResponse(BaseModel):
-    pipeline: str
-    importance: dict[str, float]
-
-
-class BiasCheckResponse(BaseModel):
-    pipeline: str
-    demographic_column: str
-    results: dict[str, Any]
-
-
-@router.post("/xai/shap/explain", response_model=ShapExplainResponse)
-async def shap_explain_prediction(
-    payload: ShapExplainRequest,
-    service: ShapService = Depends(get_shap_service),
-) -> ShapExplainResponse:
-    """
-    Generate SHAP explanation for clinical model prediction.
-    DEPRECATED: Use /xai/explain for unified XAI explanation.
-    """
-    logger.info(f"SHAP explanation requested for pipeline: {payload.pipeline}")
-
-    try:
-        explanation = await service.explain_prediction(
-            features=payload.features,
-            pipeline=payload.pipeline,
-        )
-
-        return ShapExplainResponse(
-            model_type=explanation.model_type,
-            expected_value=explanation.expected_value,
-            pipeline=explanation.pipeline,
-            explanation=explanation.to_dict(),
-        )
-
-    except Exception as e:
-        logger.error(f"SHAP explanation failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/xai/shap/importance/{pipeline}", response_model=GlobalImportanceResponse)
-async def shap_get_global_importance(
-    pipeline: str,
-    service: ShapService = Depends(get_shap_service),
-) -> GlobalImportanceResponse:
-    """
-    Get cached global SHAP feature importance.
-    """
-    importance = service.get_global_importance(pipeline)
-
-    return GlobalImportanceResponse(
-        pipeline=pipeline,
-        importance=importance,
-    )
-
-
-@router.post(
-    "/xai/shap/importance/{pipeline}/compute", response_model=GlobalImportanceResponse
-)
-async def shap_compute_global_importance(
-    pipeline: str,
-    test_path: str | None = None,
-    sample_size: int = 100,
-    service: ShapService = Depends(get_shap_service),
-) -> GlobalImportanceResponse:
-    """
-    Compute global SHAP feature importance on test dataset.
-    """
-    if test_path:
-        test_csv = Path(test_path)
-        if not test_csv.is_absolute():
-            test_csv = settings.artifacts_root / test_path
-    else:
-        test_csv = (
-            settings.artifacts_root / "data" / "processed" / pipeline / "test.csv"
-        )
-
-    if not test_csv.exists():
-        raise HTTPException(status_code=404, detail=f"Test data not found: {test_csv}")
-
-    importance = await service.compute_global_importance(
-        test_csv=test_csv,
-        pipeline=pipeline,
-        sample_size=sample_size,
-    )
-
-    return GlobalImportanceResponse(
-        pipeline=pipeline,
-        importance=importance,
-    )
-
-
-@router.post("/xai/shap/bias/{pipeline}", response_model=BiasCheckResponse)
-async def shap_check_bias(
-    pipeline: str,
-    demographic_column: str = "patient_gender",
-    test_path: str | None = None,
-    service: ShapService = Depends(get_shap_service),
-) -> BiasCheckResponse:
-    """
-    Check for potential bias in model predictions across demographic groups.
-    """
-    if test_path:
-        test_csv = Path(test_path)
-        if not test_csv.is_absolute():
-            test_csv = settings.artifacts_root / test_path
-    else:
-        test_csv = (
-            settings.artifacts_root / "data" / "processed" / pipeline / "test.csv"
-        )
-
-    if not test_csv.exists():
-        raise HTTPException(status_code=404, detail=f"Test data not found: {test_csv}")
-
-    results = await service.check_bias(
-        test_csv=test_csv,
-        demographic_col=demographic_column,
-        pipeline=pipeline,
-    )
-
-    return BiasCheckResponse(
-        pipeline=pipeline,
-        demographic_column=demographic_column,
-        results=results,
-    )
 
 
 _analytics_pipeline: AnalyticsPipeline | None = None

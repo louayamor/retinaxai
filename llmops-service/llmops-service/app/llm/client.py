@@ -61,7 +61,7 @@ class GitHubLLMClient(LLMClient):
         system_prompt: Optional[str] = None,
         model: Optional[str] = None,
     ) -> str:
-        from azure.ai.inference.models import SystemMessage, UserMessage
+        from azure.ai.inference.models import UserMessage
         from azure.core.exceptions import AzureError
 
         # Bug 2 fix: Check retry timestamp instead of counter
@@ -71,10 +71,11 @@ class GitHubLLMClient(LLMClient):
             await anyio.sleep(remaining)
             self._retry_until = 0.0
 
-        messages = []
         if system_prompt:
-            messages.append(SystemMessage(system_prompt))
-        messages.append(UserMessage(prompt))
+            full_prompt = f"{system_prompt}\n\n{prompt}"
+        else:
+            full_prompt = prompt
+        messages = [UserMessage(full_prompt)]
 
         logger.info(f"Calling LLM {self.model} with prompt length: {len(prompt)} chars")
 

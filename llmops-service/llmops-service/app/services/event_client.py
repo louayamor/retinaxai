@@ -11,8 +11,8 @@ MAX_RETRIES = 2
 INITIAL_BACKOFF = 0.5
 
 
-class WebSocketClient:
-    _instance: "WebSocketClient | None" = None
+class EventClient:
+    _instance: "EventClient | None" = None
     _connected: bool = False
 
     def __init__(self) -> None:
@@ -20,7 +20,7 @@ class WebSocketClient:
         self._url = BACKEND_WS_URL
 
     @classmethod
-    def get_instance(cls) -> "WebSocketClient":
+    def get_instance(cls) -> "EventClient":
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
@@ -32,10 +32,10 @@ class WebSocketClient:
         try:
             self._client = httpx.AsyncClient(timeout=5.0)
             self._connected = True
-            logger.info("LLMOps WebSocket client initialized")
+            logger.info("LLMOps event client initialized")
             return True
         except Exception as e:
-            logger.warning(f"WebSocket client init failed: {e}")
+            logger.warning(f"Event client init failed: {e}")
             self._connected = False
             return False
 
@@ -128,15 +128,15 @@ class WebSocketClient:
             )
 
 
-_websocket_client: WebSocketClient | None = None
+_event_client: EventClient | None = None
 
 
-def get_websocket_client() -> WebSocketClient:
+def get_event_client() -> EventClient:
     """FastAPI dependency factory. Creates instance if not overridden."""
-    global _websocket_client
-    if _websocket_client is None:
-        _websocket_client = WebSocketClient()
-    return _websocket_client
+    global _event_client
+    if _event_client is None:
+        _event_client = EventClient()
+    return _event_client
 
 
 async def send_xai_event(

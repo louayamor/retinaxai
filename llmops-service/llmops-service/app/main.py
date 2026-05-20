@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 
 from app.api.routes import router
+from app.api.ws_handlers import router as ws_router
 from app.core.config import settings
 from app.core.middleware import APIKeyMiddleware, RateLimitMiddleware
 from app.pipeline.report_generator import generate_report_handler
@@ -25,8 +26,7 @@ from app.pipeline.inference_pipeline import get_inference_pipeline
 from app.pipeline.xai_pipeline import get_xai_pipeline
 from app.services.job_manager import get_job_manager
 from app.services.operation_state import get_operation_state_manager
-from app.services.shap_service import get_shap_service
-from app.services.websocket_client import get_websocket_client
+from app.services.event_client import get_event_client
 from app.services.prometheus_metrics import start_metrics_server
 from app.vectorstore.chroma_store import ChromaStore
 
@@ -107,13 +107,37 @@ def check_chromadb_ready() -> bool:
         store = ChromaStore(
             settings.rag_chroma_persist_directory,
             settings.rag_chroma_collection_name,
-            settings.rag_embedding_model,
+            settings.resolved_rag_embedding_model,
         )
         store.ensure_ready()
         logger.info("ChromaDB is ready")
         return True
     except Exception as e:
         logger.warning(f"ChromaDB not ready: {e}")
+        return False
+
+
+def preload_rag_embeddings() -> bool:
+    """Warm up the embedding model at startup.
+
+    This prevents the first chat request (often via WebSocket) from triggering
+    HuggingFace Hub network calls.
+    """
+    try:
+        store = ChromaStore(
+            settings.rag_chroma_persist_directory,
+            settings.rag_chroma_collection_name,
+            settings.resolved_rag_embedding_model,
+        )
+        # Trigger a tiny embed call to ensure the model is loaded.
+        # embed_query is sync and may raise if model is missing (offline mode).
+        embed = getattr(store.embedding_function, "embed_query", None)
+        if callable(embed):
+            _ = embed("warmup")
+        logger.info("RAG embeddings preloaded")
+        return True
+    except Exception as e:
+        logger.warning(f"RAG embeddings preload failed: {e}")
         return False
 
 
@@ -154,6 +178,10 @@ async def lifespan(app: FastAPI):
     chroma_ready = check_chromadb_ready()
     logger.info(f"ChromaDB status: {'ready' if chroma_ready else 'not ready'}")
 
+    # Warm up embeddings to avoid first-request failures in offline envs
+    embeddings_ready = preload_rag_embeddings()
+    logger.info(f"Embeddings status: {'ready' if embeddings_ready else 'not ready'}")
+
     # Initialize job manager (singleton via get_job_manager())
     job_manager = get_job_manager()
     job_manager.register_handler("report_generation", generate_report_handler)
@@ -162,8 +190,8 @@ async def lifespan(app: FastAPI):
         f"Job manager started with handlers: {list(job_manager._handlers.keys())}"
     )
 
-    # Connect WebSocket client (singleton via get_websocket_client())
-    ws_client = get_websocket_client()
+    # Connect event client (singleton via get_event_client())
+    ws_client = get_event_client()
     await ws_client.connect()
 
     logger.info(f"Service ready on {settings.app_host}:{settings.app_port}")
@@ -218,9 +246,6 @@ def create_app() -> FastAPI:
             "/api/xai/explain",
             "/api/xai/gradcam",
             "/api/xai/severity",
-            "/api/xai/shap/explain",
-            "/api/xai/shap/importance",
-            "/api/xai/shap/bias",
             "/api/workflows/training-complete",
             "/api/jobs",
             "/api/jobs/",
@@ -259,6 +284,7 @@ def create_app() -> FastAPI:
 
     # Include routers
     app.include_router(router)  # type: ignore[arg-type]
+    app.include_router(ws_router)  # WebSocket chat
 
     # Exception handlers
     @app.exception_handler(Exception)

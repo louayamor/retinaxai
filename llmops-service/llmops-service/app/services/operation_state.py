@@ -26,10 +26,10 @@ def _try_emit_ws(
 ) -> None:
     """Try to emit WebSocket event without blocking caller flow."""
     try:
-        from app.services.websocket_client import get_websocket_client
+        from app.services.event_client import get_event_client
 
-        ws_client = get_websocket_client()
-        coro = ws_client.send_llmops_event(
+        event_client = get_event_client()
+        coro = event_client.send_llmops_event(
             event_type, status, progress, message, details
         )
         try:

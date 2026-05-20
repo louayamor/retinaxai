@@ -122,16 +122,6 @@ def _format_explanations(explanations: list[dict]) -> str:
         content = exp.get("content", "")
         if content:
             lines.append(f"Explanation: {content[:500]}")
-        shap = exp.get("shap_values")
-        if shap and isinstance(shap, dict):
-            lines.append("SHAP Values (top features):")
-            sorted_features = sorted(
-                shap.items(),
-                key=lambda x: abs(x[1]) if isinstance(x[1], (int, float)) else 0,
-                reverse=True,
-            )
-            for feat, val in sorted_features[:10]:
-                lines.append(f"  {feat}: {val}")
         prediction_id = exp.get("prediction_id")
         if prediction_id:
             lines.append(f"Prediction ID: {prediction_id}")
@@ -222,7 +212,7 @@ def normalize_artifact(
         "artifact_type": artifact.artifact_type.value
         if hasattr(artifact.artifact_type, "value")
         else artifact.artifact_type,
-        "run_id": run_id or "",
+        "run_id": run_id,
         "source_path": artifact.source_path,
         "content_hash": artifact.content_hash,
         "content_length": artifact.content_length,

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from app.services.websocket_client import WebSocketClient, send_xai_event
+from app.services.event_client import EventClient, send_xai_event
 
 
 def test_send_xai_event_emits_correct_event_name():
@@ -18,7 +18,7 @@ def test_send_xai_event_emits_correct_event_name():
         called["body"] = payload
         return True
 
-    with patch("app.services.websocket_client._send_with_retry", fake_send):
+    with patch("app.services.event_client._send_with_retry", fake_send):
         asyncio.run(
             send_xai_event(
                 event="xai.prediction",
@@ -45,7 +45,7 @@ def test_send_xai_event_emits_correct_room_for_each_stage():
         calls.append(payload)
         return True
 
-    with patch("app.services.websocket_client._send_with_retry", fake_send):
+    with patch("app.services.event_client._send_with_retry", fake_send):
         for stage in ["prediction", "gradcam", "severity"]:
             asyncio.run(
                 send_xai_event(
@@ -71,7 +71,7 @@ def test_send_xai_event_includes_details_and_error():
         called["body"] = payload
         return True
 
-    with patch("app.services.websocket_client._send_with_retry", fake_send):
+    with patch("app.services.event_client._send_with_retry", fake_send):
         asyncio.run(
             send_xai_event(
                 event="xai.gradcam",
@@ -96,7 +96,7 @@ def test_send_xai_event_does_not_raise_on_http_error():
     async def fake_send(url, payload, headers=None, max_retries=2):
         return False
 
-    with patch("app.services.websocket_client._send_with_retry", fake_send):
+    with patch("app.services.event_client._send_with_retry", fake_send):
         # Should not raise even when sending fails
         asyncio.run(
             send_xai_event(
@@ -116,7 +116,7 @@ def test_send_xai_event_does_not_raise_on_connection_error():
     async def fake_send(url, payload, headers=None, max_retries=2):
         return False
 
-    with patch("app.services.websocket_client._send_with_retry", fake_send):
+    with patch("app.services.event_client._send_with_retry", fake_send):
         asyncio.run(
             send_xai_event(
                 event="xai.prediction",
@@ -129,25 +129,25 @@ def test_send_xai_event_does_not_raise_on_connection_error():
         )
 
 
-def test_websocket_client_is_not_singleton():
-    """WebSocketClient instances are independent."""
-    a = WebSocketClient()
-    b = WebSocketClient()
+def test_event_client_is_not_singleton():
+    """EventClient instances are independent."""
+    a = EventClient()
+    b = EventClient()
     assert a is not b
 
 
-def test_websocket_client_connect_sets_connected():
-    """WebSocketClient.connect sets _connected to True."""
-    client = WebSocketClient()
+def test_event_client_connect_sets_connected():
+    """EventClient.connect sets _connected to True."""
+    client = EventClient()
     result = asyncio.run(client.connect())
     assert result is True
     assert client.is_connected is True
     asyncio.run(client.disconnect())
 
 
-def test_websocket_client_disconnect_closes_client():
-    """WebSocketClient.disconnect closes the underlying httpx client."""
-    client = WebSocketClient()
+def test_event_client_disconnect_closes_client():
+    """EventClient.disconnect closes the underlying httpx client."""
+    client = EventClient()
     asyncio.run(client.connect())
     assert client.is_connected is True
     asyncio.run(client.disconnect())

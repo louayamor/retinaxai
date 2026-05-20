@@ -36,12 +36,6 @@ RAG_DOCUMENTS_RETRIEVED = Gauge(
     "Number of documents retrieved from RAG per request",
 )
 
-SHAP_EXPLAIN_REQUESTS_TOTAL = Counter(
-    "retinaxai_llm_shap_requests_total",
-    "Total SHAP explanation requests",
-    ["status"],
-)
-
 XAI_GRADCAM_REQUESTS_TOTAL = Counter(
     "retinaxai_xai_gradcam_requests_total",
     "Total GradCAM explanation requests",

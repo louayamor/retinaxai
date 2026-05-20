@@ -12,8 +12,7 @@ from app.services.operation_state import (
     get_operation_state_manager,
     OperationStateManager,
 )
-from app.services.shap_service import get_shap_service, ShapService
-from app.services.websocket_client import get_websocket_client, WebSocketClient
+from app.services.event_client import get_event_client, EventClient
 from app.vectorstore.chroma_store import ChromaStore
 
 client = TestClient(app)

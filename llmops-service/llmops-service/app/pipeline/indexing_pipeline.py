@@ -49,7 +49,7 @@ class IndexingPipeline:
         store = ChromaStore(
             settings.rag_chroma_persist_directory,
             settings.rag_chroma_collection_name,
-            settings.rag_embedding_model,
+            settings.resolved_rag_embedding_model,
         )
         store.ensure_ready()
         store.upsert_documents([])

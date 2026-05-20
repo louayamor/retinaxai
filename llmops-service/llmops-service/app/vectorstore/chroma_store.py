@@ -12,6 +12,32 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
 
+def _build_hf_embeddings(
+    model_name: str,
+    *,
+    offline: bool,
+    hf_home: Path | None,
+) -> Any:
+    """Create HuggingFace embeddings with optional offline-only behavior.
+
+    When `offline` is enabled, we force local cache usage only. This avoids runtime
+    HEAD/GET calls to `huggingface.co` which can break WS chat in environments
+    without DNS/internet.
+    """
+    import os
+
+    if hf_home is not None:
+        os.environ.setdefault("HF_HOME", str(hf_home))
+
+    model_kwargs: dict[str, Any] = {}
+    if offline:
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
+        os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+        model_kwargs["local_files_only"] = True
+
+    return HuggingFaceEmbeddings(model_name=model_name, model_kwargs=model_kwargs)
+
+
 class ChromaStore:
     def __init__(
         self,
@@ -31,9 +57,17 @@ class ChromaStore:
         self.embedding_model = (
             embedding_model or "sentence-transformers/all-MiniLM-L6-v2"
         )
-        self.embedding_function = embedding_function or HuggingFaceEmbeddings(
-            model_name=self.embedding_model
-        )
+
+        if embedding_function is not None:
+            self.embedding_function = embedding_function
+        else:
+            from app.core.config import settings
+
+            self.embedding_function = _build_hf_embeddings(
+                self.embedding_model,
+                offline=bool(settings.rag_embeddings_offline),
+                hf_home=settings.rag_hf_home,
+            )
         self._client: Chroma | None = None
         self._client_lock = threading.Lock()
 
@@ -173,6 +207,35 @@ class ChromaStore:
                 text, k=top_k, filter=metadata_filter
             )
         return vectorstore.similarity_search_with_score(text, k=top_k)
+
+    def get_document_chunks(
+        self,
+        artifact_id: str,
+        content_hash: str,
+    ) -> list[str]:
+        vectorstore = self._get_client()
+        if content_hash:
+            where: dict = {
+                "$and": [
+                    {"artifact_id": {"$eq": artifact_id}},
+                    {"content_hash": {"$eq": content_hash}},
+                ]
+            }
+        else:
+            where = {"artifact_id": {"$eq": artifact_id}}
+        raw = vectorstore.get(
+            where=where,
+            limit=500,
+            include=["documents", "metadatas"],
+        )
+        docs: list[str] = raw.get("documents", []) or []
+        metas: list[dict] = raw.get("metadatas", []) or []
+        indexed: list[tuple[int, str]] = []
+        for meta, text in zip(metas, docs):
+            idx = int(meta.get("chunk_index", 0))
+            indexed.append((idx, text.strip()))
+        indexed.sort(key=lambda x: x[0])
+        return [t for _, t in indexed]
 
     def _nuke_corrupted_data(self) -> None:
         for path in (

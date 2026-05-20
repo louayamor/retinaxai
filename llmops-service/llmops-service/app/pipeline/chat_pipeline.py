@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from loguru import logger
 from pydantic import BaseModel
@@ -31,7 +31,7 @@ class ChatPipeline:
         self.store = ChromaStore(
             settings.rag_chroma_persist_directory,
             settings.rag_chroma_collection_name,
-            settings.rag_embedding_model,
+            settings.resolved_rag_embedding_model,
         )
         self._semaphore = asyncio.Semaphore(1)
 
@@ -61,10 +61,18 @@ class ChatPipeline:
         self.client = get_llm_client(provider, **client_kwargs)
 
     async def run(
-        self, messages: list[dict], question: str, top_k: int = 5
+        self,
+        messages: list[dict],
+        question: str,
+        top_k: int = 5,
+        thinking_callback: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> AnalyticsQueryResponse:
         logger.info(f"chat_query: {question[:120]}...")
 
+        if thinking_callback:
+            await thinking_callback(
+                "retrieving", "Searching knowledge base for relevant documents..."
+            )
         rag_context, sources = self._retrieve_context(question, top_k)
         logger.info(f"chat_context: {len(rag_context)} chars, {len(sources)} sources")
 
@@ -79,11 +87,15 @@ class ChatPipeline:
             question=question,
         )
 
+        if thinking_callback:
+            model_name = settings.resolved_model
+            await thinking_callback(
+                "generating", f"Generating response via {model_name}..."
+            )
         try:
             async with self._semaphore:
-                result = await generate_with_fallback(
-                    self.client, prompt, system_prompt=CHAT_SYSTEM_PROMPT
-                )
+                combined = f"{CHAT_SYSTEM_PROMPT}\n\n{prompt}"
+                result = await generate_with_fallback(self.client, combined)
                 raw = result.content
         except Exception as e:
             logger.error(f"chat_generation_failed: {e}")
@@ -130,7 +142,6 @@ class ChatPipeline:
             "explanation",
             "xai",
             "why",
-            "shap",
             "gradcam",
             "reason",
             "attribution",
@@ -180,28 +191,52 @@ class ChatPipeline:
         if not results:
             return "", []
 
-        snippets: list[str] = []
-        sources: list[SourceInfo] = []
+        seen_docs: set[tuple[str, str]] = set()
+        seen_hashes: set[str] = set()
+        reassembled: list[tuple[float, str, SourceInfo]] = []
+
         for doc, score in results:
-            text = getattr(doc, "page_content", str(doc)).strip()
-            if not text:
-                continue
             metadata = getattr(doc, "metadata", {}) or {}
             artifact_id = str(metadata.get("artifact_id", "unknown"))
-            snippets.append((score, f"[source: {artifact_id}]\n{text}"))
-            sources.append(
-                SourceInfo(
-                    artifact_id=artifact_id,
-                    snippet=text[:200],
+            content_hash = str(metadata.get("content_hash", ""))
+            doc_key = (artifact_id, content_hash)
+            if doc_key in seen_docs:
+                continue
+            seen_docs.add(doc_key)
+
+            try:
+                chunks = self.store.get_document_chunks(artifact_id, content_hash)
+                full_text = "\n".join(chunks)
+                first_chunk = chunks[0] if chunks else ""
+                first_hash = content_hash[:12] if content_hash else "unknown"
+            except Exception:
+                full_text = getattr(doc, "page_content", str(doc)).strip()
+                first_chunk = full_text
+                first_hash = content_hash[:12] if content_hash else "unknown"
+
+            h = content_hash[:12] if content_hash else "unknown"
+            if h not in seen_hashes:
+                seen_hashes.add(h)
+            else:
+                continue
+
+            reassembled.append(
+                (
+                    score,
+                    f"[source: {artifact_id} / {first_hash}]\n{full_text}",
+                    SourceInfo(
+                        artifact_id=artifact_id,
+                        snippet=first_chunk[:200],
+                    ),
                 )
             )
 
-        snippets.sort(key=lambda x: x[0])
-        context = "\n\n---\n\n".join(text for _, text in snippets)
-        max_chars = 6000
+        reassembled.sort(key=lambda x: x[0])
+        context = "\n\n---\n\n".join(text for _, text, _ in reassembled)
+        max_chars = 10000
         if len(context) > max_chars:
             context = context[:max_chars]
-        return context, sources[:4]
+        return context, [s for _, _, s in reassembled][:4]
 
     def _parse_response(
         self, question: str, raw: str, sources: list[SourceInfo]

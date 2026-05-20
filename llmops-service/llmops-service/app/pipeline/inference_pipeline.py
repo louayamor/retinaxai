@@ -45,7 +45,7 @@ class InferencePipeline:
         self.store = ChromaStore(
             settings.rag_chroma_persist_directory,
             settings.rag_chroma_collection_name,
-            settings.rag_embedding_model,
+            settings.resolved_rag_embedding_model,
         )
 
     def _build_retrieval_context(self, payload: dict) -> tuple[str, float]:
@@ -132,9 +132,8 @@ class InferencePipeline:
             retrieved_context=retrieved_context,
         )
 
-        result = await generate_with_fallback(
-            self.client, user_prompt, system_prompt=REPORT_SYSTEM_PROMPT
-        )
+        combined = f"{REPORT_SYSTEM_PROMPT}\n\n{user_prompt}"
+        result = await generate_with_fallback(self.client, combined)
         content = result.content
         generation_time = time.time() - start_time
         logger.info(f"Generation complete ({generation_time:.2f}s)")

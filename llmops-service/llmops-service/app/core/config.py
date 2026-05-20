@@ -60,7 +60,12 @@ class Settings(BaseSettings):
 
     @property
     def resolved_model(self) -> str:
-        return self._PROVIDER_MODELS.get(self.llm_provider.value, self.llm_model)
+        provider = (
+            self.llm_provider.value
+            if isinstance(self.llm_provider, LLMProvider)
+            else str(self.llm_provider)
+        )
+        return self._PROVIDER_MODELS.get(provider, self.llm_model)
 
     github_token: Optional[str] = Field(
         default=None, validation_alias="GITHUB_ACCESS_TOKEN"
@@ -89,6 +94,23 @@ class Settings(BaseSettings):
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
 
     prometheus_metrics_port: int = 9092
+
+    # RAG embeddings: support offline / local-only environments.
+    rag_embeddings_offline: bool = Field(
+        default=False,
+        validation_alias="RAG_EMBEDDINGS_OFFLINE",
+        description="If true, never hit HuggingFace Hub; require local cache/model path.",
+    )
+    rag_embedding_model_path: Optional[Path] = Field(
+        default=None,
+        validation_alias="RAG_EMBEDDING_MODEL_PATH",
+        description="Optional local path to the embedding model directory.",
+    )
+    rag_hf_home: Optional[Path] = Field(
+        default=None,
+        validation_alias="RAG_HF_HOME",
+        description="Optional HF_HOME override for embedding model cache.",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
@@ -122,6 +144,13 @@ class Settings(BaseSettings):
     @property
     def rag_embedding_model(self) -> str:
         return "sentence-transformers/all-MiniLM-L6-v2"
+
+    @property
+    def resolved_rag_embedding_model(self) -> str:
+        """Resolve embedding model to local path when configured."""
+        if self.rag_embedding_model_path and self.rag_embedding_model_path.exists():
+            return str(self.rag_embedding_model_path)
+        return self.rag_embedding_model
 
     @property
     def rag_chunk_size(self) -> int:
