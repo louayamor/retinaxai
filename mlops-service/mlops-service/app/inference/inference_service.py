@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import io
 import pickle
 import time
@@ -172,6 +174,48 @@ class InferenceService:
         self._imaging_model = model
         logger.info("[IMAGING MODEL] loaded successfully")
         return model
+
+    def _build_transform(self) -> transforms.Compose:
+        aug = self.params.get("augmentation", {}) or {}
+        norm = aug.get("normalize", {}) or {}
+        return transforms.Compose([
+            transforms.Lambda(
+                lambda img: preprocess_fundus_image(
+                    img, image_size=self._global_image_size
+                )
+            ),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=norm.get("mean", [0.485, 0.456, 0.406]),
+                std=norm.get("std", [0.229, 0.224, 0.225]),
+            ),
+        ])
+
+    def _validate_fundus(self, image_bytes: bytes, eye_side: str) -> float:
+        if self._fundus_classifier is None:
+            fc_cfg = self.params.get("fundus_classifier", {}) or {}
+            fc_path = self.settings.artifacts_root / "fundus_classifier.pth"
+            if not fc_path.exists():
+                logger.warning(f"[FUNDUS] classifier model not found: {fc_path} — skipping validation")
+                return 1.0
+            self._fundus_classifier = FundusClassifierService(
+                model_path=fc_path,
+                model_name=fc_cfg.get("model_name", "mobilenetv3_small_100"),
+                image_size=self._global_image_size,
+                device=self.device,
+                threshold=float(fc_cfg.get("threshold", 0.3)),
+            )
+        _, score, msg = self._fundus_classifier.is_fundus(image_bytes)
+        logger.info(f"[FUNDUS] {eye_side} eye: {msg}")
+        return score
+
+    def get_embedding(self, tensor: torch.Tensor) -> list[float]:
+        model = self._load_imaging_model()
+        with torch.inference_mode():
+            feats = model.forward_features(tensor)
+            pooled = model.global_pool(feats)
+            embedding = pooled.flatten(1).cpu().numpy()[0].tolist()
+        return embedding
 
     def predict_imaging_with_gradcam(
         self, image_bytes: bytes, eye_side: str = "unknown"
