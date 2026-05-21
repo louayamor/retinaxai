@@ -15,17 +15,21 @@ from app.training.pipeline.stage_03_data_transformation import (
     run as img_transform,
 )  # noqa: E402
 from app.training.pipeline.stage_04_model_trainer import run as img_train  # noqa: E402
+from app.training.pipeline.stage_04b_fundus_classifier import (
+    run as img_fundus,
+)  # noqa: E402
 from app.training.pipeline.stage_05_model_evaluation import run as img_evaluate  # noqa: E402
 
 IMAGING_PIPELINE: dict[str, Callable] = {
     "ingest": img_ingest,
     "clean": img_clean,
     "transform": img_transform,
+    "fundus": img_fundus,
     "train": img_train,
     "evaluate": img_evaluate,
 }
 
-PIPELINE_ORDER = ["ingest", "clean", "transform", "train", "evaluate"]
+PIPELINE_ORDER = ["ingest", "clean", "transform", "fundus", "train", "evaluate"]
 
 from app.utils.mlflow_utils import configure_mlflow  # noqa: E402
 from app.monitoring.prometheus_metrics import (
@@ -86,7 +90,7 @@ def main():
     pipeline_parser.add_argument(
         "--stage",
         type=str,
-        choices=["ingest", "clean", "transform", "train", "evaluate", "all"],
+        choices=["ingest", "clean", "transform", "fundus", "train", "evaluate", "all"],
         default="all",
     )
     pipeline_parser.add_argument(

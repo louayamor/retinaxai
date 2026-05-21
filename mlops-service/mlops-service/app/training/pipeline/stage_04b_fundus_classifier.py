@@ -26,9 +26,11 @@ from app.constants import PARAMS_FILE_PATH
 logger.remove()
 logger.add(sys.stdout, serialize=True)
 
-ARTIFACTS_DIR = Path("artifacts/model/imaging")
-PROCESSED_DATA_DIR = Path("artifacts/data/processed/imaging")
-RAW_DATA_DIR = Path("artifacts/data/raw/huggingface/train")
+from app.config.settings import settings as _settings
+
+ARTIFACTS_DIR = _settings.artifacts_root
+PROCESSED_DATA_DIR = _settings.imaging_data_dir
+RAW_DATA_DIR = _settings.artifacts_root / "data" / "raw" / "huggingface" / "train_clean"
 
 
 class FundusValidationDataset(Dataset):
@@ -255,7 +257,8 @@ def train_fundus_classifier(
 
     # Transforms
     params = read_yaml(PARAMS_FILE_PATH)
-    norm = params.augmentation.normalize
+    aug = params.get("augmentation", {}) or {}
+    norm = aug.get("normalize", {}) or {}
 
     train_transform = transforms.Compose(
         [
@@ -266,7 +269,10 @@ def train_fundus_classifier(
             transforms.RandomRotation(15),
             transforms.ColorJitter(brightness=0.2, contrast=0.2),
             transforms.ToTensor(),
-            transforms.Normalize(mean=norm.mean, std=norm.std),
+            transforms.Normalize(
+                mean=norm.get("mean", [0.485, 0.456, 0.406]),
+                std=norm.get("std", [0.229, 0.224, 0.225]),
+            ),
         ]
     )
 
@@ -276,20 +282,29 @@ def train_fundus_classifier(
                 lambda img: preprocess_fundus_image(img, image_size=image_size)
             ),
             transforms.ToTensor(),
-            transforms.Normalize(mean=norm.mean, std=norm.std),
+            transforms.Normalize(
+                mean=norm.get("mean", [0.485, 0.456, 0.406]),
+                std=norm.get("std", [0.229, 0.224, 0.225]),
+            ),
         ]
     )
 
     # Dataset (raw fundus positives, downloaded negatives)
     non_fundus_dir = train_dir / "non_fundus"
 
-    raw_dataset = RawFundusParquetDataset(RAW_DATA_DIR, transform=train_transform)
-    neg_dataset = FundusValidationDataset(
+    # Separate dataset instances for train and val splits to avoid
+    # shared-transform mutation issues with random_split
+    raw_dataset_train = RawFundusParquetDataset(RAW_DATA_DIR, transform=train_transform)
+    neg_dataset_train = FundusValidationDataset(
         Path("/tmp/empty"), non_fundus_dir, train_transform
     )
+    raw_dataset_val = RawFundusParquetDataset(RAW_DATA_DIR, transform=val_transform)
+    neg_dataset_val = FundusValidationDataset(
+        Path("/tmp/empty"), non_fundus_dir, val_transform
+    )
 
-    pos_count = len(raw_dataset)
-    neg_count = len(neg_dataset)
+    pos_count = len(raw_dataset_train)
+    neg_count = len(neg_dataset_train)
 
     if pos_count == 0:
         raise ValueError(
@@ -298,20 +313,19 @@ def train_fundus_classifier(
     if neg_count == 0:
         raise ValueError(f"[FUNDUS] no negative samples found at {non_fundus_dir}.")
 
-    full_dataset = torch.utils.data.ConcatDataset([raw_dataset, neg_dataset])
+    full_train = torch.utils.data.ConcatDataset([raw_dataset_train, neg_dataset_train])
+    full_val = torch.utils.data.ConcatDataset([raw_dataset_val, neg_dataset_val])
 
-    # Split into train/val
-    train_size = int(0.8 * len(full_dataset))
-    val_size = len(full_dataset) - train_size
-    train_dataset, val_dataset = torch.utils.data.random_split(
-        full_dataset,
-        [train_size, val_size],
-        generator=torch.Generator().manual_seed(42),
+    # Split both using the same seed so the same indices end up in val
+    train_size = int(0.8 * len(full_train))
+    val_size = len(full_train) - train_size
+    seed = torch.Generator().manual_seed(42)
+    train_dataset, _ = torch.utils.data.random_split(
+        full_train, [train_size, val_size], generator=seed,
     )
-
-    # Apply val transform to val set
-    if hasattr(val_dataset, "dataset") and hasattr(val_dataset.dataset, "transform"):
-        val_dataset.dataset.transform = val_transform
+    _, val_dataset = torch.utils.data.random_split(
+        full_val, [train_size, val_size], generator=torch.Generator().manual_seed(42),
+    )
 
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=0
@@ -408,7 +422,25 @@ def train_fundus_classifier(
     return output_path
 
 
-def run():
+def _prepare_negatives(non_fundus_dir: Path) -> None:
+    """Download or load cached negative samples for fundus classifier."""
+    cached_marker = non_fundus_dir / ".cached"
+    if cached_marker.exists():
+        existing = len(list(non_fundus_dir.rglob("*.jpg"))) + len(
+            list(non_fundus_dir.rglob("*.png"))
+        )
+        if existing >= 5000:
+            logger.info(
+                f"[FUNDUS] using {existing} cached negative samples at {non_fundus_dir}"
+            )
+            return
+    logger.info("[FUNDUS] preparing negative samples...")
+    download_imagenet_subset(non_fundus_dir, num_samples=5000)
+    create_corrupted_fundus_from_raw(RAW_DATA_DIR, non_fundus_dir, num_samples=5000)
+    cached_marker.touch()
+
+
+def run() -> None:
     """Main entry point for stage 04b."""
     logger.info(">>> stage 04b: fundus classifier training started")
 
@@ -419,6 +451,15 @@ def run():
     image_size = fc_cfg.get("image_size", 384)
     num_classes = fc_cfg.get("num_classes", 2)
     threshold = fc_cfg.get("threshold", 0.3)
+    dropout_rate = fc_cfg.get("dropout", 0.1)
+    batch_size = int(fc_cfg.get("batch_size", 32))
+    num_epochs = int(fc_cfg.get("num_epochs", 5))
+    learning_rate = float(fc_cfg.get("learning_rate", 0.001))
+
+    non_fundus_dir = PROCESSED_DATA_DIR / "non_fundus"
+    _prepare_negatives(non_fundus_dir)
+
+    output_path = ARTIFACTS_DIR / "fundus_classifier.pth"
 
     from app.utils.mlflow_utils import configure_mlflow
 
@@ -432,19 +473,13 @@ def run():
                     "image_size": image_size,
                     "num_classes": num_classes,
                     "threshold": threshold,
+                    "batch_size": batch_size,
+                    "num_epochs": num_epochs,
+                    "learning_rate": learning_rate,
+                    "dropout": dropout_rate,
                 }
             )
 
-            non_fundus_dir = PROCESSED_DATA_DIR / "non_fundus"
-
-            logger.info("[FUNDUS] preparing negative samples...")
-            download_imagenet_subset(non_fundus_dir, num_samples=5000)
-            create_corrupted_fundus_from_raw(
-                RAW_DATA_DIR, non_fundus_dir, num_samples=5000
-            )
-
-            output_path = ARTIFACTS_DIR / "fundus_classifier.pth"
-            dropout_rate = fc_cfg.get("dropout", 0.1)
             train_fundus_classifier(
                 train_dir=PROCESSED_DATA_DIR,
                 output_path=output_path,
@@ -452,23 +487,15 @@ def run():
                 image_size=image_size,
                 num_classes=num_classes,
                 dropout=dropout_rate,
-                batch_size=32,
-                num_epochs=5,
-                learning_rate=0.001,
+                batch_size=batch_size,
+                num_epochs=num_epochs,
+                learning_rate=learning_rate,
             )
 
             mlflow.log_artifact(str(output_path), artifact_path="fundus_classifier")
             logger.info(f"[FUNDUS] model logged to MLflow: {output_path}")
     except MlflowException as e:
         logger.warning(f"[FUNDUS] MLflow disabled: {e}")
-
-        non_fundus_dir = PROCESSED_DATA_DIR / "non_fundus"
-
-        logger.info("[FUNDUS] preparing negative samples...")
-        download_imagenet_subset(non_fundus_dir, num_samples=5000)
-        create_corrupted_fundus_from_raw(RAW_DATA_DIR, non_fundus_dir, num_samples=5000)
-
-        output_path = ARTIFACTS_DIR / "fundus_classifier.pth"
         train_fundus_classifier(
             train_dir=PROCESSED_DATA_DIR,
             output_path=output_path,
@@ -476,9 +503,9 @@ def run():
             image_size=image_size,
             num_classes=num_classes,
             dropout=dropout_rate,
-            batch_size=32,
-            num_epochs=5,
-            learning_rate=0.001,
+            batch_size=batch_size,
+            num_epochs=num_epochs,
+            learning_rate=learning_rate,
         )
 
     logger.info(">>> stage 04b: fundus classifier training complete")
