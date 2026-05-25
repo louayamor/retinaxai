@@ -10,7 +10,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from app.core.config import settings
 from loguru import logger
 
 
@@ -262,24 +261,16 @@ class EventQueueService:
             self._processing = False
 
     async def _retry_event(self, event: QueuedEvent) -> bool:
-        """Attempt to send a single event. Returns True on success."""
         try:
-            import httpx
+            from app.api.v1.websockets import emit_to_clients
 
-            payload = {"event": event.event, "data": event.data}
-            if event.room:
-                payload["room"] = event.room
+            sent = await emit_to_clients(event.event, event.data, event.room)
+            if sent > 0:
+                logger.info("event_delivered_in_process", event_id=event.id, sent=sent)
+                return True
 
-            backend_url = f"{settings.BACKEND_SERVICE_URL}/emit"
-
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(backend_url, json=payload)
-                if response.status_code < 400:
-                    logger.info(f"Event {event.id} delivered successfully")
-                    return True
-                else:
-                    event.last_error = f"HTTP {response.status_code}"
-                    return False
+            event.last_error = "no_connected_clients"
+            return False
 
         except Exception as e:
             event.last_error = str(e)
