@@ -116,6 +116,9 @@ def create_app() -> FastAPI:
         RateLimitMiddleware,
         max_requests=settings.RATE_LIMIT_MAX_REQUESTS,
         window_seconds=settings.RATE_LIMIT_WINDOW_SECONDS,
+        path_limits={
+            "/api/v1/auth/login": (10, 60),
+        },
     )
     app.add_middleware(PrometheusMiddleware)
 

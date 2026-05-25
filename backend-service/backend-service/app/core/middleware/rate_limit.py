@@ -8,11 +8,24 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, max_requests: int = 5, window_seconds: int = 60):
+    def __init__(
+        self,
+        app,
+        max_requests: int = 5,
+        window_seconds: int = 60,
+        path_limits: dict[str, tuple[int, int]] | None = None,
+    ):
         super().__init__(app)
         self.max_requests = max_requests
         self.window_seconds = window_seconds
+        self.path_limits = path_limits or {}
         self._requests: dict[str, list[float]] = defaultdict(list)
+
+    def _get_limit(self, path: str) -> tuple[int, int]:
+        for pattern, (limit, window) in self.path_limits.items():
+            if path.startswith(pattern):
+                return limit, window
+        return self.max_requests, self.window_seconds
 
     async def dispatch(self, request: Request, call_next) -> Response:
         if request.method in ("OPTIONS", "GET", "HEAD"):
@@ -24,15 +37,17 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not request.url.path.startswith("/api/v1/"):
             return await call_next(request)
 
+        max_req, window_sec = self._get_limit(request.url.path)
+
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()
-        window_start = now - self.window_seconds
+        window_start = now - window_sec
 
         self._requests[client_ip] = [
             t for t in self._requests[client_ip] if t > window_start
         ]
 
-        if len(self._requests[client_ip]) >= self.max_requests:
+        if len(self._requests[client_ip]) >= max_req:
             return JSONResponse(
                 status_code=429,
                 content={"detail": "Too many requests. Please try again later."},
