@@ -106,7 +106,7 @@ class ExplanationService:
         await self.db.commit()
 
         try:
-            asyncio.create_task(
+            task = asyncio.create_task(
                 emit_xai_event(
                     event_type="xai.explanation_ready",
                     prediction_id=str(prediction.id),
@@ -116,8 +116,13 @@ class ExplanationService:
                     message="XAI explanation stored",
                 )
             )
-        except Exception:
-            pass
+            task.add_done_callback(
+                lambda t: logger.warning("emit_xai_failed", error=str(t.exception()))
+                if t.exception()
+                else None
+            )
+        except RuntimeError as e:
+            logger.warning("emit_xai_create_task_failed", error=str(e))
 
         return {"status": "ok", "prediction_id": str(prediction_id), "results": results}
 
