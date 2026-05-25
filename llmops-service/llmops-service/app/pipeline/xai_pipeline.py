@@ -291,6 +291,15 @@ class XAIPipeline:
                         name = region
                         intensity = 0.0
                         saliency = 0.0
+                    if isinstance(region, dict):
+                        region_lesions = region.get("lesions", [])
+                    else:
+                        region_lesions = []
+                    lesion_str = (
+                        f"Detected: {', '.join(region_lesions)}."
+                        if region_lesions
+                        else ""
+                    )
                     clinical_info = ShapService.REGION_CLINICAL_RELEVANCE.get(
                         name,
                         {
@@ -298,7 +307,11 @@ class XAIPipeline:
                             "high_contribution": "DR-related changes",
                         },
                     )
-                    pathology = self._get_pathology_for_grade(grade_int, name)
+                    pathology = (
+                        lesion_str
+                        if region_lesions
+                        else self._get_pathology_for_grade(grade_int, name)
+                    )
                     left_clinical.append(
                         f"**{name}** (model saliency: {saliency:.3f}, activation intensity: {intensity:.3f}): "
                         f"{clinical_info['significance']}. "
@@ -318,6 +331,15 @@ class XAIPipeline:
                         name = region
                         intensity = 0.0
                         saliency = 0.0
+                    if isinstance(region, dict):
+                        region_lesions = region.get("lesions", [])
+                    else:
+                        region_lesions = []
+                    lesion_str = (
+                        f"Detected: {', '.join(region_lesions)}."
+                        if region_lesions
+                        else ""
+                    )
                     clinical_info = ShapService.REGION_CLINICAL_RELEVANCE.get(
                         name,
                         {
@@ -325,7 +347,11 @@ class XAIPipeline:
                             "high_contribution": "DR-related changes",
                         },
                     )
-                    pathology = self._get_pathology_for_grade(grade_int, name)
+                    pathology = (
+                        lesion_str
+                        if region_lesions
+                        else self._get_pathology_for_grade(grade_int, name)
+                    )
                     right_clinical.append(
                         f"**{name}** (model saliency: {saliency:.3f}, activation intensity: {intensity:.3f}): "
                         f"{clinical_info['significance']}. "

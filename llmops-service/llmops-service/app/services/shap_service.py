@@ -221,6 +221,7 @@ class ShapService:
         right_regions = regions.get("right_eye", [])
 
         region_map: dict[str, float] = {}
+        lesion_map: dict[str, list[str]] = {}
         for r in left_regions + right_regions:
             if isinstance(r, dict):
                 name = r.get("name", "")
@@ -229,6 +230,10 @@ class ShapService:
                     intensity = r.get("intensity", 0.0)
                     current = region_map.get(name, 0.0)
                     region_map[name] = max(current, saliency or intensity)
+                    if r.get("lesions"):
+                        lesion_map[name] = list(set(
+                            lesion_map.get(name, []) + r["lesions"]
+                        ))
             elif isinstance(r, str):
                 if r not in region_map:
                     region_map[r] = 0.0
@@ -245,6 +250,9 @@ class ShapService:
                     region, prediction_grade, confidence
                 )
             significance, clinical_relevance = self._get_region_anatomical_info(region)
+
+            if region in lesion_map:
+                clinical_relevance += f" [Detected: {', '.join(lesion_map[region])}]"
 
             region_contributions.append(
                 ImagingFeatureContribution(
