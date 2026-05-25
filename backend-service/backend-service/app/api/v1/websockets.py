@@ -153,6 +153,10 @@ async def _trigger_llmops_training_workflow(
     clinical_version: str | None,
 ) -> None:
     """Trigger LLMOps workflow after training completes."""
+    headers = {"Content-Type": "application/json"}
+    if settings.LLM_SERVICE_API_KEY:
+        headers["X-API-Key"] = settings.LLM_SERVICE_API_KEY
+
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -163,6 +167,7 @@ async def _trigger_llmops_training_workflow(
                     "imaging_version": imaging_version,
                     "clinical_version": clinical_version,
                 },
+                headers=headers,
             )
             if response.status_code < 400:
                 logger.info(f"LLMOps workflow triggered for training {job_id}")

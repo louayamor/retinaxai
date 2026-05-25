@@ -131,16 +131,18 @@ class ExplanationService:
         prediction: Prediction,
         patient_data: dict,
     ) -> dict:
-        """Trigger XAI pipeline after prediction completes."""
         import httpx
 
         from app.models.prediction import PredictionStatus
+        from app.schemas.xai_schema import (
+            XAIExplainResponse,
+            XAIGradCAMResponse,
+            XAISeverityResponse,
+        )
 
         output_payload = prediction.output_payload or {}
         dr_grade = output_payload.get("combined_grade", 0)
         confidence = prediction.confidence_score or 0.0
-        gradcam_left = output_payload.get("gradcam_left")
-        gradcam_right = output_payload.get("gradcam_right")
         gradcam_left_regions = output_payload.get("gradcam_left_regions", [])
         gradcam_right_regions = output_payload.get("gradcam_right_regions", [])
 
@@ -168,16 +170,16 @@ class ExplanationService:
         }
         xai_failed = False
 
-        gradcam_regions_full = {
+        gradcam_regions_full: dict[str, list[dict]] = {
             "left_eye": left_regions_full,
             "right_eye": right_regions_full,
         }
-        gradcam_regions = {
-            "left_eye": left_region_names,
-            "right_eye": right_region_names,
-        }
 
         llm_base_url = settings.LLM_SERVICE_URL
+        headers = {"Content-Type": "application/json"}
+        if settings.LLM_SERVICE_API_KEY:
+            headers["X-API-Key"] = settings.LLM_SERVICE_API_KEY
+
         async with httpx.AsyncClient(timeout=60.0) as client:
             if dr_grade is not None and dr_grade != "Unknown":
                 dr_grade_value = (
@@ -192,27 +194,26 @@ class ExplanationService:
                             "confidence": confidence,
                             "gradcam_regions": gradcam_regions_full,
                         },
+                        headers=headers,
                     )
                     if resp.status_code == 200:
-                        data = resp.json()
-                        content = data.get("content", "")
-
+                        parsed = XAIExplainResponse.model_validate(resp.json())
                         exp = PredictionExplanation(
                             id=uuid.uuid4(),
                             prediction_id=prediction.id,
-                            content=content,
-                            summary=data.get("summary"),
-                            model_used=data.get("model_used", "unknown"),
+                            content=parsed.content,
+                            summary=parsed.summary,
+                            model_used=parsed.model_used,
                             status=ExplanationStatus.COMPLETED,
                         )
                         self.db.add(exp)
                         results["prediction_explanation"] = exp
                         logger.info(
-                            f"[EXPLAIN SERVICE] Prediction explanation created for {prediction.id} (with SHAP)"
+                            f"[EXPLAIN SERVICE] Prediction explanation created for {prediction.id}"
                         )
                 except Exception as e:
                     xai_failed = True
-                    logger.warning(f"[EXPLAIN SERVICE] XAI explain failed: {e}")
+                    logger.warning("xai_explain_failed", error=str(e))
 
             if left_region_names or right_region_names:
                 try:
@@ -225,16 +226,17 @@ class ExplanationService:
                             "dr_grade": str(dr_grade) if dr_grade is not None else None,
                             "confidence": confidence,
                         },
+                        headers=headers,
                     )
                     if resp.status_code == 200:
-                        data = resp.json()
+                        parsed = XAIGradCAMResponse.model_validate(resp.json())
                         gradcam_exp = GradCAMExplanation(
                             id=uuid.uuid4(),
                             prediction_id=prediction.id,
-                            left_eye_explanation=data.get("left_eye_explanation", ""),
-                            right_eye_explanation=data.get("right_eye_explanation", ""),
-                            highlighted_regions=data.get("highlighted_regions", {}),
-                            model_used=data.get("model_used", "unknown"),
+                            left_eye_explanation=parsed.left_eye_explanation,
+                            right_eye_explanation=parsed.right_eye_explanation,
+                            highlighted_regions=parsed.highlighted_regions,
+                            model_used=parsed.model_used,
                         )
                         self.db.add(gradcam_exp)
                         results["gradcam_explanation"] = gradcam_exp
@@ -243,7 +245,7 @@ class ExplanationService:
                         )
                 except Exception as e:
                     xai_failed = True
-                    logger.warning(f"[EXPLAIN SERVICE] XAI gradcam failed: {e}")
+                    logger.warning("xai_gradcam_failed", error=str(e))
 
             risk_factors = prediction.input_payload.get("risk_factors", [])
             dr_grade_value = str(dr_grade) if isinstance(dr_grade, int) else dr_grade
@@ -256,21 +258,20 @@ class ExplanationService:
                         "dr_grade": dr_grade_value,
                         "risk_factors": risk_factors,
                     },
+                    headers=headers,
                 )
                 if resp.status_code == 200:
-                    data = resp.json()
-                    risk_level = normalize_risk_level(
-                        data.get("risk_level", "moderate")
-                    )
+                    parsed = XAISeverityResponse.model_validate(resp.json())
+                    risk_level = normalize_risk_level(parsed.risk_level)
                     severity = SeverityReport(
                         id=uuid.uuid4(),
                         prediction_id=prediction.id,
                         patient_id=prediction.patient_id,
-                        content=data.get("content", ""),
-                        summary=data.get("summary"),
+                        content=parsed.content,
+                        summary=parsed.summary,
                         risk_level=risk_level,
-                        recommendations=data.get("recommendations", []),
-                        model_used=data.get("model_used", "unknown"),
+                        recommendations=parsed.recommendations,
+                        model_used=parsed.model_used,
                     )
                     self.db.add(severity)
                     results["severity_report"] = severity
@@ -279,7 +280,7 @@ class ExplanationService:
                     )
             except Exception as e:
                 xai_failed = True
-                logger.warning(f"[EXPLAIN SERVICE] XAI severity failed: {e}")
+                logger.warning("xai_severity_failed", error=str(e))
 
         await self.db.commit()
 
