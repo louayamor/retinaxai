@@ -18,6 +18,7 @@ from app.core.middleware.rate_limit import RateLimitMiddleware
 from app.core.middleware.request_id import RequestIDMiddleware
 from app.core.prometheus_metrics import start_metrics_server
 from app.observability.mlops_monitor import subscribe_mlops_monitor
+from app.services.redis_client import redis_client as shared_redis
 
 
 @asynccontextmanager
@@ -26,7 +27,7 @@ async def lifespan(app: FastAPI):
 
     start_metrics_server(port=9102)
 
-    mlops_task = asyncio.create_task(subscribe_mlops_monitor(settings.REDIS_URL))
+    mlops_task = asyncio.create_task(subscribe_mlops_monitor())
 
     if settings.APP_ENV == "development":
         _start_local_redis()
@@ -36,6 +37,8 @@ async def lifespan(app: FastAPI):
     mlops_task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await mlops_task
+
+    await shared_redis.close()
 
     if settings.APP_ENV == "development":
         _stop_local_redis()

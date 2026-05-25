@@ -5,7 +5,6 @@ from datetime import datetime
 from typing import Any
 
 import httpx
-import redis.asyncio as aioredis
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +12,7 @@ from loguru import logger
 
 from app.core.config import settings
 from app.db.session import get_db
+from app.services.redis_client import redis_client as shared_redis
 
 router = APIRouter()
 
@@ -28,7 +28,6 @@ class EmitRequest(BaseModel):
 
 class _WebSocketManager:
     def __init__(self) -> None:
-        self.redis: aioredis.Redis | None = None
         self.connected_clients: list[WebSocket] = []
         self.client_rooms: dict[WebSocket, set[str]] = {}
 
@@ -53,22 +52,6 @@ async def emit_to_clients(
     return sent_count
 
 
-async def get_redis() -> aioredis.Redis | None:
-    if _ws_manager.redis is None:
-        try:
-            redis_url = settings.REDIS_URL if settings else "redis://localhost:6379"
-            _ws_manager.redis = aioredis.from_url(
-                redis_url,
-                encoding="utf-8",
-                decode_responses=True,
-            )
-            ping_result = await _ws_manager.redis.ping()
-            if ping_result:
-                logger.info("WebSocket Redis connection established")
-        except Exception as e:
-            logger.warning(f"Redis not available for WebSocket: {e}")
-            _ws_manager.redis = None
-    return _ws_manager.redis
 
 
 def _get_clients_in_room(room: str) -> list[WebSocket]:
@@ -282,7 +265,7 @@ async def emit_event(request: EmitRequest, db: AsyncSession = Depends(get_db)):
         "data": request.data,
     }
 
-    redis = await get_redis()
+    redis = await shared_redis.get_connection()
 
     target_clients: list[WebSocket] = []
 

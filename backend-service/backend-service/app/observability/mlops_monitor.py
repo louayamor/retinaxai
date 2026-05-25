@@ -5,9 +5,9 @@ import json
 from typing import Any
 
 from loguru import logger
-from redis.asyncio import Redis
 
 from app.api.v1.websockets import emit_to_clients
+from app.services.redis_client import redis_client as shared_redis
 
 
 DEFAULT_CHANNEL = "mlops.monitor"
@@ -42,23 +42,28 @@ async def _handle_message(payload: str) -> None:
 
 
 async def subscribe_mlops_monitor(
-    redis_url: str, channel: str = DEFAULT_CHANNEL
+    channel: str = DEFAULT_CHANNEL,
 ) -> None:
     backoff = 1
     while True:
         try:
-            async with Redis.from_url(redis_url) as redis:
-                pubsub = redis.pubsub()
-                await pubsub.subscribe(channel)
-                logger.info("mlops_monitor_subscribed", channel=channel)
-                async for message in pubsub.listen():
-                    if message.get("type") != "message":
-                        continue
-                    payload = message.get("data")
-                    if isinstance(payload, bytes):
-                        payload = payload.decode("utf-8")
-                    if isinstance(payload, str):
-                        await _handle_message(payload)
+            redis = await shared_redis.get_connection()
+            if redis is None:
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 30)
+                continue
+
+            pubsub = redis.pubsub()
+            await pubsub.subscribe(channel)
+            logger.info("mlops_monitor_subscribed", channel=channel)
+            async for message in pubsub.listen():
+                if message.get("type") != "message":
+                    continue
+                payload = message.get("data")
+                if isinstance(payload, bytes):
+                    payload = payload.decode("utf-8")
+                if isinstance(payload, str):
+                    await _handle_message(payload)
             backoff = 1
         except Exception as exc:
             logger.warning(

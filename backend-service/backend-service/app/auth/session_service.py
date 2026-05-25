@@ -3,64 +3,13 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta, timezone
 
-import redis.asyncio as aioredis
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.core.exceptions import UnauthorizedException
 from app.models.auth_session import AuthSession
-
-class _RedisManager:
-    def __init__(self) -> None:
-        self.connection: aioredis.Redis | None = None
-
-
-_redis_manager = _RedisManager()
-
-
-async def get_session_redis() -> aioredis.Redis | None:
-    if _redis_manager.connection is None:
-        settings = get_settings()
-
-        redis_url = settings.REDIS_URL
-
-        # Check for optional env var to disable Redis entirely
-        if settings.APP_ENV == "development":
-            import os
-
-            if os.environ.get("DISABLE_REDIS"):
-                logger.info("Redis disabled via DISABLE_REDIS env var")
-                return None
-
-        redis_url = settings.REDIS_URL
-
-        try:
-            _redis_manager.connection = aioredis.from_url(
-                redis_url,
-                encoding="utf-8",
-                decode_responses=True,
-                socket_connect_timeout=2,
-                socket_timeout=2,
-            )
-            ping_result = await _redis_manager.connection.ping()
-            if ping_result:
-                logger.info("Session Redis connection established")
-        except Exception as e:
-            import os
-
-            app_env = getattr(
-                settings, "APP_ENV", os.environ.get("APP_ENV", "production")
-            )
-            if app_env == "production":
-                logger.warning(f"Redis not available for sessions: {e}")
-            else:
-                logger.info(
-                    f"Redis not available (running locally without Docker?): {e}"
-                )
-            _redis_manager.connection = None
-    return _redis_manager.connection
+from app.services.redis_client import redis_client as shared_redis
 
 
 class AuthSessionService:
@@ -84,7 +33,7 @@ class AuthSessionService:
         await self.db.flush()
         await self.db.refresh(session)
 
-        redis = await get_session_redis()
+        redis = await shared_redis.get_connection()
         if redis:
             try:
                 key = f"session:{refresh_token}"
@@ -104,7 +53,7 @@ class AuthSessionService:
         return session
 
     async def get_by_refresh_token(self, refresh_token: str) -> AuthSession | None:
-        redis = await get_session_redis()
+        redis = await shared_redis.get_connection()
         if redis:
             try:
                 key = f"session:{refresh_token}"
@@ -132,7 +81,7 @@ class AuthSessionService:
         return result.scalar_one_or_none()
 
     async def is_active(self, refresh_token: str) -> bool:
-        redis = await get_session_redis()
+        redis = await shared_redis.get_connection()
         if redis:
             try:
                 key = f"session:{refresh_token}"
@@ -155,7 +104,7 @@ class AuthSessionService:
             session.revoked = True
             await self.db.flush()
 
-        redis = await get_session_redis()
+        redis = await shared_redis.get_connection()
         if redis:
             try:
                 key = f"session:{refresh_token}"
@@ -179,7 +128,7 @@ class AuthSessionService:
             session.user_id, new_refresh_token, expires_in_days, new_access_jti
         )
 
-        redis = await get_session_redis()
+        redis = await shared_redis.get_connection()
         if redis:
             try:
                 old_key = f"session:{old_refresh_token}"
@@ -192,7 +141,7 @@ class AuthSessionService:
 
     async def get_by_access_jti(self, jti: str) -> AuthSession | None:
         """Find session by access token jti (for validation on protected routes)."""
-        redis = await get_session_redis()
+        redis = await shared_redis.get_connection()
         if redis:
             try:
                 keys = []

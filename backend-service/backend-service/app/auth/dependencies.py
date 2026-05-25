@@ -7,7 +7,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.jwt_handler import decode_token
-from app.auth.session_service import get_session_redis
+from app.services.redis_client import redis_client as shared_redis
 from app.core.exceptions import UnauthorizedException
 from app.db.session import get_db
 from app.models.user import User
@@ -34,7 +34,7 @@ async def get_current_user(
     # Validate session still exists in Redis
     jti = getattr(payload, "jti", None)
     if jti:
-        redis = await get_session_redis()
+        redis = await shared_redis.get_connection()
         if redis:
             # Check if access token jti is still valid (session not revoked)
             from app.auth.session_service import AuthSessionService
