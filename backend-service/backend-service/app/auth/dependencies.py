@@ -24,6 +24,7 @@ async def get_current_user_from_cookie(request: Request) -> str:
 
 
 async def get_current_user(
+    request: Request,
     token: Annotated[str, Depends(get_current_user_from_cookie)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
@@ -31,15 +32,14 @@ async def get_current_user(
     if payload.token_type != "access":
         raise UnauthorizedException()
 
-    # Validate session still exists in Redis
-    jti = getattr(payload, "jti", None)
-    if jti:
+    request.state.jti = payload.jti
+
+    if payload.jti:
         redis = await shared_redis.get_connection()
         if redis:
-            # Check if access token jti is still valid (session not revoked)
             from app.auth.session_service import AuthSessionService
 
-            session = await AuthSessionService(db).get_by_access_jti(jti)
+            session = await AuthSessionService(db).get_by_access_jti(payload.jti)
             if not session:
                 raise UnauthorizedException("Session expired or revoked")
 

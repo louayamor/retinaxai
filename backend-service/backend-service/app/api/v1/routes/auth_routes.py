@@ -3,7 +3,7 @@ import uuid
 from datetime import UTC
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
@@ -110,28 +110,17 @@ async def refresh_token(
 
 @router.post("/logout")
 async def logout(
+    request: Request,
     user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     session_service = AuthSessionService(db)
+    jti = getattr(request.state, "jti", None)
 
-    # Get active session for this user and revoke it
-    from sqlalchemy import select
-
-    stmt = (
-        select(AuthSession)
-        .where(
-            AuthSession.user_id == user.id,
-            AuthSession.revoked.is_(False),
-        )
-        .order_by(AuthSession.created_at.desc())
-        .limit(1)
-    )
-    result = await db.execute(stmt)
-    session = result.scalar_one_or_none()
-
-    if session:
-        await session_service.revoke_refresh_token(session.refresh_token)
+    if jti:
+        session = await session_service.get_by_access_jti(jti)
+        if session:
+            await session_service.revoke_refresh_token(session.refresh_token)
 
     response = JSONResponse(content={"status": "ok"})
     response.delete_cookie(key="rxa_access_token", path="/")
