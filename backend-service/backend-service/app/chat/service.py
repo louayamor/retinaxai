@@ -3,12 +3,12 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-import sqlalchemy as sa
 import structlog
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.chat import ChatMessage, ChatRole, ChatSession
+from app.chat.repository import ChatRepository
+from app.models.chat import ChatMessage, ChatRole
 from app.schemas.chat_schemas import (
     ChatMessageSchema,
     ChatSessionDetailSchema,
@@ -27,25 +27,16 @@ class ChatService:
         db: AsyncSession,
         chat_client_override: ChatServiceClient | None = None,
     ):
+        self.repo = ChatRepository(db)
         self.db = db
         self._chat_client = chat_client_override or chat_client
 
     async def create_session(self, user_id: uuid.UUID) -> CreateChatSessionResponse:
-        session = ChatSession(user_id=user_id, title="New Chat")
-        self.db.add(session)
-        await self.db.commit()
-        await self.db.refresh(session)
+        session = await self.repo.create_session(user_id)
         return CreateChatSessionResponse(session_id=str(session.id), title=session.title)
 
     async def list_sessions(self, user_id: uuid.UUID) -> list[ChatSessionSchema]:
-        result = await self.db.execute(
-            sa.select(ChatSession, sa.func.count(ChatMessage.id).label("message_count"))
-            .outerjoin(ChatMessage)
-            .where(ChatSession.user_id == user_id)
-            .group_by(ChatSession.id)
-            .order_by(ChatSession.updated_at.desc())
-        )
-        rows = result.all()
+        rows = await self.repo.list_user_sessions(user_id)
         return [
             ChatSessionSchema(
                 id=str(session.id),
@@ -60,16 +51,11 @@ class ChatService:
     async def get_session(
         self, session_id: str, user_id: uuid.UUID
     ) -> ChatSessionDetailSchema:
-        session = await self.db.get(ChatSession, session_id)
+        session = await self.repo.get_session(session_id)
         if not session or session.user_id != user_id:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        messages_result = await self.db.execute(
-            sa.select(ChatMessage)
-            .where(ChatMessage.session_id == session_id)
-            .order_by(ChatMessage.created_at.asc())
-        )
-        msgs = messages_result.scalars().all()
+        msgs = await self.repo.get_session_messages(session_id)
 
         return ChatSessionDetailSchema(
             id=str(session.id),
@@ -93,25 +79,24 @@ class ChatService:
     async def update_session_title(
         self, session_id: str, user_id: uuid.UUID, title: str
     ) -> CreateChatSessionResponse:
-        session = await self.db.get(ChatSession, session_id)
+        session = await self.repo.get_session(session_id)
         if not session or session.user_id != user_id:
             raise HTTPException(status_code=404, detail="Session not found")
         session.title = title
         session.updated_at = datetime.now(timezone.utc)
-        await self.db.commit()
+        await self.repo.update_session(session)
         return CreateChatSessionResponse(session_id=str(session.id), title=session.title)
 
     async def delete_session(self, session_id: str, user_id: uuid.UUID) -> None:
-        session = await self.db.get(ChatSession, session_id)
+        session = await self.repo.get_session(session_id)
         if not session or session.user_id != user_id:
             raise HTTPException(status_code=404, detail="Session not found")
-        await self.db.delete(session)
-        await self.db.commit()
+        await self.repo.delete_session(session)
 
     async def send_message(
         self, session_id: str, user_id: uuid.UUID, content: str
     ) -> SendMessageResponse:
-        session = await self.db.get(ChatSession, session_id)
+        session = await self.repo.get_session(session_id)
         if not session or session.user_id != user_id:
             raise HTTPException(status_code=404, detail="Session not found")
 
@@ -120,15 +105,9 @@ class ChatService:
             role=ChatRole.USER,
             content=content,
         )
-        self.db.add(user_msg)
+        await self.repo.add_message(user_msg)
 
-        history = await self.db.execute(
-            sa.select(ChatMessage)
-            .where(ChatMessage.session_id == session_id)
-            .order_by(ChatMessage.created_at.asc())
-        )
-        all_msgs = history.scalars().all()
-
+        all_msgs = await self.repo.get_session_messages(session_id)
         messages_payload = [{"role": m.role.value, "content": m.content} for m in all_msgs]
 
         try:
@@ -150,15 +129,13 @@ class ChatService:
             sources={"items": assistant_sources} if assistant_sources else None,
             chart=assistant_chart,
         )
-        self.db.add(assistant_msg)
+        await self.repo.add_message(assistant_msg)
 
         if session.title == "New Chat":
             session.title = (content[:80] + "...") if len(content) > 80 else content
 
         session.updated_at = datetime.now(timezone.utc)
-        await self.db.commit()
-        await self.db.refresh(user_msg)
-        await self.db.refresh(assistant_msg)
+        await self.repo.update_session(session)
 
         return SendMessageResponse(
             user_message=ChatMessageSchema(
@@ -171,10 +148,8 @@ class ChatService:
                 id=str(assistant_msg.id),
                 role=ChatRole.ASSISTANT.value,
                 content=assistant_msg.content,
-                sources=assistant_msg.sources.get("items")
-                if assistant_msg.sources
-                else None,
-                chart=assistant_msg.chart,
+                sources=assistant_sources,
+                chart=assistant_chart,
                 created_at=assistant_msg.created_at,
             ),
         )
