@@ -12,6 +12,7 @@ from loguru import logger
 
 from app.core.config import settings
 from app.db.session import get_db
+from app.notifications.service import NotificationService
 from app.services.redis_client import redis_client as shared_redis
 
 router = APIRouter()
@@ -296,10 +297,7 @@ async def emit_event(request: EmitRequest, db: AsyncSession = Depends(get_db)):
     if sent_count == 0 and len(target_clients) > 0:
         await _queue_event_for_retry(request.event, request.data, request.room)
 
-    # Persist notifications via NotificationService
     try:
-        from app.notifications.service import NotificationService
-
         notif_service = NotificationService(db)
         await notif_service.process_event_notification(request.event, request.data)
 

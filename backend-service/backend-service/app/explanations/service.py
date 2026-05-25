@@ -15,7 +15,9 @@ from app.schemas.report_schema import ReportGenerateRequest
 
 from app.api.v1.websockets import emit_xai_event
 from app.explanations.utils import normalize_risk_level
+from app.models.prediction import PredictionStatus
 from app.predictions.repository import PredictionRepository
+from app.reports.service import ReportService
 from sqlalchemy.exc import IntegrityError
 
 logger = structlog.get_logger(__name__)
@@ -133,7 +135,6 @@ class ExplanationService:
     ) -> dict:
         import httpx
 
-        from app.models.prediction import PredictionStatus
         from app.schemas.xai_schema import (
             XAIExplainResponse,
             XAIGradCAMResponse,
@@ -291,8 +292,6 @@ class ExplanationService:
             await self.db.commit()
 
         try:
-            from app.api.v1.websockets import emit_xai_event
-
             if results["prediction_explanation"]:
                 asyncio.create_task(
                     emit_xai_event(
@@ -360,8 +359,6 @@ class ExplanationService:
 
         if not xai_failed:
             try:
-                from app.reports.service import ReportService
-
                 report_data = ReportGenerateRequest(
                     prediction_id=prediction.id,
                     report_type="prediction",

@@ -52,12 +52,10 @@ class DummyLLMClient:
 
 @pytest.mark.asyncio
 async def test_report_service_generate_completes_without_background_task(monkeypatch):
-    service = ReportService(db=SimpleNamespace())
+    service = ReportService(db=SimpleNamespace(), llm_client_override=DummyLLMClient())
     service.prediction_repo = DummyPredictionRepo()
     service.patient_repo = DummyPatientRepo()
     service.repo = DummyReportRepo()
-
-    monkeypatch.setattr("app.reports.service.llm_client", DummyLLMClient())
 
     result = await service.generate(SimpleNamespace(prediction_id="pred-1"), "user-1")
 

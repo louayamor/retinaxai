@@ -16,14 +16,19 @@ from app.schemas.chat_schemas import (
     CreateChatSessionResponse,
     SendMessageResponse,
 )
-from app.services.llm_client.chat_client import chat_client
+from app.services.llm_client.chat_client import ChatServiceClient, chat_client
 
 logger = structlog.get_logger(__name__)
 
 
 class ChatService:
-    def __init__(self, db: AsyncSession):
+    def __init__(
+        self,
+        db: AsyncSession,
+        chat_client_override: ChatServiceClient | None = None,
+    ):
         self.db = db
+        self._chat_client = chat_client_override or chat_client
 
     async def create_session(self, user_id: uuid.UUID) -> CreateChatSessionResponse:
         session = ChatSession(user_id=user_id, title="New Chat")
@@ -127,7 +132,7 @@ class ChatService:
         messages_payload = [{"role": m.role.value, "content": m.content} for m in all_msgs]
 
         try:
-            llm_response = await chat_client.send_chat(
+            llm_response = await self._chat_client.send_chat(
                 messages=messages_payload,
                 question=content,
             )

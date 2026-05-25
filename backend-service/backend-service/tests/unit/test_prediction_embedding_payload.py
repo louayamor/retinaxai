@@ -38,11 +38,14 @@ class DummyScanRepo:
 
 @pytest.mark.asyncio
 async def test_prediction_service_persists_embedding_into_output_payload(monkeypatch):
+    from app.services.ml_client.ml_service import ml_client
+
     service = PredictionService.__new__(PredictionService)
     service.db = AsyncMock()
     service.repo = DummyRepo()  # type: ignore
     service.patient_repo = DummyPatientRepo()  # type: ignore
     service.mri_scan_repo = DummyScanRepo()  # type: ignore
+    service._ml_client = ml_client
 
     prediction = SimpleNamespace(
         id="pred-1",

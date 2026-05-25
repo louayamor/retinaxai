@@ -15,11 +15,12 @@ from app.mri_scans.repository import MRIScanRepository
 from app.patients.repository import PatientRepository
 from app.predictions.repository import PredictionRepository
 from app.schemas.prediction_schema import PredictionRequest
-from app.services.ml_client.ml_service import ml_client
+from app.services.ml_client.ml_service import MLServiceClient, ml_client
 from app.services.ml_client.schemas import MLPredictRequest, MLPredictResponse
 import structlog
 
 from app.api.v1.websockets import emit_prediction_event
+from app.explanations.service import ExplanationService
 
 logger = structlog.get_logger(__name__)
 
@@ -33,11 +34,16 @@ _SEVERITY_MAP: dict[int, str] = {
 
 
 class PredictionService:
-    def __init__(self, db: AsyncSession):
+    def __init__(
+        self,
+        db: AsyncSession,
+        ml_client_override: MLServiceClient | None = None,
+    ):
         self.db = db
         self.repo = PredictionRepository(db)
         self.patient_repo = PatientRepository(db)
         self.mri_scan_repo = MRIScanRepository(db)
+        self._ml_client = ml_client_override or ml_client
 
     async def _get_patient_and_scan(
         self, patient_id: uuid.UUID, mri_scan_id: uuid.UUID
@@ -143,8 +149,6 @@ class PredictionService:
         }
 
         try:
-            from app.explanations.service import ExplanationService
-
             explain_service = ExplanationService(self.db)
             await explain_service.trigger_xai_for_prediction(prediction, patient_data)
         except Exception as e:
@@ -176,7 +180,7 @@ class PredictionService:
 
         try:
             ml_request = self._build_ml_payload(data, patient, scan)
-            ml_response = await ml_client.predict(ml_request)
+            ml_response = await self._ml_client.predict(ml_request)
             await self._handle_prediction_success(prediction, ml_response, data, patient)
         except UnprocessableEntityException as e:
             await self.repo.delete(prediction)

@@ -17,16 +17,21 @@ from app.patients.repository import PatientRepository
 from app.predictions.repository import PredictionRepository
 from app.reports.repository import ReportRepository
 from app.schemas.report_schema import OCTReportCreate, ReportGenerateRequest
-from app.services.llm_client.llm_service import llm_client
+from app.services.llm_client.llm_service import LLMServiceClient, llm_client
 from app.services.llm_client.schemas import LLMReportRequest
 
 
 class ReportService:
-    def __init__(self, db: AsyncSession):
+    def __init__(
+        self,
+        db: AsyncSession,
+        llm_client_override: LLMServiceClient | None = None,
+    ):
         self.repo = ReportRepository(db)
         self.prediction_repo = PredictionRepository(db)
         self.patient_repo = PatientRepository(db)
         self.db = db
+        self._llm_client = llm_client_override or llm_client
 
     async def create_oct_report(
         self, data: OCTReportCreate, generated_by: uuid.UUID
@@ -156,7 +161,7 @@ class ReportService:
                 if prediction.confidence_score is not None
                 else 0.0,
             )
-            llm_response = await llm_client.generate_report(llm_request)
+            llm_response = await self._llm_client.generate_report(llm_request)
             report.content = llm_response.content
             report.summary = llm_response.summary
             report.llm_model = llm_response.model_used
