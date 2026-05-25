@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
-from app.api.v1.websockets import router as ws_router
+from app.api.v1.websockets import _listen_ws_broadcast, router as ws_router
 from app.core.config import settings
 from app.core.exceptions import AppException
 from app.core.logging import setup_logging
@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI):
     start_metrics_server(port=9102)
 
     mlops_task = asyncio.create_task(subscribe_mlops_monitor())
+    ws_broadcast_task = asyncio.create_task(_listen_ws_broadcast())
 
     if settings.APP_ENV == "development":
         _start_local_redis()
@@ -35,8 +36,10 @@ async def lifespan(app: FastAPI):
     yield
 
     mlops_task.cancel()
+    ws_broadcast_task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await mlops_task
+        await ws_broadcast_task
 
     await shared_redis.close()
 

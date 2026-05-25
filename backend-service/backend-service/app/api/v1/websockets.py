@@ -192,6 +192,53 @@ async def _trigger_llmops_training_workflow(
         logger.warning(f"Failed to trigger LLMOps workflow: {e}")
 
 
+async def _listen_ws_broadcast() -> None:
+    backoff = 1
+    patterns = ["ws:*"]
+    while True:
+        try:
+            redis = await shared_redis.get_connection()
+            if redis is None:
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 15)
+                continue
+
+            pubsub = redis.pubsub()
+            for pattern in patterns:
+                await pubsub.psubscribe(pattern)
+            logger.info("ws_broadcast_listener_started", patterns=patterns)
+
+            async for message in pubsub.listen():
+                if message.get("type") not in ("pmessage", "message"):
+                    continue
+                channel: str = message.get("channel", "") or ""
+                data_raw = message.get("data")
+                if isinstance(data_raw, bytes):
+                    data_raw = data_raw.decode("utf-8")
+                if not isinstance(data_raw, str):
+                    continue
+
+                try:
+                    payload = json.loads(data_raw)
+                except json.JSONDecodeError:
+                    continue
+
+                event = payload.get("event", "")
+                event_data = payload.get("data", {})
+
+                room: str | None = None
+                if channel.startswith("ws:") and channel != "ws:broadcast":
+                    room = channel.removeprefix("ws:")
+
+                if room or event_data:
+                    await emit_to_clients(event, event_data, room=room)
+
+        except Exception as exc:
+            logger.warning("ws_broadcast_listener_error", error=str(exc))
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 15)
+
+
 async def _queue_event_for_retry(
     event: str,
     data: dict[str, Any],
