@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 
+from app.auth.role_guard import EngineerUser
 from app.services.event_queue import EventStatus
 
 router = APIRouter(prefix="/v1/orchestration", tags=["orchestration"])
@@ -70,7 +71,7 @@ def _get_queued_events() -> list[dict]:
 
 
 @router.get("/status", response_model=OrchestrationStatus)
-async def get_orchestration_status() -> OrchestrationStatus:
+async def get_orchestration_status(_: EngineerUser) -> OrchestrationStatus:
     """
     Get overall orchestration health status.
     """
@@ -102,6 +103,7 @@ async def get_orchestration_status() -> OrchestrationStatus:
 
 @router.get("/workflows", response_model=WorkflowHistory)
 async def get_active_workflows(
+    _: EngineerUser,
     status: str | None = None,
     limit: int = 50,
 ) -> WorkflowHistory:
@@ -154,8 +156,9 @@ async def get_active_workflows(
 
 @router.get("/history", response_model=WorkflowHistory)
 async def get_workflow_history(
-    workflow_type: str | None = None,
+    _: EngineerUser,
     limit: int = 100,
+    status: str | None = None,
 ) -> WorkflowHistory:
     """
     Get workflow history (completed and failed workflows).
@@ -192,7 +195,10 @@ async def get_workflow_history(
 
 
 @router.delete("/queue/{event_id}")
-async def cancel_queued_event(event_id: str) -> dict:
+async def cancel_queued_event(
+    _: EngineerUser,
+    event_id: str,
+) -> dict:
     """
     Cancel a queued event by removing it from the queue.
     """
@@ -226,7 +232,10 @@ async def cancel_queued_event(event_id: str) -> dict:
 
 
 @router.post("/retry/{event_id}")
-async def retry_event(event_id: str) -> dict:
+async def retry_event(
+    _: EngineerUser,
+    event_id: str,
+) -> dict:
     """
     Manually retry a failed event.
     """

@@ -11,6 +11,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import CurrentUser
+from app.auth.role_guard import AdminUser
 from app.auth.jwt_handler import create_access_token, create_refresh_token, decode_token
 from app.auth.session_service import AuthSessionService
 from app.core.config import settings
@@ -63,6 +64,7 @@ class RefreshRequest(BaseModel):
 @router.post("/register", response_model=UserRead, status_code=201)
 async def register(
     data: UserCreate,
+    _: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     service = UserService(db)

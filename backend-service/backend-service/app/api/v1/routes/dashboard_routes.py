@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.role_guard import DoctorUser
 from app.db.session import get_db
 from app.models.patient import Patient
 from app.models.prediction import Prediction, PredictionStatus
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/stats")
 async def get_dashboard_stats(
+    _: DoctorUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Get comprehensive dashboard statistics."""

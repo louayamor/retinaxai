@@ -7,7 +7,7 @@ import base64
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import CurrentUser
+from app.auth.role_guard import DoctorUser
 from app.db.session import get_db
 from app.models.mri_scan import Modality
 from app.mri_scans.service import MRIScanService
@@ -20,7 +20,7 @@ router = APIRouter(tags=["mri_scans"])
 @router.post("/patients/{patient_id}/scans", response_model=MRIScanRead, status_code=201)
 async def upload_scans(
     patient_id: uuid.UUID,
-    _: CurrentUser,
+    _: DoctorUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     left_scan: UploadFile = File(...),
     right_scan: UploadFile = File(...),
@@ -33,7 +33,7 @@ async def upload_scans(
 @router.get("/patients/{patient_id}/scans", response_model=list[MRIScanRead])
 async def list_patient_scans(
     patient_id: uuid.UUID,
-    _: CurrentUser,
+    _: DoctorUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     service = MRIScanService(db)
@@ -43,7 +43,7 @@ async def list_patient_scans(
 @router.get("/scans/{scan_id}")
 async def get_scan(
     scan_id: uuid.UUID,
-    _: CurrentUser,
+    _: DoctorUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     service = MRIScanService(db)
@@ -73,7 +73,7 @@ async def get_scan(
 @router.delete("/scans/{scan_id}", response_model=MessageResponse)
 async def delete_scan(
     scan_id: uuid.UUID,
-    _: CurrentUser,
+    _: DoctorUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     service = MRIScanService(db)

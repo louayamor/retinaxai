@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import CurrentUser
+from app.auth.role_guard import EngineerUser
 from app.core.config import settings
 from app.db.session import get_db
 
@@ -28,7 +28,7 @@ def _load_metrics(path: Path) -> dict | None:
 
 @router.get("/")
 async def get_model_metrics(
-    _: CurrentUser,
+    _: EngineerUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     imaging_raw = _load_metrics(IMAGING_METRICS)

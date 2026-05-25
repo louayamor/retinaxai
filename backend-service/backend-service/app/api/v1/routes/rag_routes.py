@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.auth.role_guard import DoctorUser
 from app.db.session import get_db
 from app.models.patient import Patient
 from app.models.prediction import Prediction
@@ -79,6 +80,7 @@ def _build_artifact(
 
 @router.get("/manifest", response_model=RagManifestResponse)
 async def get_rag_manifest(
+    _: DoctorUser,
     db: AsyncSession = Depends(get_db),
 ) -> RagManifestResponse:
     artifacts: list[RagArtifactManifest] = []

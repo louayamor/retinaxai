@@ -1,8 +1,10 @@
 from __future__ import annotations
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.auth.role_guard import EngineerUser
 
 router = APIRouter(prefix="/system", tags=["system"])
 
@@ -36,7 +38,9 @@ async def _prom_query_range(query: str, step: str = "1h") -> list[dict[str, Any]
 
 
 @router.get("/metrics")
-async def get_system_metrics():
+async def get_system_metrics(
+    _: EngineerUser,
+):
     cpu_usage_pct = 0.0
     try:
         results = await _prom_query(
@@ -135,7 +139,9 @@ async def get_system_metrics():
 
 
 @router.get("/gpu")
-async def get_gpu_metrics():
+async def get_gpu_metrics(
+    _: EngineerUser,
+):
     gpu_info = []
     try:
         fields = [

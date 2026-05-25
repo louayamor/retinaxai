@@ -1,6 +1,7 @@
 from __future__ import annotations
 from fastapi import APIRouter
 
+from app.api.v1.routes.admin_routes import router as admin_router
 from app.api.v1.routes.auth_routes import router as auth_router
 from app.api.v1.routes.chat_routes import router as chat_router
 from app.api.v1.routes.dashboard_routes import router as dashboard_router
@@ -19,6 +20,7 @@ from app.api.v1.routes.system_routes import router as system_router
 
 api_router = APIRouter(prefix="/api/v1")
 
+api_router.include_router(admin_router)
 api_router.include_router(auth_router)
 api_router.include_router(chat_router)
 api_router.include_router(patient_router)
