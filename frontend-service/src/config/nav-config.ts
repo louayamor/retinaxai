@@ -109,6 +109,14 @@ export const adminNav: NavItem[] = [
     items: [],
   },
   {
+    title: 'Journal',
+    url: '/dashboard/admin/journal',
+    icon: 'activity',
+    isActive: false,
+    shortcut: ['j', 'j'],
+    items: [],
+  },
+  {
     title: 'Settings',
     url: '/dashboard/admin/settings',
     icon: 'settings',

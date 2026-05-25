@@ -3,21 +3,24 @@
 import { useEffect, useState } from 'react';
 import PageContainer from '@/components/layout/page-container';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { getAdminStats, getAdminHealth } from '@/lib/api';
+import type { AdminStats, AdminHealth } from '@/lib/api';
 
-interface AdminStats {
-  users: { total: number; by_role: Record<string, number>; active: number };
-  platform: { patients: number; predictions: number; active_sessions: number };
-}
+const SERVICE_LABELS: Record<string, string> = {
+  backend: 'Backend',
+  mlops: 'MLOps',
+  llmops: 'LLMOps',
+  redis: 'Redis',
+  postgres: 'PostgreSQL',
+};
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [health, setHealth] = useState<AdminHealth | null>(null);
 
   useEffect(() => {
-    const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    fetch(`${API}/api/v1/admin/stats`, { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
-      .then(setStats)
-      .catch(() => {});
+    getAdminStats().then(setStats).catch(() => {});
+    getAdminHealth().then(setHealth).catch(() => {});
   }, []);
 
   return (
@@ -33,6 +36,36 @@ export default function AdminDashboard() {
             </p>
           </div>
         </div>
+
+        {health && (
+          <div>
+            <h2 className='text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider'>
+              Service Health
+            </h2>
+            <div className='grid gap-3 grid-cols-5'>
+              {Object.entries(SERVICE_LABELS).map(([key, label]) => {
+                const status = health[key as keyof AdminHealth];
+                return (
+                  <Card key={key} className={status === 'healthy' ? 'border-green-500/30' : 'border-red-500/30'}>
+                    <CardContent className='flex items-center gap-3 p-4'>
+                      <span
+                        className={`h-2.5 w-2.5 rounded-full shrink-0 ${
+                          status === 'healthy' ? 'bg-green-500' : 'bg-red-500'
+                        }`}
+                      />
+                      <div className='min-w-0'>
+                        <p className='text-sm font-medium truncate'>{label}</p>
+                        <p className='text-xs text-muted-foreground'>
+                          {status === 'healthy' ? 'healthy' : 'unreachable'}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {stats && (
           <>

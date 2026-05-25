@@ -3,9 +3,10 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.role_guard import AdminUser
@@ -15,9 +16,51 @@ from app.models.patient import Patient
 from app.models.prediction import Prediction
 from app.models.user import User
 from app.schemas.user_schema import UserRead, UserUpdate
+from app.services.redis_client import redis_client
 from app.users.service import UserService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+async def _ping_service(url: str, timeout: float = 3.0) -> str | None:
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(f"{url}/health")
+            return "healthy" if resp.status_code < 500 else "unhealthy"
+    except Exception:
+        return None
+
+
+@router.get("/health")
+async def get_admin_health(_: AdminUser):
+    redis_ok = None
+    try:
+        conn = await redis_client.get_connection()
+        if conn:
+            await conn.ping()
+            redis_ok = "healthy"
+    except Exception:
+        redis_ok = None
+
+    pg_ok = None
+    try:
+        from app.db.session import engine
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+            pg_ok = "healthy"
+    except Exception:
+        pg_ok = None
+
+    mlops_status = await _ping_service("http://localhost:8004")
+    llmops_status = await _ping_service("http://localhost:8002")
+
+    return {
+        "backend": "healthy",
+        "mlops": mlops_status,
+        "llmops": llmops_status,
+        "redis": redis_ok,
+        "postgres": pg_ok,
+    }
 
 
 @router.get("/users", response_model=dict)

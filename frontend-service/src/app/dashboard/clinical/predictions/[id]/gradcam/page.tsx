@@ -328,6 +328,12 @@ export default function GradCAMPage() {
   const leftEye = prediction?.output_payload?.left_eye as Record<string, unknown> | undefined;
   const rightEye = prediction?.output_payload?.right_eye as Record<string, unknown> | undefined;
 
+  // Lesion data
+  const lesionsLeft = prediction?.output_payload?.lesions_left as Record<string, number> | undefined || prediction?.output_payload?.lesions as Record<string, number> | undefined;
+  const lesionsRight = prediction?.output_payload?.lesions_right as Record<string, number> | undefined;
+  const lesionClustersLeft = prediction?.output_payload?.lesion_clusters_left as Array<Record<string, any>> | undefined || prediction?.output_payload?.lesion_clusters as Array<Record<string, any>> | undefined;
+  const lesionClustersRight = prediction?.output_payload?.lesion_clusters_right as Array<Record<string, any>> | undefined;
+
   const grade = prediction?.output_payload?.combined_grade as number | undefined;
   const gradeKey = grade !== undefined ? String(grade) : '2';
   const gradeLabel = grade !== undefined ? GRADE_LABELS[grade] : 'Unknown';
@@ -458,6 +464,60 @@ export default function GradCAMPage() {
           <div className="space-y-6">
             {/* Recommendations */}
             {grade !== undefined && <RecommendationPanel grade={grade} />}
+
+            {/* Lesions Panel */}
+            {(lesionsLeft || lesionsRight) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Lesion Summary</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {lesionsLeft && (
+                      <div>
+                        <h4 className="font-semibold">Left Eye (OS)</h4>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {Object.entries(lesionsLeft).map(([k, v]) => (
+                            <Badge key={k} className="text-sm">{k.toUpperCase()}: {v}</Badge>
+                          ))}
+                        </div>
+                        {lesionClustersLeft && lesionClustersLeft.length > 0 && (
+                          <div className="mt-2 text-sm text-muted-foreground">
+                            <div>Clusters:</div>
+                            <ul className="list-disc pl-5">
+                              {lesionClustersLeft.slice(0,5).map((c, i) => (
+                                <li key={`l-${i}`}>{c.class} at ({c.centroid_x}, {c.centroid_y}), area {c.area}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {lesionsRight && (
+                      <div>
+                        <h4 className="font-semibold">Right Eye (OD)</h4>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {Object.entries(lesionsRight).map(([k, v]) => (
+                            <Badge key={k} className="text-sm">{k.toUpperCase()}: {v}</Badge>
+                          ))}
+                        </div>
+                        {lesionClustersRight && lesionClustersRight.length > 0 && (
+                          <div className="mt-2 text-sm text-muted-foreground">
+                            <div>Clusters:</div>
+                            <ul className="list-disc pl-5">
+                              {lesionClustersRight.slice(0,5).map((c, i) => (
+                                <li key={`r-${i}`}>{c.class} at ({c.centroid_x}, {c.centroid_y}), area {c.area}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Left Eye Probabilities */}
             <ProbabilityBars

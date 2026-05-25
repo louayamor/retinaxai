@@ -113,6 +113,19 @@ class PredictionService:
             output_payload["top_hotspots_right"] = [
                 h.model_dump() for h in ml_response.top_hotspots_right
             ]
+        # Lesion information (if present)
+        if getattr(ml_response, "lesions_left", None):
+            output_payload["lesions_left"] = ml_response.lesions_left
+        if getattr(ml_response, "lesions_right", None):
+            output_payload["lesions_right"] = ml_response.lesions_right
+        if getattr(ml_response, "lesion_clusters_left", None):
+            output_payload["lesion_clusters_left"] = [
+                c for c in ml_response.lesion_clusters_left
+            ]
+        if getattr(ml_response, "lesion_clusters_right", None):
+            output_payload["lesion_clusters_right"] = [
+                c for c in ml_response.lesion_clusters_right
+            ]
         return output_payload
 
     async def _handle_prediction_success(

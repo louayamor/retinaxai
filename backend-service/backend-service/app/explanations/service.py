@@ -188,13 +188,23 @@ class ExplanationService:
                     str(dr_grade) if isinstance(dr_grade, int) else dr_grade
                 )
                 try:
-                    resp = await client.post(
+                    # Include lesion counts/clusters if available
+                lesions_left = output_payload.get("lesions_left") or output_payload.get("lesions")
+                lesions_right = output_payload.get("lesions_right")
+                lesion_clusters_left = output_payload.get("lesion_clusters_left") or output_payload.get("lesion_clusters")
+                lesion_clusters_right = output_payload.get("lesion_clusters_right")
+
+                resp = await client.post(
                         f"{llm_base_url}/api/xai/explain",
                         json={
                             "prediction_id": str(prediction.id),
                             "dr_grade": dr_grade_value,
                             "confidence": confidence,
                             "gradcam_regions": gradcam_regions_full,
+                            "lesions_left": lesions_left,
+                            "lesions_right": lesions_right,
+                            "lesion_clusters_left": lesion_clusters_left,
+                            "lesion_clusters_right": lesion_clusters_right,
                         },
                         headers=headers,
                     )
@@ -219,6 +229,7 @@ class ExplanationService:
 
             if left_region_names or right_region_names:
                 try:
+                    # Include lesion clusters in gradcam payload if present
                     resp = await client.post(
                         f"{llm_base_url}/api/xai/gradcam",
                         json={
@@ -227,6 +238,8 @@ class ExplanationService:
                             "right_eye_regions": right_regions_full,
                             "dr_grade": str(dr_grade) if dr_grade is not None else None,
                             "confidence": confidence,
+                            "lesion_clusters_left": output_payload.get("lesion_clusters_left") or output_payload.get("lesion_clusters"),
+                            "lesion_clusters_right": output_payload.get("lesion_clusters_right"),
                         },
                         headers=headers,
                     )
@@ -252,6 +265,7 @@ class ExplanationService:
             risk_factors = prediction.input_payload.get("risk_factors", [])
             dr_grade_value = str(dr_grade) if isinstance(dr_grade, int) else dr_grade
             try:
+                # Include lesion counts in severity payload to help risk estimation
                 resp = await client.post(
                     f"{llm_base_url}/api/xai/severity",
                     json={
@@ -259,6 +273,8 @@ class ExplanationService:
                         "patient_data": patient_data,
                         "dr_grade": dr_grade_value,
                         "risk_factors": risk_factors,
+                        "lesions_left": output_payload.get("lesions_left") or output_payload.get("lesions"),
+                        "lesions_right": output_payload.get("lesions_right"),
                     },
                     headers=headers,
                 )

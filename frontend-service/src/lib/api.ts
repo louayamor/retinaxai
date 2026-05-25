@@ -909,6 +909,18 @@ export async function getAdminStats(): Promise<AdminStats> {
   return request<AdminStats>('/api/v1/admin/stats');
 }
 
+export interface AdminHealth {
+  backend: 'healthy' | null;
+  mlops: 'healthy' | null;
+  llmops: 'healthy' | null;
+  redis: 'healthy' | null;
+  postgres: 'healthy' | null;
+}
+
+export async function getAdminHealth(): Promise<AdminHealth> {
+  return request<AdminHealth>('/api/v1/admin/health');
+}
+
 // ============ Chat API ============
 
 export interface ChatMessage {

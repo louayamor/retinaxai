@@ -40,4 +40,9 @@ class MLPredictResponse(BaseModel):
     regions_right: list[RegionNumeric] | None = None
     top_hotspots_left: list[TopHotspot] | None = None
     top_hotspots_right: list[TopHotspot] | None = None
+    # Lesion fields (optional)
+    lesions_left: dict[str, int] | None = None
+    lesions_right: dict[str, int] | None = None
+    lesion_clusters_left: list[dict] | None = None
+    lesion_clusters_right: list[dict] | None = None
 
