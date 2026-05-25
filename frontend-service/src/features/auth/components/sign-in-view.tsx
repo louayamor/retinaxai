@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import Image from 'next/image';
 import { motion, useReducedMotion } from 'motion/react';
 import UserAuthForm from './user-auth-form';
@@ -69,16 +68,7 @@ export default function SignInView() {
               Enter your credentials to access the dashboard
             </p>
           </div>
-          <UserAuthForm mode="login" />
-          <p className="px-8 text-center text-sm text-muted-foreground">
-            Don&apos;t have an account?{' '}
-            <Link
-              href="/auth/register"
-              className="underline underline-offset-4 hover:text-[var(--brand-teal)]"
-            >
-              Register
-            </Link>
-          </p>
+          <UserAuthForm />
         </div>
       </motion.div>
     </div>

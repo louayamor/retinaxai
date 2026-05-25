@@ -6,10 +6,13 @@ export interface TokenPair {
   token_type: string;
 }
 
+export type UserRole = 'doctor' | 'engineer' | 'admin';
+
 export interface AuthUser {
   id: string;
   username: string;
   email: string;
+  role: UserRole;
 }
 
 function deleteCookie(name: string): void {

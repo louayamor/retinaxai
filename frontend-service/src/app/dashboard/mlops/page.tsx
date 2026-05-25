@@ -97,8 +97,9 @@ export default function MLOpsPage() {
       };
       setMetrics(nextMetrics);
       setPromMetrics(incoming.prometheus ?? null);
-      if (incoming.prometheus) {
-        setPromHistory((prev) => [...prev.slice(-MAX_HISTORY + 1), incoming.prometheus]);
+      const promData = incoming.prometheus;
+      if (promData) {
+        setPromHistory((prev) => [...prev.slice(-MAX_HISTORY + 1), promData]);
       }
       setLoading(false);
     });

@@ -1,42 +1,31 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useAuth } from '@/providers/auth-context';
 import SignInView from '@/features/auth/components/sign-in-view';
+import type { UserRole } from '@/lib/auth';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const ROLE_REDIRECT: Record<UserRole, string> = {
+  doctor: '/dashboard/overview',
+  engineer: '/dashboard/overview',
+  admin: '/dashboard/overview',
+};
 
 export default function LoginPage() {
-  const router = useRouter();
-  const [checking, setChecking] = useState(true);
+  const { user, loading } = useAuth();
 
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        // Check immediately without delay
-        const res = await fetch(`${API_URL}/api/v1/auth/me`, {
-          credentials: 'include',
-        });
-
-        if (res.ok) {
-          router.replace('/dashboard/overview');
-        }
-      } catch {
-        // Ignore errors, show login
-      } finally {
-        setChecking(false);
-      }
-    };
-
-    checkAuth();
-  }, [router]);
-
-  if (checking) {
+  if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--brand-teal)]" />
       </div>
     );
+  }
+
+  if (user) {
+    if (typeof window !== 'undefined') {
+      window.location.href = ROLE_REDIRECT[user.role] || '/dashboard/overview';
+    }
+    return null;
   }
 
   return <SignInView />;

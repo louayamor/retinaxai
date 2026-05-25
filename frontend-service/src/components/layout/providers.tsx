@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { WebSocketProvider } from '@/hooks/use-websocket';
+import { AuthProvider } from '@/providers/auth-context';
 
 export default function Providers({
   children
@@ -9,8 +10,10 @@ export default function Providers({
   children: React.ReactNode;
 }) {
   return (
-    <WebSocketProvider>
-      {children}
-    </WebSocketProvider>
+    <AuthProvider>
+      <WebSocketProvider>
+        {children}
+      </WebSocketProvider>
+    </AuthProvider>
   );
 }
