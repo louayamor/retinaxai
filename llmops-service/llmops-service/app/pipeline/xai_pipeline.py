@@ -521,7 +521,7 @@ Use precise clinical terminology. Write as a retinal specialist documenting find
             intensity = region.get("intensity", 0.0)
             area = region.get("area", 0)
             saliency = region.get("saliency_score", 0.0)
-            clinical_info = ShapService.REGION_CLINICAL_RELEVANCE.get(
+            clinical_info = get_shap_service().REGION_CLINICAL_RELEVANCE.get(
                 name,
                 {
                     "significance": "Retinal region",
@@ -534,7 +534,7 @@ Use precise clinical terminology. Write as a retinal specialist documenting find
                 f"{clinical_info.get('high_contribution', 'Model activation pattern')}."
             )
         else:
-            clinical_info = ShapService.REGION_CLINICAL_RELEVANCE.get(
+            clinical_info = get_shap_service().REGION_CLINICAL_RELEVANCE.get(
                 region,
                 {
                     "significance": "Retinal region",
@@ -942,6 +942,17 @@ findings. Output complete clinical narrative only."""
                 error=str(e),
             )
             raise
+
+    def _build_prediction_prompt(self, dr_grade: str, confidence: float, patient_info: dict | None) -> str:
+        """Build a short prediction summary prompt containing grade and confidence."""
+        grade_int = _validate_dr_grade(dr_grade)
+        grade_label = ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"][grade_int]
+        if patient_info:
+            patient_info_str = f"Patient: Age: {patient_info.get('age', 'N/A')}, Gender: {patient_info.get('gender', 'N/A')}"
+        else:
+            patient_info_str = "Patient: N/A"
+
+        return f"""Prediction Summary:\n- DR Grade: {grade_int} ({grade_label})\n- Confidence: {confidence}\n{patient_info_str}\n"""
 
     def _build_gradcam_prompt(
         self,
