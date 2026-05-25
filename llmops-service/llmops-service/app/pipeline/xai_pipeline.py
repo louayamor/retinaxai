@@ -24,6 +24,7 @@ from app.services.prometheus_metrics import (
     XAI_RAG_AVAILABLE,
 )
 from app.services.event_client import send_xai_event
+from app.services.shap_service import get_shap_service
 
 
 XAI_SEVERITY_SYSTEM_PROMPT = """Generate structured severity reports in JSON format.
@@ -300,7 +301,7 @@ class XAIPipeline:
                         if region_lesions
                         else ""
                     )
-                    clinical_info = ShapService.REGION_CLINICAL_RELEVANCE.get(
+                    clinical_info = get_shap_service().REGION_CLINICAL_RELEVANCE.get(
                         name,
                         {
                             "significance": "Retinal region",
@@ -340,7 +341,7 @@ class XAIPipeline:
                         if region_lesions
                         else ""
                     )
-                    clinical_info = ShapService.REGION_CLINICAL_RELEVANCE.get(
+                    clinical_info = get_shap_service().REGION_CLINICAL_RELEVANCE.get(
                         name,
                         {
                             "significance": "Retinal region",
