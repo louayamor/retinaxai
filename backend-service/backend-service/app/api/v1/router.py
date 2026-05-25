@@ -16,13 +16,11 @@ from app.api.v1.routes.predict_routes import router as predict_router
 from app.api.v1.routes.rag_routes import router as rag_router
 from app.api.v1.routes.report_routes import router as report_router
 from app.api.v1.routes.system_routes import router as system_router
-from app.api.v1.routes.user_routes import router as user_router
 
 api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(auth_router)
 api_router.include_router(chat_router)
-api_router.include_router(user_router)
 api_router.include_router(patient_router)
 api_router.include_router(mri_scan_router)
 api_router.include_router(predict_router)

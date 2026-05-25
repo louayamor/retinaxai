@@ -70,7 +70,6 @@ files = [
     "app/api/v1/router.py",
     "app/api/v1/routes/__init__.py",
     "app/api/v1/routes/auth_routes.py",
-    "app/api/v1/routes/user_routes.py",
     "app/api/v1/routes/patient_routes.py",
     "app/api/v1/routes/predict_routes.py",
     "app/api/v1/routes/report_routes.py",

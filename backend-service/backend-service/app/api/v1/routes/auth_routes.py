@@ -3,7 +3,7 @@ import uuid
 from datetime import UTC
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
@@ -17,7 +17,6 @@ from app.core.config import settings
 from app.core.exceptions import UnauthorizedException
 from app.db.session import get_db
 from app.models.auth_session import AuthSession
-from app.models.user import User
 from app.schemas.token_schema import TokenResponse
 from app.schemas.user_schema import UserCreate, UserRead
 from app.users.service import UserService
@@ -168,19 +167,5 @@ async def cleanup_sessions(
 
 
 @router.get("/me", response_model=UserRead)
-async def get_current_user(
-    request: Request,
-    db: Annotated[AsyncSession, Depends(get_db)],
-):
-    token = request.cookies.get("rxa_access_token")
-    if not token:
-        raise UnauthorizedException("Not authenticated")
-
-    payload = decode_token(token)
-    if payload.token_type != "access":
-        raise UnauthorizedException("Invalid token type")
-
-    user = await db.get(User, uuid.UUID(payload.sub))
-    if not user or not user.is_active:
-        raise UnauthorizedException("User not found or inactive")
+async def get_current_user_me(user: CurrentUser):
     return UserRead.model_validate(user)
