@@ -1,11 +1,6 @@
 'use client';
 
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger
-} from '@/components/ui/collapsible';
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -19,23 +14,19 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail
 } from '@/components/ui/sidebar';
-import { navGroups, navItems } from '@/config/nav-config';
-import { useFilteredNavItems } from '@/hooks/use-nav';
-import { clearTokens, apiFetch } from '@/lib/auth';
+import { clinicalNav, engineeringNav, adminNav } from '@/config/nav-config';
+import { useAuth } from '@/providers/auth-context';
 import {
   IconBell,
-  IconChevronRight,
   IconChevronsDown,
   IconLogout,
   IconUserCircle,
-  IconSettings
 } from '@tabler/icons-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -43,8 +34,13 @@ import { usePathname, useRouter } from 'next/navigation';
 import * as React from 'react';
 import { Icons } from '../icons';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import type { NavItem } from '@/types';
 
-const SYSTEM_ITEMS = navGroups[1]?.items ?? [];
+const ROLE_NAV: Record<string, NavItem[]> = {
+  doctor: clinicalNav,
+  engineer: engineeringNav,
+  admin: adminNav,
+};
 
 function isActivePath(pathname: string, url: string): boolean {
   if (pathname === url) return true;
@@ -55,7 +51,7 @@ function NavItemComponent({
   item,
   pathname,
 }: {
-  item: typeof navItems[number];
+  item: NavItem;
   pathname: string;
 }) {
   const Icon = item.icon ? Icons[item.icon] : Icons.logo;
@@ -81,31 +77,13 @@ function NavItemComponent({
 export default function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const filteredItems = useFilteredNavItems(navItems);
-  const [user, setUser] = React.useState<{ username: string; email: string } | null>(null);
-  const [advancedOpen, setAdvancedOpen] = React.useState(false);
-
-  React.useEffect(() => {
-    apiFetch<{ username: string; email: string }>('/api/v1/auth/me')
-      .then(setUser)
-      .catch(() => setUser(null));
-  }, []);
+  const { user, logout } = useAuth();
+  const userRole = user?.role ?? 'doctor';
+  const navItems = ROLE_NAV[userRole] ?? clinicalNav;
 
   async function handleLogout() {
-    clearTokens();
-    try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/auth/logout`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-    } catch {}
-    window.location.href = '/auth/login';
+    await logout();
   }
-
-  const clinicalItems = React.useMemo(
-    () => filteredItems.filter((item) => !SYSTEM_ITEMS.some((s) => s.title === item.title)),
-    [filteredItems],
-  );
 
   return (
     <Sidebar collapsible='icon'>
@@ -128,34 +106,10 @@ export default function AppSidebar() {
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>
-            {clinicalItems.map((item) => (
+            {navItems.map((item) => (
               <NavItemComponent key={item.title} item={item} pathname={pathname} />
             ))}
           </SidebarMenu>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen} className='group/collapsible'>
-            <SidebarMenuItem>
-              <CollapsibleTrigger asChild>
-                <SidebarMenuButton tooltip="Advanced" className='text-sm py-1.5'>
-                  <IconSettings className="size-4" />
-                  <span>Advanced</span>
-                  <IconChevronRight className='ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90' />
-                </SidebarMenuButton>
-              </CollapsibleTrigger>
-            </SidebarMenuItem>
-            <CollapsibleContent>
-              <SidebarGroupLabel className='text-xs uppercase tracking-widest text-sidebar-primary/60 font-semibold px-2 pb-1 pt-2'>
-                System
-              </SidebarGroupLabel>
-              <SidebarMenu>
-                {SYSTEM_ITEMS.map((item) => (
-                  <NavItemComponent key={item.title} item={item} pathname={pathname} />
-                ))}
-              </SidebarMenu>
-            </CollapsibleContent>
-          </Collapsible>
         </SidebarGroup>
       </SidebarContent>
 

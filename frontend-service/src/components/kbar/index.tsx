@@ -1,5 +1,6 @@
 'use client';
-import { navItems } from '@/config/nav-config';
+import { clinicalNav, engineeringNav, adminNav } from '@/config/nav-config';
+import { useAuth } from '@/providers/auth-context';
 import {
   KBarAnimator,
   KBarPortal,
@@ -10,21 +11,26 @@ import {
 import { useRouter } from 'next/navigation';
 import { useMemo } from 'react';
 import RenderResults from './render-result';
-import { useFilteredNavItems } from '@/hooks/use-nav';
+import type { NavItem } from '@/types';
+
+const ROLE_NAV: Record<string, NavItem[]> = {
+  doctor: clinicalNav,
+  engineer: engineeringNav,
+  admin: adminNav,
+};
 
 export default function KBar({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const filteredItems = useFilteredNavItems(navItems);
+  const { user } = useAuth();
+  const userRole = user?.role ?? 'doctor';
+  const navItems = ROLE_NAV[userRole] ?? clinicalNav;
 
-  // These action are for the navigation
   const actions = useMemo(() => {
-    // Define navigateTo inside the useMemo callback to avoid dependency array issues
     const navigateTo = (url: string) => {
       router.push(url);
     };
 
-    return filteredItems.flatMap((navItem) => {
-      // Only include base action if the navItem has a real URL and is not just a container
+    return navItems.flatMap((navItem) => {
       const baseAction =
         navItem.url !== '#'
           ? {
@@ -38,7 +44,6 @@ export default function KBar({ children }: { children: React.ReactNode }) {
             }
           : null;
 
-      // Map child items into actions
       const childActions =
         navItem.items?.map((childItem) => ({
           id: `${childItem.title.toLowerCase()}Action`,
@@ -50,10 +55,9 @@ export default function KBar({ children }: { children: React.ReactNode }) {
           perform: () => navigateTo(childItem.url)
         })) ?? [];
 
-      // Return only valid actions (ignoring null base actions for containers)
       return baseAction ? [baseAction, ...childActions] : childActions;
     });
-  }, [router, filteredItems]);
+  }, [router, navItems]);
 
   return (
     <KBarProvider actions={actions}>

@@ -26,9 +26,9 @@ const loginSchema = z.object({
 type LoginValues = z.infer<typeof loginSchema>;
 
 const ROLE_REDIRECT: Record<UserRole, string> = {
-  doctor: '/dashboard/overview',
-  engineer: '/dashboard/overview',
-  admin: '/dashboard/overview',
+  doctor: '/dashboard/clinical',
+  engineer: '/dashboard/engineering',
+  admin: '/dashboard/admin',
 };
 
 export default function UserAuthForm() {
@@ -58,9 +58,9 @@ export default function UserAuthForm() {
           email: data.email,
           role: data.role as UserRole,
         });
-        window.location.href = ROLE_REDIRECT[data.role as UserRole] || '/dashboard/overview';
+        window.location.href = ROLE_REDIRECT[data.role as UserRole] || '/dashboard/clinical';
       } else {
-        window.location.href = '/dashboard/overview';
+        window.location.href = '/dashboard/clinical';
       }
     } catch (err: unknown) {
       const e = err as { message?: string; status?: number };

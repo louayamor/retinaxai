@@ -871,6 +871,44 @@ export async function getSystemStats(): Promise<SystemStats> {
   return request<SystemStats>('/api/v1/stats');
 }
 
+// ============ Admin API ============
+
+export interface AdminUserItem {
+  id: string;
+  email: string;
+  username: string;
+  is_active: boolean;
+  role: string;
+  created_at: string;
+}
+
+export interface AdminUsersResponse {
+  total: number;
+  skip: number;
+  limit: number;
+  items: AdminUserItem[];
+}
+
+export interface AdminStats {
+  users: { total: number; by_role: Record<string, number>; active: number };
+  platform: { patients: number; predictions: number; active_sessions: number };
+}
+
+export async function getAdminUsers(skip = 0, limit = 100): Promise<AdminUsersResponse> {
+  return request<AdminUsersResponse>(`/api/v1/admin/users?skip=${skip}&limit=${limit}`);
+}
+
+export async function updateAdminUser(userId: string, data: { username?: string; is_active?: boolean; role?: string }): Promise<AdminUserItem> {
+  return request<AdminUserItem>(`/api/v1/admin/users/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getAdminStats(): Promise<AdminStats> {
+  return request<AdminStats>('/api/v1/admin/stats');
+}
+
 // ============ Chat API ============
 
 export interface ChatMessage {
