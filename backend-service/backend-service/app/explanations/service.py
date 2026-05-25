@@ -1,5 +1,4 @@
 from __future__ import annotations
-import asyncio
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +17,7 @@ from app.explanations.utils import normalize_risk_level
 from app.models.prediction import PredictionStatus
 from app.predictions.repository import PredictionRepository
 from app.reports.service import ReportService
+from app.services.task_tracker import bg_tasks
 from sqlalchemy.exc import IntegrityError
 
 logger = structlog.get_logger(__name__)
@@ -108,7 +108,7 @@ class ExplanationService:
         await self.db.commit()
 
         try:
-            task = asyncio.create_task(
+            task = bg_tasks.create_task(
                 emit_xai_event(
                     event_type="xai.explanation_ready",
                     prediction_id=str(prediction.id),
@@ -116,7 +116,8 @@ class ExplanationService:
                     status=ExplanationStatus.COMPLETED,
                     progress=100,
                     message="XAI explanation stored",
-                )
+                ),
+                name="emit_store_xai",
             )
             task.add_done_callback(
                 lambda t: logger.warning("emit_xai_failed", error=str(t.exception()))
@@ -293,7 +294,7 @@ class ExplanationService:
 
         try:
             if results["prediction_explanation"]:
-                asyncio.create_task(
+                bg_tasks.create_task(
                     emit_xai_event(
                         event_type="xai.explanation_ready",
                         prediction_id=str(prediction.id),
@@ -308,7 +309,7 @@ class ExplanationService:
                 )
 
             if results["gradcam_explanation"]:
-                asyncio.create_task(
+                bg_tasks.create_task(
                     emit_xai_event(
                         event_type="xai.gradcam_ready",
                         prediction_id=str(prediction.id),
@@ -329,7 +330,7 @@ class ExplanationService:
                 )
 
             if results["severity_report"]:
-                asyncio.create_task(
+                bg_tasks.create_task(
                     emit_xai_event(
                         event_type="xai.severity_ready",
                         prediction_id=str(prediction.id),

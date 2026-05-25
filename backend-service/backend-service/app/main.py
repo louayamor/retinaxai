@@ -19,6 +19,7 @@ from app.core.middleware.request_id import RequestIDMiddleware
 from app.core.prometheus_metrics import start_metrics_server
 from app.observability.mlops_monitor import subscribe_mlops_monitor
 from app.services.redis_client import redis_client as shared_redis
+from app.services.task_tracker import bg_tasks
 
 
 @asynccontextmanager
@@ -34,6 +35,8 @@ async def lifespan(app: FastAPI):
         _start_local_redis()
 
     yield
+
+    await bg_tasks.drain(timeout=5.0)
 
     mlops_task.cancel()
     ws_broadcast_task.cancel()

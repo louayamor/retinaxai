@@ -1,5 +1,4 @@
 from __future__ import annotations
-import asyncio
 import traceback
 import uuid
 from typing import Any
@@ -21,6 +20,7 @@ import structlog
 
 from app.api.v1.websockets import emit_prediction_event
 from app.explanations.service import ExplanationService
+from app.services.task_tracker import bg_tasks
 
 logger = structlog.get_logger(__name__)
 
@@ -130,7 +130,7 @@ class PredictionService:
         dr_grade = output_payload.get("combined_grade", 0)
         overall_severity = _SEVERITY_MAP.get(dr_grade, "unknown")
 
-        asyncio.create_task(
+        bg_tasks.create_task(
             emit_prediction_event(
                 prediction_id=str(prediction.id),
                 patient_id=str(data.patient_id),
@@ -157,7 +157,7 @@ class PredictionService:
     async def _emit_prediction_failed(
         self, prediction_id: uuid.UUID, patient_id: uuid.UUID, error: str
     ) -> None:
-        asyncio.create_task(
+        bg_tasks.create_task(
             emit_prediction_event(
                 prediction_id=str(prediction_id),
                 patient_id=str(patient_id),
