@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta, timezone
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import UnauthorizedException
@@ -22,12 +22,15 @@ class AuthSessionService:
         refresh_token: str,
         expires_in_days: int,
         access_token_jti: str | None = None,
+        refresh_token_jti: str | None = None,
     ) -> AuthSession:
         session = AuthSession(
             user_id=user_id,
             access_token_jti=access_token_jti,
+            refresh_token_jti=refresh_token_jti,
             refresh_token=refresh_token,
             expires_at=datetime.now(UTC) + timedelta(days=expires_in_days),
+            token_family=uuid.uuid4(),
         )
         self.db.add(session)
         await self.db.flush()
@@ -42,14 +45,18 @@ class AuthSessionService:
                     "user_id": str(session.user_id),
                     "session_id": str(session.id),
                     "access_token_jti": access_token_jti,
+                    "refresh_token_jti": refresh_token_jti,
+                    "token_family": str(session.token_family),
                     "created_at": session.created_at.isoformat(),
                     "expires_at": session.expires_at.isoformat(),
                 }
                 await redis.setex(key, ttl, json.dumps(session_data))
 
                 if access_token_jti:
-                    jti_key = f"jti:{access_token_jti}"
-                    await redis.setex(jti_key, ttl, refresh_token)
+                    await redis.setex(f"jti:{access_token_jti}", ttl, refresh_token)
+
+                if refresh_token_jti:
+                    await redis.setex(f"jti_refresh:{refresh_token_jti}", ttl, refresh_token)
 
                 logger.debug(f"Session cached in Redis: {key}")
             except Exception as e:
@@ -106,8 +113,10 @@ class AuthSessionService:
     async def revoke_refresh_token(self, refresh_token: str) -> None:
         session = await self.get_by_refresh_token(refresh_token)
         jti: str | None = None
+        refresh_jti: str | None = None
         if session:
             jti = session.access_token_jti
+            refresh_jti = session.refresh_token_jti
             session.revoked = True
             await self.db.flush()
 
@@ -115,9 +124,13 @@ class AuthSessionService:
         if redis:
             try:
                 key = f"session:{refresh_token}"
-                await redis.delete(key)
+                pipe = redis.pipeline()
+                pipe.delete(key)
                 if jti:
-                    await redis.delete(f"jti:{jti}")
+                    pipe.delete(f"jti:{jti}")
+                if refresh_jti:
+                    pipe.delete(f"jti_refresh:{refresh_jti}")
+                await pipe.execute()
                 logger.debug(f"Session revoked in Redis: {key}")
             except Exception as e:
                 logger.warning(f"Failed to revoke session in Redis: {e}")
@@ -128,26 +141,50 @@ class AuthSessionService:
         new_refresh_token: str,
         expires_in_days: int,
         new_access_jti: str | None = None,
+        new_refresh_jti: str | None = None,
     ) -> str:
         session = await self.get_by_refresh_token(old_refresh_token)
-        if not session or session.revoked:
-            raise UnauthorizedException("Refresh token revoked or expired.")
+        if not session:
+            raise UnauthorizedException("Refresh token not found.")
+
+        if session.revoked:
+            token_family = session.token_family
+            await self.db.execute(
+                delete(AuthSession).where(AuthSession.token_family == token_family)
+            )
+            await self.db.flush()
+            redis = await shared_redis.get_connection()
+            if redis:
+                try:
+                    keys = [f"session:{old_refresh_token}"]
+                    if session.access_token_jti:
+                        keys.append(f"jti:{session.access_token_jti}")
+                    if session.refresh_token_jti:
+                        keys.append(f"jti_refresh:{session.refresh_token_jti}")
+                    await redis.delete(*keys)
+                except Exception as e:
+                    logger.warning(f"Failed to clean Redis after reuse detection: {e}")
+            raise UnauthorizedException("Refresh token reuse detected — all sessions revoked.")
+
         old_jti = session.access_token_jti
+        old_refresh_jti = session.refresh_token_jti
         session.revoked = True
         await self.create_session(
-            session.user_id, new_refresh_token, expires_in_days, new_access_jti
+            session.user_id, new_refresh_token, expires_in_days,
+            new_access_jti, new_refresh_jti,
         )
 
         redis = await shared_redis.get_connection()
         if redis:
             try:
-                old_key = f"session:{old_refresh_token}"
                 pipe = redis.pipeline()
-                pipe.delete(old_key)
+                pipe.delete(f"session:{old_refresh_token}")
                 if old_jti:
                     pipe.delete(f"jti:{old_jti}")
+                if old_refresh_jti:
+                    pipe.delete(f"jti_refresh:{old_refresh_jti}")
                 await pipe.execute()
-                logger.debug(f"Old session removed from Redis: {old_key}")
+                logger.debug(f"Old session removed from Redis")
             except Exception as e:
                 logger.warning(f"Failed to clean old session in Redis: {e}")
 

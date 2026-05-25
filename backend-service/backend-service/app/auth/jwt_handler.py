@@ -37,11 +37,12 @@ def create_access_token(user_id: uuid.UUID) -> tuple[str, str]:
     )
 
 
-def create_refresh_token(user_id: uuid.UUID) -> str:
+def create_refresh_token(user_id: uuid.UUID, jti: str | None = None) -> str:
     return _create_token(
         str(user_id),
         timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
         "refresh",
+        jti,
     )
 
 

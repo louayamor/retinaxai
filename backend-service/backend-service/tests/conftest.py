@@ -43,6 +43,8 @@ def auth_session(user_id: uuid.UUID) -> SimpleNamespace:
         user_id=user_id,
         expires_at=datetime.now(timezone.utc) + timedelta(days=1),
         access_token_jti=None,
+        refresh_token_jti=None,
+        token_family=uuid.uuid4(),
     )
 
 

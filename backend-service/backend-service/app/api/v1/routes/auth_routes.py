@@ -77,10 +77,12 @@ async def login(
     service = UserService(db)
     user = await service.authenticate(form_data.username, form_data.password)
     access_token, jti = create_access_token(user.id)
-    refresh_token = create_refresh_token(user.id)
+    refresh_jti = str(uuid.uuid4())
+    refresh_token = create_refresh_token(user.id, refresh_jti)
     session_service = AuthSessionService(db)
     await session_service.create_session(
-        user.id, refresh_token, expires_in_days=7, access_token_jti=jti
+        user.id, refresh_token, expires_in_days=7,
+        access_token_jti=jti, refresh_token_jti=refresh_jti,
     )
     return _token_response(access_token, refresh_token)
 
@@ -101,9 +103,11 @@ async def refresh_token(
     user_service = UserService(db)
     user = await user_service.get_by_id(uuid.UUID(payload.sub))
     access_token, new_jti = create_access_token(user.id)
-    new_refresh_token = create_refresh_token(user.id)
+    new_refresh_jti = str(uuid.uuid4())
+    new_refresh_token = create_refresh_token(user.id, new_refresh_jti)
     await session_service.rotate_refresh_token(
-        data.refresh_token, new_refresh_token, expires_in_days=7, new_access_jti=new_jti
+        data.refresh_token, new_refresh_token, expires_in_days=7,
+        new_access_jti=new_jti, new_refresh_jti=new_refresh_jti,
     )
     return _token_response(access_token, new_refresh_token)
 
