@@ -208,28 +208,139 @@ class InferenceService:
     def predict_imaging_with_lesions(
         self, image_bytes: bytes, eye_side: str = "unknown"
     ) -> dict:
-        result = self.predict_imaging_with_gradcam(image_bytes, eye_side)
-
+        # Run lesion detector first (if enabled) so clusters can be overlaid onto GradCAM regions
         detector = self._load_lesion_detector()
         if detector is None:
+            # Fallback to existing GradCAM-only flow
+            result = self.predict_imaging_with_gradcam(image_bytes, eye_side)
             result["lesions"] = None
             result["lesion_clusters"] = None
             return result
 
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        try:
+            img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        except Exception as e:
+            raise ValueError(f"Failed to open image: {e}") from e
+
         tf: nn.Module = self._build_transform()
         tensor = tf(img).unsqueeze(0).to(self.device)
 
+        # Run lesion prediction on the input tensor
         masks = detector.predict(tensor)
         per_class_counts: dict[str, int] = {
-            cls_name: int(mask.sum())
-            for cls_name, mask in masks.items()
+            cls_name: int(mask.sum()) for cls_name, mask in masks.items()
         }
         clusters = detector.extract_connected_components(masks)
 
-        result["lesions"] = per_class_counts
-        result["lesion_clusters"] = clusters
-        return result
+        # Run imaging prediction + GradCAM, supplying lesion clusters so GradCAM can overlay them
+        core_result = self._predict_with_tensor(
+            image_bytes=image_bytes,
+            tensor=tensor,
+            eye_side=eye_side,
+            lesion_clusters=clusters,
+        )
+
+        core_result["lesions"] = per_class_counts
+        core_result["lesion_clusters"] = clusters
+        return core_result
+
+    def _predict_with_tensor(
+        self,
+        image_bytes: bytes,
+        tensor: torch.Tensor,
+        eye_side: str = "unknown",
+        lesion_clusters: list[dict] | None = None,
+    ) -> dict:
+        """Run imaging model inference and GradCAM given a precomputed tensor.
+        If lesion_clusters is provided, they will be set on the GradCAMService so
+        regions/top_hotspots include lesion context.
+        """
+        start = time.time()
+
+        try:
+            img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            original_size = img.size
+        except Exception as e:
+            raise ValueError(f"Failed to open image: {e}") from e
+
+        logger.info(
+            f"[IMAGING] {eye_side} eye: original_size={original_size} "
+            f"→ resize={self._global_image_size}x{self._global_image_size}"
+        )
+
+        fundus_score = self._validate_fundus(image_bytes, eye_side)
+
+        model = self._load_imaging_model()
+
+        # Ensure tensor is on correct device
+        tensor = tensor.to(self.device)
+
+        try:
+            with torch.inference_mode():
+                with torch.amp.autocast("cuda", enabled=self.device.type == "cuda"):
+                    outputs = model(tensor)
+                probs = torch.softmax(outputs, dim=1).cpu().numpy()[0]
+        except RuntimeError as e:
+            if self.device.type == "cuda" and "out of memory" in str(e).lower():
+                logger.warning("[IMAGING] CUDA OOM during inference; retrying on CPU")
+                INFERENCE_OOM_KILLS.labels(model="imaging").inc()
+                self._move_to_cpu()
+                model = self._load_imaging_model()
+                tensor = tensor.to(self.device)
+                with torch.inference_mode():
+                    outputs = model(tensor)
+                probs = torch.softmax(outputs, dim=1).cpu().numpy()[0]
+            else:
+                raise
+
+        pred_class = int(np.argmax(probs))
+        confidence = float(probs[pred_class])
+        embedding = self.get_embedding(tensor)
+
+        gradcam_service = GradCAMService(model)
+        if lesion_clusters:
+            gradcam_service.set_lesion_clusters(lesion_clusters)
+
+        gradcam_base64, regions, top_hotspots = (
+            gradcam_service.generate_with_regions_numeric(
+                image_bytes, tensor, pred_class
+            )
+        )
+
+        low_confidence = confidence < self._confidence_threshold
+        logger.info(
+            f"[IMAGING] {eye_side} eye: fundus={fundus_score:.3f} -> "
+            f"DR grade={pred_class} ({DR_CLASSES[pred_class]}) "
+            f"conf={confidence:.4f} "
+            f"{'LOW_CONFIDENCE' if low_confidence else ''}"
+        )
+
+        INFERENCE_LATENCY.labels(model="imaging").observe(time.time() - start)
+        _emit_gpu_metrics()
+
+        if self.device.type == "cuda":
+            torch.cuda.empty_cache()
+
+        # Clean up references
+        try:
+            del tensor, outputs
+        except Exception:
+            pass
+
+        return {
+            "predicted_grade": pred_class,
+            "predicted_label": DR_CLASSES[pred_class],
+            "severity": DR_SEVERITY.get(pred_class, "unknown"),
+            "confidence": round(confidence, 4),
+            "probabilities": {DR_CLASSES[i]: float(p) for i, p in enumerate(probs)},
+            "embedding": embedding,
+            "gradcam_heatmap": gradcam_base64,
+            "regions": regions,
+            "top_hotspots": top_hotspots,
+            "fundus_score": fundus_score,
+            "confidence_threshold": self._confidence_threshold,
+            "low_confidence": low_confidence,
+        }
 
     def _build_transform(self) -> transforms.Compose:
         aug = self.params.get("augmentation", {}) or {}
@@ -276,82 +387,12 @@ class InferenceService:
     def predict_imaging_with_gradcam(
         self, image_bytes: bytes, eye_side: str = "unknown"
     ) -> dict:
-        start = time.time()
-
+        # Default (no lesions) flow: build tensor then delegate to _predict_with_tensor
         try:
             img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-            original_size = img.size
         except Exception as e:
             raise ValueError(f"Failed to open image: {e}") from e
 
-        logger.info(
-            f"[IMAGING] {eye_side} eye: original_size={original_size} "
-            f"→ resize={self._global_image_size}x{self._global_image_size}"
-        )
-
-        fundus_score = self._validate_fundus(image_bytes, eye_side)
-
-        model = self._load_imaging_model()
-
-        tf: nn.Module = self._build_transform()  # type: ignore[assignment]
-        tensor = tf(img).unsqueeze(0).to(self.device)  # type: ignore[operator]
-
-        try:
-            with torch.inference_mode():
-                with torch.amp.autocast("cuda", enabled=self.device.type == "cuda"):
-                    outputs = model(tensor)
-                probs = torch.softmax(outputs, dim=1).cpu().numpy()[0]
-        except RuntimeError as e:
-            if self.device.type == "cuda" and "out of memory" in str(e).lower():
-                logger.warning("[IMAGING] CUDA OOM during inference; retrying on CPU")
-                INFERENCE_OOM_KILLS.labels(model="imaging").inc()
-                self._move_to_cpu()
-                model = self._load_imaging_model()
-                tensor = tensor.to(self.device)
-                with torch.inference_mode():
-                    outputs = model(tensor)
-                probs = torch.softmax(outputs, dim=1).cpu().numpy()[0]
-            else:
-                raise
-
-        pred_class = int(np.argmax(probs))
-        confidence = float(probs[pred_class])
-        embedding = self.get_embedding(tensor)
-
-        gradcam_service = GradCAMService(model)
-        gradcam_base64, regions, top_hotspots = (
-            gradcam_service.generate_with_regions_numeric(
-                image_bytes, tensor, pred_class
-            )
-        )
-
-        low_confidence = confidence < self._confidence_threshold
-        logger.info(
-            f"[IMAGING] {eye_side} eye: fundus={fundus_score:.3f} -> "
-            f"DR grade={pred_class} ({DR_CLASSES[pred_class]}) "
-            f"conf={confidence:.4f} "
-            f"{'LOW_CONFIDENCE' if low_confidence else ''}"
-        )
-
-        INFERENCE_LATENCY.labels(model="imaging").observe(time.time() - start)
-        _emit_gpu_metrics()
-
-        if self.device.type == "cuda":
-            torch.cuda.empty_cache()
-
-        del tensor, outputs
-
-        return {
-            "predicted_grade": pred_class,
-            "predicted_label": DR_CLASSES[pred_class],
-            "severity": DR_SEVERITY.get(pred_class, "unknown"),
-            "confidence": round(confidence, 4),
-            "probabilities": {DR_CLASSES[i]: float(p) for i, p in enumerate(probs)},
-            "embedding": embedding,
-            "gradcam_heatmap": gradcam_base64,
-            "regions": regions,
-            "top_hotspots": top_hotspots,
-            "fundus_score": fundus_score,
-            "confidence_threshold": self._confidence_threshold,
-            "low_confidence": low_confidence,
-        }
+        tf: nn.Module = self._build_transform()
+        tensor = tf(img).unsqueeze(0).to(self.device)
+        return self._predict_with_tensor(image_bytes=image_bytes, tensor=tensor, eye_side=eye_side)
