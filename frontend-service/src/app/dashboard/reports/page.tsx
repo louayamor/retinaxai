@@ -62,31 +62,37 @@ export default function ReportsPage() {
 
   const { connected, subscribe } = useWebSocket();
 
+  const handleLlmopsEvent = (data: unknown) => {
+    const payload = data as { status: string; progress: number; message: string; details?: Record<string, unknown> };
+    const { status, message, progress, details } = payload;
+
+    if (details?.state) {
+      setOperation({
+        state: details.state as string,
+        message: message,
+        progress: progress,
+        started_at: new Date().toISOString(),
+      });
+    }
+
+    if (status === 'completed') {
+      toast.success(message || 'Operation completed');
+    } else if (status === 'failed') {
+      toast.error(message || 'Operation failed');
+    } else if (status === 'running') {
+      toast(message || 'Processing...', { icon: '🔄' });
+    }
+  };
+
   useEffect(() => {
-    const unsub = subscribe('llmops_event', (data) => {
-      const event = data as { event: string; data: { status: string; progress: number; message: string; details?: Record<string, unknown> } };
-      const { status, message, progress, details } = event.data;
-
-      if (details?.state) {
-        setOperation({
-          state: details.state as string,
-          message: message,
-          progress: progress,
-          started_at: new Date().toISOString(),
-        });
-      }
-
-      if (status === 'completed') {
-        toast.success(message || 'Operation completed');
-      } else if (status === 'failed') {
-        toast.error(message || 'Operation failed');
-      } else if (status === 'running') {
-        toast(message || 'Processing...', { icon: '🔄' });
-      }
-    });
+    const unsubs = [
+      subscribe('rag_indexing', handleLlmopsEvent),
+      subscribe('report_generation', handleLlmopsEvent),
+      subscribe('llmops_operation', handleLlmopsEvent),
+    ];
 
     return () => {
-      unsub();
+      unsubs.forEach((unsub) => unsub());
     };
   }, [subscribe]);
 

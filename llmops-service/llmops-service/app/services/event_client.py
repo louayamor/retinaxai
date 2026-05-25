@@ -167,7 +167,7 @@ async def send_xai_event(
     emit_url = f"{BACKEND_WS_URL}/emit"
 
     emit_payload = {
-        "event": f"{event}.{status}",
+        "event": event,
         "data": payload.get("data", {}),
         "room": room,
     }
