@@ -1,9 +1,11 @@
 from __future__ import annotations
+
 import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, field_validator
 
+from app.auth.roles import Role
 from app.schemas.common import BaseResponse
 
 
@@ -11,6 +13,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     username: str
     password: str
+    role: Role = Role.DOCTOR
 
     @field_validator("password")
     @classmethod
@@ -25,6 +28,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     username: str | None = None
     is_active: bool | None = None
+    role: Role | None = None
 
 
 class UserRead(BaseResponse):
@@ -32,4 +36,5 @@ class UserRead(BaseResponse):
     email: str
     username: str
     is_active: bool
+    role: Role
     created_at: datetime

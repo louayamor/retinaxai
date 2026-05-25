@@ -1,3 +1,4 @@
+from app.auth.roles import Role
 from app.models.auth_session import AuthSession
 from app.models.chat import ChatMessage, ChatRole, ChatSession
 from app.models.gradcam_explanation import GradCAMExplanation
@@ -12,6 +13,7 @@ from app.models.severity_report import RiskLevel, SeverityReport
 from app.models.user import User
 
 __all__ = [
+    "Role",
     "User",
     "Patient",
     "Gender",

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,8 +28,17 @@ class UserService:
             email=data.email,
             username=data.username,
             hashed_password=hash_password(data.password),
+            role=data.role,
         )
         return await self.repo.create(user)
+
+    async def list(
+        self, skip: int = 0, limit: int = 100
+    ) -> list[User]:
+        return await self.repo.list_all(skip=skip, limit=limit)
+
+    async def count(self) -> int:
+        return await self.repo.count()
 
     async def get_by_id(self, user_id: uuid.UUID) -> User:
         user = await self.repo.get_by_id(user_id)

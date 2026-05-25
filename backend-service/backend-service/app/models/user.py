@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 from sqlalchemy import Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.auth.roles import Role
 from app.db.base import Base, TimestampMixin, UUIDMixin
 
 
@@ -14,6 +16,9 @@ class User(Base, UUIDMixin, TimestampMixin):
     username: Mapped[str] = mapped_column(String(255), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    role: Mapped[Role] = mapped_column(
+        String(20), default=Role.DOCTOR, nullable=False
+    )
 
     auth_sessions = relationship(
         "AuthSession", back_populates="user", cascade="all, delete-orphan"

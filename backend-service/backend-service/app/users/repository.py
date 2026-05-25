@@ -1,7 +1,8 @@
 from __future__ import annotations
+
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
@@ -28,3 +29,13 @@ class UserRepository:
         await self.db.flush()
         await self.db.refresh(user)
         return user
+
+    async def list_all(self, skip: int = 0, limit: int = 100) -> list[User]:
+        result = await self.db.execute(
+            select(User).offset(skip).limit(limit).order_by(User.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def count(self) -> int:
+        result = await self.db.execute(select(func.count(User.id)))
+        return result.scalar_one()
