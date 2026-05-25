@@ -20,6 +20,19 @@ from app.training.pipeline.stage_04b_fundus_classifier import (
 )  # noqa: E402
 from app.training.pipeline.stage_05_model_evaluation import run as img_evaluate  # noqa: E402
 
+from app.training.pipeline.lesion.stage_01_ddr_ingestion import (  # noqa: E402
+    run as lesion_ingest,
+)
+from app.training.pipeline.lesion.stage_02_ddr_transformation import (  # noqa: E402
+    run as lesion_transform,
+)
+from app.training.pipeline.lesion.stage_03_lesion_training import (  # noqa: E402
+    run as lesion_train,
+)
+from app.training.pipeline.lesion.stage_04_lesion_evaluation import (  # noqa: E402
+    run as lesion_evaluate,
+)
+
 IMAGING_PIPELINE: dict[str, Callable] = {
     "ingest": img_ingest,
     "clean": img_clean,
@@ -29,7 +42,16 @@ IMAGING_PIPELINE: dict[str, Callable] = {
     "evaluate": img_evaluate,
 }
 
-PIPELINE_ORDER = ["ingest", "clean", "transform", "fundus", "train", "evaluate"]
+IMAGING_PIPELINE_ORDER = ["ingest", "clean", "transform", "fundus", "train", "evaluate"]
+
+LESION_PIPELINE: dict[str, Callable] = {
+    "ingest": lesion_ingest,
+    "transform": lesion_transform,
+    "train": lesion_train,
+    "evaluate": lesion_evaluate,
+}
+
+LESION_PIPELINE_ORDER = ["ingest", "transform", "train", "evaluate"]
 
 from app.utils.mlflow_utils import configure_mlflow  # noqa: E402
 from app.monitoring.prometheus_metrics import (
@@ -45,8 +67,10 @@ def run_stage(stage: str, pipeline: dict[str, Callable]) -> None:
     pipeline[stage]()
 
 
-def run_full_pipeline(pipeline: dict[str, Callable]) -> None:
-    for stage in PIPELINE_ORDER:
+def run_full_pipeline(
+    pipeline: dict[str, Callable], order: list[str]
+) -> None:
+    for stage in order:
         run_stage(stage, pipeline)
 
 
@@ -56,13 +80,20 @@ def run_pipeline(stage: str, target: str) -> None:
     if stage in ("train", "evaluate", "all"):
         configure_mlflow()
 
-    TRAINING_RUNS_TOTAL.labels(pipeline="imaging").inc()
-    logger.info("Executing imaging pipeline")
-
-    if stage == "all":
-        run_full_pipeline(IMAGING_PIPELINE)
+    if target == "lesion":
+        TRAINING_RUNS_TOTAL.labels(pipeline="lesion").inc()
+        logger.info("Executing lesion pipeline")
+        if stage == "all":
+            run_full_pipeline(LESION_PIPELINE, LESION_PIPELINE_ORDER)
+        else:
+            run_stage(stage, LESION_PIPELINE)
     else:
-        run_stage(stage, IMAGING_PIPELINE)
+        TRAINING_RUNS_TOTAL.labels(pipeline="imaging").inc()
+        logger.info("Executing imaging pipeline")
+        if stage == "all":
+            run_full_pipeline(IMAGING_PIPELINE, IMAGING_PIPELINE_ORDER)
+        else:
+            run_stage(stage, IMAGING_PIPELINE)
 
 
 def serve() -> None:
@@ -106,9 +137,9 @@ def main():
     pipeline_parser.add_argument(
         "--pipeline",
         type=str,
-        choices=["imaging"],
+        choices=["imaging", "lesion"],
         default="imaging",
-        help="Pipeline to run (imaging uses 2-phase training by default)",
+        help="Pipeline to run (imaging: DR grading; lesion: lesion segmentation)",
     )
 
     subparsers.add_parser("serve")
