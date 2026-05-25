@@ -46,6 +46,11 @@ class AuthSessionService:
                     "expires_at": session.expires_at.isoformat(),
                 }
                 await redis.setex(key, ttl, json.dumps(session_data))
+
+                if access_token_jti:
+                    jti_key = f"jti:{access_token_jti}"
+                    await redis.setex(jti_key, ttl, refresh_token)
+
                 logger.debug(f"Session cached in Redis: {key}")
             except Exception as e:
                 logger.warning(f"Failed to cache session in Redis: {e}")
@@ -100,7 +105,9 @@ class AuthSessionService:
 
     async def revoke_refresh_token(self, refresh_token: str) -> None:
         session = await self.get_by_refresh_token(refresh_token)
+        jti: str | None = None
         if session:
+            jti = session.access_token_jti
             session.revoked = True
             await self.db.flush()
 
@@ -109,6 +116,8 @@ class AuthSessionService:
             try:
                 key = f"session:{refresh_token}"
                 await redis.delete(key)
+                if jti:
+                    await redis.delete(f"jti:{jti}")
                 logger.debug(f"Session revoked in Redis: {key}")
             except Exception as e:
                 logger.warning(f"Failed to revoke session in Redis: {e}")
@@ -123,6 +132,7 @@ class AuthSessionService:
         session = await self.get_by_refresh_token(old_refresh_token)
         if not session or session.revoked:
             raise UnauthorizedException("Refresh token revoked or expired.")
+        old_jti = session.access_token_jti
         session.revoked = True
         await self.create_session(
             session.user_id, new_refresh_token, expires_in_days, new_access_jti
@@ -132,7 +142,11 @@ class AuthSessionService:
         if redis:
             try:
                 old_key = f"session:{old_refresh_token}"
-                await redis.delete(old_key)
+                pipe = redis.pipeline()
+                pipe.delete(old_key)
+                if old_jti:
+                    pipe.delete(f"jti:{old_jti}")
+                await pipe.execute()
                 logger.debug(f"Old session removed from Redis: {old_key}")
             except Exception as e:
                 logger.warning(f"Failed to clean old session in Redis: {e}")
@@ -144,18 +158,17 @@ class AuthSessionService:
         redis = await shared_redis.get_connection()
         if redis:
             try:
-                keys = []
-                async for key in redis.scan_iter(match="session:*"):
-                    keys.append(key)
-                if keys:
-                    cached = await redis.mget(keys)
-                    for key, data in zip(keys, cached):
-                        if data:
-                            session_data = json.loads(data)
-                            if session_data.get("access_token_jti") == jti:
-                                return await self._load_session_from_db(key)
+                refresh_token = await redis.get(f"jti:{jti}")
+                if refresh_token:
+                    session_data = await redis.get(f"session:{refresh_token}")
+                    if session_data:
+                        data = json.loads(session_data)
+                        expires_at = datetime.fromisoformat(data["expires_at"])
+                        if expires_at > datetime.now(UTC):
+                            return await self.get_by_refresh_token(refresh_token)
+                        await redis.delete(f"session:{refresh_token}", f"jti:{jti}")
             except Exception as e:
-                logger.warning(f"Redis session lookup failed: {e}")
+                logger.warning(f"Redis jti lookup failed: {e}")
 
         stmt = select(AuthSession).where(
             AuthSession.access_token_jti == jti,
@@ -164,8 +177,3 @@ class AuthSessionService:
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
-
-    async def _load_session_from_db(self, redis_key: str) -> AuthSession | None:
-        """Load session from DB using refresh token extracted from Redis key."""
-        refresh_token = redis_key.replace("session:", "")
-        return await self.get_by_refresh_token(refresh_token)
