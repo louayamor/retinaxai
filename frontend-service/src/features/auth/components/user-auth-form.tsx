@@ -16,7 +16,6 @@ import {
   FormMessage
 } from '@/components/ui/form';
 import { loginUser, registerUser } from '@/lib/api';
-import { saveTokens } from '@/lib/auth';
 
 const loginSchema = z.object({
   email: z.string().email('Enter a valid email'),

@@ -1,4 +1,4 @@
-import { clearTokens } from './auth';
+import { clearTokens, tryRefresh } from './auth';
 import type { TokenPair, AuthUser } from './auth';
 import type { Patient, MRIScan, Prediction, Report, PaginatedResponse, OCTReport } from '@/types';
 
@@ -13,26 +13,32 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  // Cookie-based auth: cookies sent automatically with credentials: 'include'
   const isFormData = init.body instanceof FormData;
   const headers: Record<string, string> = isFormData
     ? {}
     : { 'Content-Type': 'application/json', ...(init.headers as Record<string, string> || {}) };
 
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    credentials: 'include',
-    headers
-  });
+  const makeRequest = () =>
+    fetch(`${BASE}${path}`, {
+      ...init,
+      credentials: 'include',
+      headers,
+    });
 
-  // Handle 401 by clearing tokens and redirecting to login
+  let res = await makeRequest();
+
   if (res.status === 401) {
-    clearTokens();
-    if (typeof window !== 'undefined') {
-      window.location.href = '/auth/login';
+    const refreshed = await tryRefresh();
+    if (refreshed) {
+      res = await makeRequest();
+    } else {
+      clearTokens();
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth/login';
+      }
+      const body = await res.json().catch(() => ({ detail: 'Session expired. Please login again.' }));
+      throw new ApiError(body.detail ?? 'Session expired', 401);
     }
-    const body = await res.json().catch(() => ({ detail: 'Session expired. Please login again.' }));
-    throw new ApiError(body.detail ?? 'Session expired', 401);
   }
 
   if (!res.ok) {

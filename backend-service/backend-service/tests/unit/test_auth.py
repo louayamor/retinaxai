@@ -1,12 +1,20 @@
 from __future__ import annotations
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import Request
 
 from app.api.v1.routes.auth_routes import RefreshRequest, refresh_token
 from app.auth.jwt_handler import decode_token
 from app.auth.session_service import AuthSessionService
 from app.core.exceptions import UnauthorizedException
+
+
+def _mock_request() -> MagicMock:
+    req = MagicMock(spec=Request)
+    req.cookies = {}
+    req.state = MagicMock()
+    return req
 
 
 def test_create_access_token_marks_type_access(access_token: str) -> None:
@@ -23,8 +31,9 @@ def test_create_refresh_token_marks_type_refresh(refresh_token: str) -> None:
 
 @pytest.mark.asyncio
 async def test_refresh_rejects_access_token(access_token: str, auth_db_session) -> None:
+    req = _mock_request()
     with pytest.raises(UnauthorizedException):
-        await refresh_token(RefreshRequest(refresh_token=access_token), auth_db_session)
+        await refresh_token(req, RefreshRequest(refresh_token=access_token), auth_db_session)
 
 
 @pytest.mark.asyncio

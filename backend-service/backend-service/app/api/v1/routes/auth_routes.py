@@ -57,7 +57,7 @@ def _token_response(access: str, refresh: str) -> JSONResponse:
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None
 
 
 @router.post("/register", response_model=UserRead, status_code=201)
@@ -89,15 +89,20 @@ async def login(
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(
+    request: Request,
     data: RefreshRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    payload = decode_token(data.refresh_token)
+    refresh_token = request.cookies.get("rxa_refresh_token") or data.refresh_token
+    if not refresh_token:
+        raise UnauthorizedException("No refresh token provided.")
+
+    payload = decode_token(refresh_token)
     if payload.token_type != "refresh":
         raise UnauthorizedException("Invalid refresh token.")
 
     session_service = AuthSessionService(db)
-    if not await session_service.is_active(data.refresh_token):
+    if not await session_service.is_active(refresh_token):
         raise UnauthorizedException("Refresh token revoked or expired.")
 
     user_service = UserService(db)
@@ -106,7 +111,7 @@ async def refresh_token(
     new_refresh_jti = str(uuid.uuid4())
     new_refresh_token = create_refresh_token(user.id, new_refresh_jti)
     await session_service.rotate_refresh_token(
-        data.refresh_token, new_refresh_token, expires_in_days=7,
+        refresh_token, new_refresh_token, expires_in_days=7,
         new_access_jti=new_jti, new_refresh_jti=new_refresh_jti,
     )
     return _token_response(access_token, new_refresh_token)
