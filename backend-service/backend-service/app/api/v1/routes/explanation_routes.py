@@ -1,34 +1,16 @@
-import asyncio
+from __future__ import annotations
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.db.session import get_db
-from app.models.prediction_explanation import ExplanationStatus, PredictionExplanation
-from app.models.gradcam_explanation import GradCAMExplanation
-from app.models.severity_report import RiskLevel, SeverityReport
 from app.models.prediction import Prediction
-from app.predictions.repository import PredictionRepository
+from app.explanations.service import ExplanationService
 
 router = APIRouter(prefix="/explanations", tags=["explanations"])
-
-RISK_LEVEL_ALIASES: dict[str, str] = {
-    "very_high": "severe",
-}
-
-
-def _normalize_risk_level(risk_level: str | None) -> RiskLevel:
-    if not risk_level:
-        return RiskLevel.MODERATE
-    normalized = RISK_LEVEL_ALIASES.get(risk_level.lower(), risk_level.lower())
-    try:
-        return RiskLevel(normalized)
-    except ValueError:
-        return RiskLevel.MODERATE
 
 
 class StoreXAIRequest(BaseModel):
@@ -50,93 +32,30 @@ async def store_xai_results(
     db: AsyncSession = Depends(get_db),
 ):
     """Store XAI results from LLMOps service."""
-    from app.api.v1.websockets import emit_xai_event
+    from sqlalchemy.exc import IntegrityError
 
-    prediction_repo = PredictionRepository(db)
-    prediction = await prediction_repo.get_by_id(uuid.UUID(request.prediction_id))
-
-    if not prediction:
-        return {"status": "error", "message": "Prediction not found"}
-
-    results = {"stored": []}
-
-    if request.explanation_content:
-        exp = PredictionExplanation(
-            id=uuid.uuid4(),
-            prediction_id=prediction.id,
-            content=request.explanation_content,
-            summary=request.explanation_summary,
-            model_used=request.explanation_model or "unknown",
-            status="completed",
-        )
-        try:
-            db.add(exp)
-            await db.flush()
-            results["stored"].append("prediction_explanation")
-        except IntegrityError:
-            await db.rollback()
-            raise HTTPException(
-                status_code=409,
-                detail="XAI explanation already exists for this prediction",
-            )
-
-        prediction.output_payload = prediction.output_payload or {}
-        prediction.output_payload["explanation"] = request.explanation_content
-        db.add(prediction)
-
-    if request.gradcam_left_explanation or request.gradcam_right_explanation:
-        gradcam_exp = GradCAMExplanation(
-            id=uuid.uuid4(),
-            prediction_id=prediction.id,
-            left_eye_explanation=request.gradcam_left_explanation or "",
-            right_eye_explanation=request.gradcam_right_explanation or "",
-            highlighted_regions={},
-            model_used=request.explanation_model or "unknown",
-        )
-        db.add(gradcam_exp)
-        results["stored"].append("gradcam_explanation")
-
-    if request.severity_content:
-        risk_enum = _normalize_risk_level(request.severity_risk_level)
-
-        severity = SeverityReport(
-            id=uuid.uuid4(),
-            prediction_id=prediction.id,
-            patient_id=prediction.patient_id,
-            content=request.severity_content,
-            summary=request.severity_summary,
-            risk_level=risk_enum,
-            recommendations=request.severity_recommendations or [],
-            model_used=request.explanation_model or "unknown",
-        )
-        db.add(severity)
-        results["stored"].append("severity_report")
-
-        prediction.output_payload = prediction.output_payload or {}
-        prediction.output_payload["severity_summary"] = request.severity_summary
-        prediction.output_payload["severity_risk_level"] = risk_enum.value
-        prediction.output_payload["severity_recommendations"] = (
-            request.severity_recommendations or []
-        )
-        db.add(prediction)
-
-    await db.commit()
-
+    service = ExplanationService(db)
     try:
-        asyncio.create_task(
-            emit_xai_event(
-                event_type="xai.explanation_ready",
-                prediction_id=str(prediction.id),
-                patient_id=str(prediction.patient_id),
-                status=ExplanationStatus.COMPLETED,
-                progress=100,
-                message="XAI explanation stored",
-            )
+        result = await service.store_xai_results(
+            prediction_id=uuid.UUID(request.prediction_id),
+            explanation_content=request.explanation_content,
+            explanation_summary=request.explanation_summary,
+            explanation_model=request.explanation_model,
+            gradcam_left_explanation=request.gradcam_left_explanation,
+            gradcam_right_explanation=request.gradcam_right_explanation,
+            severity_content=request.severity_content,
+            severity_summary=request.severity_summary,
+            severity_risk_level=request.severity_risk_level,
+            severity_recommendations=request.severity_recommendations,
         )
-    except Exception:
-        pass
-
-    return {"status": "ok", "prediction_id": request.prediction_id, "results": results}
+        if result.get("status") == "error":
+            return result
+        return result
+    except IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail="XAI explanation already exists for this prediction",
+        )
 
 
 class XAIResponse(BaseModel):

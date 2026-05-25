@@ -1,3 +1,4 @@
+from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
@@ -43,6 +44,8 @@ class Settings(BaseSettings):
     LLM_SERVICE_TIMEOUT: int = 60
     LLM_SERVICE_API_KEY: str = ""
     LLM_MODEL: str = "gpt-4o"
+
+    BACKEND_SERVICE_URL: str = "http://localhost:8000"
 
     REDIS_URL: str = "redis://localhost:6379"
     WS_URL: str = "ws://localhost:8000/ws"

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import asyncio
 import json
 import time
@@ -9,6 +10,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from app.core.config import settings
 from loguru import logger
 
 
@@ -268,7 +270,7 @@ class EventQueueService:
             if event.room:
                 payload["room"] = event.room
 
-            backend_url = "http://localhost:8000/emit"
+            backend_url = f"{settings.BACKEND_SERVICE_URL}/emit"
 
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(backend_url, json=payload)

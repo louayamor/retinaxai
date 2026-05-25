@@ -1,3 +1,4 @@
+from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime, timedelta, timezone
@@ -11,12 +12,16 @@ from app.core.config import get_settings
 from app.core.exceptions import UnauthorizedException
 from app.models.auth_session import AuthSession
 
-_redis: aioredis.Redis | None = None
+class _RedisManager:
+    def __init__(self) -> None:
+        self.connection: aioredis.Redis | None = None
+
+
+_redis_manager = _RedisManager()
 
 
 async def get_session_redis() -> aioredis.Redis | None:
-    global _redis
-    if _redis is None:
+    if _redis_manager.connection is None:
         settings = get_settings()
 
         redis_url = settings.REDIS_URL
@@ -32,14 +37,14 @@ async def get_session_redis() -> aioredis.Redis | None:
         redis_url = settings.REDIS_URL
 
         try:
-            _redis = aioredis.from_url(
+            _redis_manager.connection = aioredis.from_url(
                 redis_url,
                 encoding="utf-8",
                 decode_responses=True,
                 socket_connect_timeout=2,
                 socket_timeout=2,
             )
-            ping_result = await _redis.ping()
+            ping_result = await _redis_manager.connection.ping()
             if ping_result:
                 logger.info("Session Redis connection established")
         except Exception as e:
@@ -54,8 +59,8 @@ async def get_session_redis() -> aioredis.Redis | None:
                 logger.info(
                     f"Redis not available (running locally without Docker?): {e}"
                 )
-            _redis = None
-    return _redis
+            _redis_manager.connection = None
+    return _redis_manager.connection
 
 
 class AuthSessionService:

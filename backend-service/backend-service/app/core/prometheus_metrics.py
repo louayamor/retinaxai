@@ -1,3 +1,4 @@
+from __future__ import annotations
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 from loguru import logger
 

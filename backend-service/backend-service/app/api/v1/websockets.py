@@ -1,35 +1,23 @@
+from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
 from typing import Any
-import uuid
 
 import httpx
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Body, WebSocket, WebSocketDisconnect, Depends
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
-from app.core.config import get_settings
+from app.core.config import settings
 from app.db.session import get_db
-from app.models.notification import Notification
 
 router = APIRouter()
 
 
-LLM_SERVICE_URL = "http://localhost:8002"
 
-
-# Lazy load settings to avoid import errors
-def _get_settings():
-    try:
-        return get_settings()
-    except Exception:
-        return None
-
-
-settings = _get_settings()
 
 
 class EmitRequest(BaseModel):
@@ -38,16 +26,21 @@ class EmitRequest(BaseModel):
     room: str | None = None
 
 
-_redis: aioredis.Redis | None = None
-_connected_clients: list[WebSocket] = []
-_client_rooms: dict[WebSocket, set[str]] = {}
+class _WebSocketManager:
+    def __init__(self) -> None:
+        self.redis: aioredis.Redis | None = None
+        self.connected_clients: list[WebSocket] = []
+        self.client_rooms: dict[WebSocket, set[str]] = {}
+
+
+_ws_manager = _WebSocketManager()
 
 
 async def emit_to_clients(
     event: str, data: dict[str, Any], room: str | None = None
 ) -> int:
     message = {"event": event, "data": data}
-    target_clients = _get_clients_in_room(room) if room else _connected_clients
+    target_clients = _get_clients_in_room(room) if room else _ws_manager.connected_clients
     sent_count = 0
 
     for client in target_clients:
@@ -61,27 +54,26 @@ async def emit_to_clients(
 
 
 async def get_redis() -> aioredis.Redis | None:
-    global _redis
-    if _redis is None:
+    if _ws_manager.redis is None:
         try:
             redis_url = settings.REDIS_URL if settings else "redis://localhost:6379"
-            _redis = aioredis.from_url(
+            _ws_manager.redis = aioredis.from_url(
                 redis_url,
                 encoding="utf-8",
                 decode_responses=True,
             )
-            ping_result = await _redis.ping()
+            ping_result = await _ws_manager.redis.ping()
             if ping_result:
                 logger.info("WebSocket Redis connection established")
         except Exception as e:
             logger.warning(f"Redis not available for WebSocket: {e}")
-            _redis = None
-    return _redis
+            _ws_manager.redis = None
+    return _ws_manager.redis
 
 
 def _get_clients_in_room(room: str) -> list[WebSocket]:
     """Get all WebSocket clients subscribed to a specific room."""
-    return [client for client, rooms in _client_rooms.items() if room in rooms]
+    return [client for client, rooms in _ws_manager.client_rooms.items() if room in rooms]
 
 
 async def emit_prediction_event(
@@ -181,7 +173,7 @@ async def _trigger_llmops_training_workflow(
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                f"{LLM_SERVICE_URL}/api/workflows/training-complete",
+                f"{settings.LLM_SERVICE_URL}/api/workflows/training-complete",
                 json={
                     "job_id": job_id,
                     "pipeline": pipeline,
@@ -230,9 +222,9 @@ async def _queue_event_for_retry(
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    _connected_clients.append(websocket)
-    _client_rooms[websocket] = set()
-    logger.info(f"Client connected. Total clients: {len(_connected_clients)}")
+    _ws_manager.connected_clients.append(websocket)
+    _ws_manager.client_rooms[websocket] = set()
+    logger.info(f"Client connected. Total clients: {len(_ws_manager.connected_clients)}")
 
     try:
         while True:
@@ -253,18 +245,18 @@ async def websocket_endpoint(websocket: WebSocket):
             if event == "subscribe":
                 room = payload.get("room")
                 if room:
-                    _client_rooms[websocket].add(room)
+                    _ws_manager.client_rooms[websocket].add(room)
                     await websocket.send_json(
                         {"event": "subscribed", "data": {"room": room}}
                     )
                     logger.info(
-                        f"Client subscribed to room: {room}, total rooms: {len(_client_rooms[websocket])}"
+                        f"Client subscribed to room: {room}, total rooms: {len(_ws_manager.client_rooms[websocket])}"
                     )
 
             elif event == "unsubscribe":
                 room = payload.get("room")
                 if room:
-                    _client_rooms[websocket].discard(room)
+                    _ws_manager.client_rooms[websocket].discard(room)
                     await websocket.send_json(
                         {"event": "unsubscribed", "data": {"room": room}}
                     )
@@ -277,10 +269,10 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected")
     finally:
-        if websocket in _connected_clients:
-            _connected_clients.remove(websocket)
-        _client_rooms.pop(websocket, None)
-        logger.info(f"Client removed. Total clients: {len(_connected_clients)}")
+        if websocket in _ws_manager.connected_clients:
+            _ws_manager.connected_clients.remove(websocket)
+        _ws_manager.client_rooms.pop(websocket, None)
+        logger.info(f"Client removed. Total clients: {len(_ws_manager.connected_clients)}")
 
 
 @router.post("/emit")
@@ -302,7 +294,7 @@ async def emit_event(request: EmitRequest, db: AsyncSession = Depends(get_db)):
             channel = f"ws:{request.room}"
             await redis.publish(channel, json.dumps(message))
     else:
-        target_clients = _connected_clients
+        target_clients = _ws_manager.connected_clients
         logger.info(f"Broadcast: targeting {len(target_clients)} clients")
 
         if redis:
@@ -316,112 +308,32 @@ async def emit_event(request: EmitRequest, db: AsyncSession = Depends(get_db)):
     if sent_count == 0 and len(target_clients) > 0:
         await _queue_event_for_retry(request.event, request.data, request.room)
 
-    # Persist notification to database
-    # Also auto-create notifications for training and XAI events
+    # Persist notifications via NotificationService
     try:
-        notif_data = request.data
+        from app.notifications.service import NotificationService
 
-        # Direct notification event
-        if request.event == "notification":
-            notification = Notification(
-                id=uuid.UUID(notif_data.get("id", str(uuid.uuid4()))),
-                type=notif_data.get("type", "general"),
-                title=notif_data.get("title", ""),
-                message=notif_data.get("message", ""),
-                read=False,
-            )
-            db.add(notification)
-            await db.commit()
-            logger.info(f"Persisted notification: {notification.title}")
-
-        # Auto-create notifications for training events
-        elif request.event == "training_stage":
-            stage = notif_data.get("stage", "")
-            status = notif_data.get("status", "")
-            message = notif_data.get("message", "")
-            pipeline = notif_data.get("pipeline", "unknown")
-
-            # Only create notifications for significant events
-            if status in ("completed", "failed") or stage == "pipeline":
-                title = f"Training {status.title()}"
-                notif_type = "training_error" if status == "failed" else "training"
-
-                notification = Notification(
-                    id=uuid.UUID(str(uuid.uuid4())),
-                    type=notif_type,
-                    title=title,
-                    message=f"[{pipeline.upper()}] {message}",
-                    read=False,
-                )
-                db.add(notification)
-                await db.commit()
-                logger.info(f"Created training notification: {title}")
-
-        # Auto-create notifications for XAI events
-        elif request.event and request.event.startswith("xai."):
-            stage = notif_data.get("stage", "")
-            status = notif_data.get("status", "")
-            message = notif_data.get("message", "")
-
-            if status in ("completed", "failed"):
-                title = f"XAI {status.title()}"
-                notif_type = "error" if status == "failed" else "xai"
-
-                notification = Notification(
-                    id=uuid.UUID(str(uuid.uuid4())),
-                    type=notif_type,
-                    title=title,
-                    message=f"[{stage}] {message}",
-                    read=False,
-                )
-                db.add(notification)
-                await db.commit()
-                logger.info(f"Created XAI notification: {title}")
-
-        # Auto-create notifications for llmops events
-        elif request.event in ("llmops_operation", "rag_indexing", "report_generation"):
-            status = notif_data.get("status", "")
-            message = notif_data.get("message", "")
-
-            if status == "completed":
-                title = "LLM Operation Complete"
-                notification = Notification(
-                    id=uuid.UUID(str(uuid.uuid4())),
-                    type="report",
-                    title=title,
-                    message=message,
-                    read=False,
-                )
-                db.add(notification)
-                await db.commit()
-                logger.info(f"Created LLM ops notification: {title}")
+        notif_service = NotificationService(db)
+        await notif_service.process_event_notification(request.event, request.data)
 
         # Handle training.completed - trigger LLMOps workflow
-        elif request.event == "training.completed":
-            job_id = notif_data.get("job_id", "")
-            pipeline = notif_data.get("pipeline", "")
-            imaging_version = notif_data.get("imaging_version")
-            clinical_version = notif_data.get("clinical_version")
-
-            logger.info(
-                f"Training completed: job_id={job_id}, pipeline={pipeline}, "
-                f"imaging={imaging_version}, clinical={clinical_version}"
-            )
-
+        if request.event == "training.completed":
+            notif_data = request.data
             await _trigger_llmops_training_workflow(
-                job_id, pipeline, imaging_version, clinical_version
+                job_id=notif_data.get("job_id", ""),
+                pipeline=notif_data.get("pipeline", ""),
+                imaging_version=notif_data.get("imaging_version"),
+                clinical_version=notif_data.get("clinical_version"),
             )
-
     except Exception as e:
         logger.warning(f"Failed to process notification: {e}")
 
     return {
         "status": "ok",
         "delivered": sent_count,
-        "total_connected": len(_connected_clients),
+        "total_connected": len(_ws_manager.connected_clients),
     }
 
 
 @router.get("/ws/clients")
 async def get_client_count():
-    return {"connected": len(_connected_clients)}
+    return {"connected": len(_ws_manager.connected_clients)}

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import uuid
 from typing import Annotated, Optional
 from datetime import datetime

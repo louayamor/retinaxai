@@ -1,3 +1,4 @@
+from __future__ import annotations
 import time
 from collections import defaultdict
 
@@ -18,7 +19,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith("/api/v1/auth/me"):
             return await call_next(request)
 
-        if not request.url.path.startswith("/api/v1/auth/"):
+        if not request.url.path.startswith("/api/v1/"):
             return await call_next(request)
 
         client_ip = request.client.host if request.client else "unknown"

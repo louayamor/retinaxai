@@ -1,13 +1,16 @@
-from app.api.v1.routes.explanation_routes import XAIResponse, _normalize_risk_level
+from __future__ import annotations
+
+from app.api.v1.routes.explanation_routes import XAIResponse
+from app.explanations.utils import normalize_risk_level
 from app.models.severity_report import RiskLevel
 
 
 def test_normalize_risk_level_maps_very_high_to_severe() -> None:
-    assert _normalize_risk_level("very_high") == RiskLevel.SEVERE
+    assert normalize_risk_level("very_high") == RiskLevel.SEVERE
 
 
 def test_normalize_risk_level_defaults_to_moderate_for_invalid_value() -> None:
-    assert _normalize_risk_level("unsupported-level") == RiskLevel.MODERATE
+    assert normalize_risk_level("unsupported-level") == RiskLevel.MODERATE
 
 
 def test_xai_response_accepts_gradcam_explanation_shape() -> None:

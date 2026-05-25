@@ -1,8 +1,9 @@
+from __future__ import annotations
 import base64
-import logging
 from pathlib import Path
 
 import httpx
+import structlog
 
 from app.core.config import settings
 from app.core.exceptions import (
@@ -11,7 +12,7 @@ from app.core.exceptions import (
 )
 from app.services.ml_client.schemas import MLPredictRequest, MLPredictResponse
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def _encode_image(file_path: str) -> str:

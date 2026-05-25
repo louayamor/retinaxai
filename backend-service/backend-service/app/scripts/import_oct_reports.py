@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Import OCR reports into the backend database.
 
 Usage:

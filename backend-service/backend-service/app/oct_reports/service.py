@@ -1,3 +1,4 @@
+from __future__ import annotations
 import uuid
 
 from app.core.exceptions import NotFoundException

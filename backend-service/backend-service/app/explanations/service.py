@@ -1,5 +1,5 @@
+from __future__ import annotations
 import asyncio
-import logging
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,31 +7,119 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.prediction import Prediction
 from app.models.prediction_explanation import ExplanationStatus, PredictionExplanation
 from app.models.gradcam_explanation import GradCAMExplanation
-from app.models.severity_report import RiskLevel, SeverityReport
+from app.models.severity_report import SeverityReport
+import structlog
+
+from app.core.config import settings
 from app.schemas.report_schema import ReportGenerateRequest
 
-logger = logging.getLogger(__name__)
+from app.api.v1.websockets import emit_xai_event
+from app.explanations.utils import normalize_risk_level
+from app.predictions.repository import PredictionRepository
+from sqlalchemy.exc import IntegrityError
 
-LLM_SERVICE_URL = "http://localhost:8002"
-
-RISK_LEVEL_ALIASES: dict[str, str] = {
-    "very_high": "severe",
-}
-
-
-def _normalize_risk_level(risk_level: str | None) -> RiskLevel:
-    if not risk_level:
-        return RiskLevel.MODERATE
-    normalized = RISK_LEVEL_ALIASES.get(risk_level.lower(), risk_level.lower())
-    try:
-        return RiskLevel(normalized)
-    except ValueError:
-        return RiskLevel.MODERATE
+logger = structlog.get_logger(__name__)
 
 
 class ExplanationService:
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    async def store_xai_results(
+        self,
+        prediction_id: uuid.UUID,
+        explanation_content: str | None = None,
+        explanation_summary: str | None = None,
+        explanation_model: str | None = None,
+        gradcam_left_explanation: str | None = None,
+        gradcam_right_explanation: str | None = None,
+        severity_content: str | None = None,
+        severity_summary: str | None = None,
+        severity_risk_level: str = "moderate",
+        severity_recommendations: list[str] | None = None,
+    ) -> dict:
+        prediction_repo = PredictionRepository(self.db)
+        prediction = await prediction_repo.get_by_id(prediction_id)
+
+        if not prediction:
+            return {"status": "error", "message": "Prediction not found"}
+
+        results: dict[str, list[str]] = {"stored": []}
+
+        if explanation_content:
+            exp = PredictionExplanation(
+                id=uuid.uuid4(),
+                prediction_id=prediction.id,
+                content=explanation_content,
+                summary=explanation_summary,
+                model_used=explanation_model or "unknown",
+                status="completed",
+            )
+            try:
+                self.db.add(exp)
+                await self.db.flush()
+                results["stored"].append("prediction_explanation")
+            except IntegrityError:
+                await self.db.rollback()
+                raise
+
+            prediction.output_payload = prediction.output_payload or {}
+            prediction.output_payload["explanation"] = explanation_content
+            self.db.add(prediction)
+
+        if gradcam_left_explanation or gradcam_right_explanation:
+            gradcam_exp = GradCAMExplanation(
+                id=uuid.uuid4(),
+                prediction_id=prediction.id,
+                left_eye_explanation=gradcam_left_explanation or "",
+                right_eye_explanation=gradcam_right_explanation or "",
+                highlighted_regions={},
+                model_used=explanation_model or "unknown",
+            )
+            self.db.add(gradcam_exp)
+            results["stored"].append("gradcam_explanation")
+
+        if severity_content:
+            risk_enum = normalize_risk_level(severity_risk_level)
+
+            severity = SeverityReport(
+                id=uuid.uuid4(),
+                prediction_id=prediction.id,
+                patient_id=prediction.patient_id,
+                content=severity_content,
+                summary=severity_summary,
+                risk_level=risk_enum,
+                recommendations=severity_recommendations or [],
+                model_used=explanation_model or "unknown",
+            )
+            self.db.add(severity)
+            results["stored"].append("severity_report")
+
+            prediction.output_payload = prediction.output_payload or {}
+            prediction.output_payload["severity_summary"] = severity_summary
+            prediction.output_payload["severity_risk_level"] = risk_enum.value
+            prediction.output_payload["severity_recommendations"] = (
+                severity_recommendations or []
+            )
+            self.db.add(prediction)
+
+        await self.db.commit()
+
+        try:
+            asyncio.create_task(
+                emit_xai_event(
+                    event_type="xai.explanation_ready",
+                    prediction_id=str(prediction.id),
+                    patient_id=str(prediction.patient_id),
+                    status=ExplanationStatus.COMPLETED,
+                    progress=100,
+                    message="XAI explanation stored",
+                )
+            )
+        except Exception:
+            pass
+
+        return {"status": "ok", "prediction_id": str(prediction_id), "results": results}
 
     async def trigger_xai_for_prediction(
         self,
@@ -84,6 +172,7 @@ class ExplanationService:
             "right_eye": right_region_names,
         }
 
+        llm_base_url = settings.LLM_SERVICE_URL
         async with httpx.AsyncClient(timeout=60.0) as client:
             if dr_grade is not None and dr_grade != "Unknown":
                 dr_grade_value = (
@@ -91,7 +180,7 @@ class ExplanationService:
                 )
                 try:
                     resp = await client.post(
-                        f"{LLM_SERVICE_URL}/api/xai/explain",
+                        f"{llm_base_url}/api/xai/explain",
                         json={
                             "prediction_id": str(prediction.id),
                             "dr_grade": dr_grade_value,
@@ -123,7 +212,7 @@ class ExplanationService:
             if left_region_names or right_region_names:
                 try:
                     resp = await client.post(
-                        f"{LLM_SERVICE_URL}/api/xai/gradcam",
+                        f"{llm_base_url}/api/xai/gradcam",
                         json={
                             "prediction_id": str(prediction.id),
                             "left_eye_regions": left_regions_full,
@@ -155,7 +244,7 @@ class ExplanationService:
             dr_grade_value = str(dr_grade) if isinstance(dr_grade, int) else dr_grade
             try:
                 resp = await client.post(
-                    f"{LLM_SERVICE_URL}/api/xai/severity",
+                    f"{llm_base_url}/api/xai/severity",
                     json={
                         "prediction_id": str(prediction.id),
                         "patient_data": patient_data,
@@ -165,7 +254,7 @@ class ExplanationService:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    risk_level = _normalize_risk_level(
+                    risk_level = normalize_risk_level(
                         data.get("risk_level", "moderate")
                     )
                     severity = SeverityReport(
