@@ -7,7 +7,7 @@ from typing import Any
 from loguru import logger
 
 from app.api.v1.websockets import emit_to_clients
-from app.services.redis_client import redis_client as shared_redis
+from app.services.redis_client import RedisClient
 
 
 DEFAULT_CHANNEL = "mlops.monitor"
@@ -45,9 +45,10 @@ async def subscribe_mlops_monitor(
     channel: str = DEFAULT_CHANNEL,
 ) -> None:
     backoff = 1
+    redis: Any = None
     while True:
         try:
-            redis = await shared_redis.get_connection()
+            redis = await RedisClient.create_dedicated_connection()
             if redis is None:
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30)
@@ -69,7 +70,11 @@ async def subscribe_mlops_monitor(
             logger.warning(
                 "mlops_monitor_subscribe_failed",
                 error=str(exc),
+                exc_type=type(exc).__name__,
                 backoff_seconds=backoff,
             )
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 30)
+        finally:
+            if redis is not None:
+                await redis.close()

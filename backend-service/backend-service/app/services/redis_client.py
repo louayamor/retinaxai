@@ -42,6 +42,22 @@ class RedisClient:
             self._redis = None
             return None
 
+    @staticmethod
+    async def create_dedicated_connection() -> aioredis.Redis | None:
+        try:
+            redis = aioredis.from_url(
+                settings.REDIS_URL,
+                encoding="utf-8",
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_timeout=None,
+            )
+            await redis.ping()
+            return redis
+        except Exception as e:
+            logger.warning("Redis dedicated connection failed", error=str(e))
+            return None
+
     async def close(self) -> None:
         if self._redis is not None:
             try:

@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "json"
 
-    RATE_LIMIT_MAX_REQUESTS: int = 10
+    RATE_LIMIT_MAX_REQUESTS: int = 60
     RATE_LIMIT_WINDOW_SECONDS: int = 60
 
     @field_validator("CORS_ORIGINS", mode="before")

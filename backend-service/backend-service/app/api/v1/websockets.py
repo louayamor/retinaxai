@@ -13,7 +13,7 @@ from loguru import logger
 from app.core.config import settings
 from app.db.session import get_db
 from app.notifications.service import NotificationService
-from app.services.redis_client import redis_client as shared_redis
+from app.services.redis_client import RedisClient, redis_client as shared_redis
 
 router = APIRouter()
 
@@ -195,9 +195,10 @@ async def _trigger_llmops_training_workflow(
 async def _listen_ws_broadcast() -> None:
     backoff = 1
     patterns = ["ws:*"]
+    redis: aioredis.Redis | None = None
     while True:
         try:
-            redis = await shared_redis.get_connection()
+            redis = await RedisClient.create_dedicated_connection()
             if redis is None:
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 15)
@@ -234,9 +235,15 @@ async def _listen_ws_broadcast() -> None:
                     await emit_to_clients(event, event_data, room=room)
 
         except Exception as exc:
-            logger.warning("ws_broadcast_listener_error", error=str(exc))
+            logger.warning("ws_broadcast_listener_error", error=str(exc), exc_type=type(exc).__name__)
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 15)
+        finally:
+            if redis is not None:
+                try:
+                    await redis.close()
+                except Exception:
+                    pass
 
 
 async def _queue_event_for_retry(
