@@ -13,6 +13,12 @@ from app.training.pipeline.stage_02_data_cleaning import run as img_s2
 from app.training.pipeline.stage_03_data_transformation import run as img_s3
 from app.training.pipeline.stage_04_model_trainer import run as img_s4
 from app.training.pipeline.stage_05_model_evaluation import run as img_s5
+from app.training.pipeline.lesion import (
+    stage_01_ddr_ingestion as lesion_s1,
+    stage_02_ddr_transformation as lesion_s2,
+    stage_03_lesion_training as lesion_s3,
+    stage_04_lesion_evaluation as lesion_s4,
+)
 from app.registry.model_registry import ModelRegistryService
 
 from app.core.exceptions import TrainingException
@@ -217,7 +223,80 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
     try:
         _configure_mlflow()
 
-        if pipeline == "imaging":
+        if pipeline == "lesion":
+            _emit_stage_event(
+                job_id, pipeline, "ddr_ingestion", "started", 0,
+                "Downloading DDR lesion dataset from HuggingFace...",
+            )
+            if is_job_cancelled(job_id):
+                raise TrainingException("Job cancelled by user")
+            try:
+                lesion_s1.run()
+                _emit_stage_event(
+                    job_id, pipeline, "ddr_ingestion", "completed", 25,
+                    "DDR lesion dataset downloaded",
+                )
+            except (OSError, RuntimeError, ValueError) as e:
+                _emit_stage_event(
+                    job_id, pipeline, "ddr_ingestion", "failed", 0, str(e), error=str(e),
+                )
+                raise
+
+            _emit_stage_event(
+                job_id, pipeline, "ddr_transformation", "started", 25,
+                "Building manifest CSV files...",
+            )
+            if is_job_cancelled(job_id):
+                raise TrainingException("Job cancelled by user")
+            try:
+                lesion_s2.run()
+                _emit_stage_event(
+                    job_id, pipeline, "ddr_transformation", "completed", 50,
+                    "Manifest CSVs built",
+                )
+            except (OSError, RuntimeError, ValueError) as e:
+                _emit_stage_event(
+                    job_id, pipeline, "ddr_transformation", "failed", 0, str(e), error=str(e),
+                )
+                raise
+
+            _emit_stage_event(
+                job_id, pipeline, "lesion_training", "started", 50,
+                "Training SMP UNet on DDR dataset...",
+            )
+            if is_job_cancelled(job_id):
+                raise TrainingException("Job cancelled by user")
+            try:
+                lesion_s3.run()
+                _emit_stage_event(
+                    job_id, pipeline, "lesion_training", "completed", 80,
+                    "Lesion model training complete",
+                )
+            except (OSError, RuntimeError, ValueError) as e:
+                _emit_stage_event(
+                    job_id, pipeline, "lesion_training", "failed", 0, str(e), error=str(e),
+                )
+                raise
+
+            _emit_stage_event(
+                job_id, pipeline, "lesion_evaluation", "started", 80,
+                "Evaluating lesion model on validation set...",
+            )
+            if is_job_cancelled(job_id):
+                raise TrainingException("Job cancelled by user")
+            try:
+                lesion_s4.run()
+                _emit_stage_event(
+                    job_id, pipeline, "lesion_evaluation", "completed", 100,
+                    "Lesion model evaluation complete",
+                )
+            except (OSError, RuntimeError, ValueError) as e:
+                _emit_stage_event(
+                    job_id, pipeline, "lesion_evaluation", "failed", 0, str(e), error=str(e),
+                )
+                raise
+
+        elif pipeline == "imaging":
             max_samples = int(os.environ.get("MAX_SAMPLES", "35000"))
             _emit_stage_event(
                 job_id,
@@ -402,9 +481,9 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
 
             # Generate version numbers
             imaging_version = training_pipeline._generate_version("imaging")
+            lesion_version = training_pipeline._generate_version("lesion")
 
             if settings.imaging_model_path.exists():
-                # Load metrics from the evaluation output
                 imaging_metrics = {}
                 if settings.imaging_metrics_path.exists():
                     try:
@@ -420,13 +499,30 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                     metrics=imaging_metrics,
                 )
 
+            if settings.lesion_model_path.exists():
+                lesion_metrics_path = settings.lesion_model_path.parent / "metrics.json"
+                lesion_metrics = {}
+                if lesion_metrics_path.exists():
+                    try:
+                        with open(lesion_metrics_path) as f:
+                            lesion_metrics = json.load(f)
+                    except (OSError, json.JSONDecodeError) as e:
+                        logger.warning(f"Failed to load lesion metrics: {e}")
+
+                training_pipeline._register_model(
+                    pipeline="lesion",
+                    version=lesion_version,
+                    model_path=settings.lesion_model_path,
+                    metrics=lesion_metrics,
+                )
+
             _emit_stage_event(
                 job_id,
                 pipeline,
                 "model_registration",
                 "completed",
                 100,
-                f"Models registered: imaging={imaging_version}",
+                f"Models registered: imaging={imaging_version} lesion={lesion_version}",
             )
 
         except (OSError, RuntimeError, ValueError) as e:

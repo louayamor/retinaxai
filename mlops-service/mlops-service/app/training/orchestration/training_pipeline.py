@@ -55,6 +55,14 @@ class TrainingPipeline:
                     ),
                     "macro_f1": metrics.get("eyepacs_test", {}).get("macro_f1", 0),
                 }
+            elif pipeline == "lesion":
+                model_metrics = {
+                    "dice_mean": metrics.get("dice_mean", 0),
+                    "dice_ma": metrics.get("per_class_dice", {}).get("ma", 0),
+                    "dice_he": metrics.get("per_class_dice", {}).get("he", 0),
+                    "dice_ex": metrics.get("per_class_dice", {}).get("ex", 0),
+                    "dice_se": metrics.get("per_class_dice", {}).get("se", 0),
+                }
 
             # Generate version if not provided
             if not version:
@@ -79,6 +87,35 @@ class TrainingPipeline:
         except (OSError, RuntimeError, ValueError) as e:
             logger.error(f"Failed to register {pipeline} model: {e}")
             # Non-critical error - don't fail training if registration fails
+
+    def run_lesion(self) -> dict:
+        """Run lesion detection training pipeline."""
+        logger.info("=== lesion pipeline started ===")
+
+        from app.training.pipeline.lesion import (
+            stage_01_ddr_ingestion,
+            stage_02_ddr_transformation,
+            stage_03_lesion_training,
+            stage_04_lesion_evaluation,
+        )
+
+        stage_01_ddr_ingestion.run()
+        stage_02_ddr_transformation.run()
+        stage_03_lesion_training.run()
+
+        metrics = stage_04_lesion_evaluation.run()
+
+        model_path = settings.lesion_model_path
+        version = self._generate_version("lesion")
+        self._register_model(
+            pipeline="lesion",
+            version=version,
+            model_path=model_path,
+            metrics=metrics,
+        )
+
+        logger.info("=== lesion pipeline complete ===")
+        return {"pipeline": "lesion", "metrics": metrics, "version": version}
 
     def run_imaging(self) -> dict:
         """Run imaging training pipeline."""

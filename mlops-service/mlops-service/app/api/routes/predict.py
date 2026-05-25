@@ -67,6 +67,14 @@ async def predict(
     async def log_msg(step: str, status: str, message: str):
         await send_prediction_log(patient_id, prediction_id, step, status, message)
 
+    lesion_enabled = (service.params.get("lesion_model", {}) or {}).get("enabled", False)
+    predict_fn = (
+        service.predict_imaging_with_lesions
+        if lesion_enabled
+        else service.predict_imaging_with_gradcam
+    )
+    lesion_hint = " + lesions" if lesion_enabled else ""
+
     try:
         await log_msg("step_1", "info", "Decoding left fundus image")
         left_bytes = _decode_base64_image(request.left_scan)
@@ -82,13 +90,19 @@ async def predict(
             f"Processing for patient (gender: {request.patient_gender}, age: {request.patient_age})",
         )
 
-        await log_msg("step_6", "info", "Running EfficientNet-B3 for left eye")
-        left_imaging_result = await run_in_threadpool(
-            service.predict_imaging_with_gradcam, left_bytes, "left"
+        await log_msg(
+            "step_6", "info",
+            f"Running EfficientNet-B3{lesion_hint} for left eye",
         )
-        await log_msg("step_7", "info", "Running EfficientNet-B3 for right eye")
+        left_imaging_result = await run_in_threadpool(
+            predict_fn, left_bytes, "left"
+        )
+        await log_msg(
+            "step_7", "info",
+            f"Running EfficientNet-B3{lesion_hint} for right eye",
+        )
         right_imaging_result = await run_in_threadpool(
-            service.predict_imaging_with_gradcam, right_bytes, "right"
+            predict_fn, right_bytes, "right"
         )
         await log_msg(
             "step_8",
@@ -152,6 +166,10 @@ async def predict(
             top_hotspots_right=right_imaging_result.get("top_hotspots"),
             fundus_score_left=left_imaging_result.get("fundus_score"),
             fundus_score_right=right_imaging_result.get("fundus_score"),
+            lesions_left=left_imaging_result.get("lesions"),
+            lesions_right=right_imaging_result.get("lesions"),
+            lesion_clusters_left=left_imaging_result.get("lesion_clusters"),
+            lesion_clusters_right=right_imaging_result.get("lesion_clusters"),
         )
 
         async def _send_event():

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -12,8 +11,7 @@ from urllib.error import URLError
 from app.api.rag_schemas import RagArtifactManifest, RagManifestResponse
 from app.api.rag_schemas import RagArtifactId, RagArtifactType, RagPipeline
 from app.config.settings import Settings
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 def _hash_payload(payload: Any) -> str:

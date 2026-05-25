@@ -58,35 +58,9 @@ class ImagingModelTrainer:
         self.params = read_yaml(PARAMS_FILE_PATH)
         self.schema = read_yaml(SCHEMA_FILE_PATH)
 
-        if torch.cuda.is_available():
-            try:
-                import gc
+        from app.utils.common import require_cuda
 
-                gc.collect()
-                torch.cuda.empty_cache()
-                total_memory = torch.cuda.get_device_properties(0).total_memory
-                allocated = torch.cuda.memory_allocated()
-                free_memory = total_memory - allocated
-
-                MIN_FREE_FOR_CUDA = 800_000_000  # 800MB minimum for training
-                if free_memory > MIN_FREE_FOR_CUDA:
-                    self.device = torch.device("cuda")
-                    logger.info(
-                        f"training device: cuda (total={total_memory / 1e9:.1f}GB, "
-                        f"free={free_memory / 1e9:.1f}GB)"
-                    )
-                else:
-                    self.device = torch.device("cpu")
-                    logger.warning(
-                        f"GPU memory low ({free_memory / 1e9:.1f}GB < 0.8GB required), "
-                        f"using CPU for training. Stop MLOps/LLMOps services to free GPU."
-                    )
-            except (RuntimeError, OSError) as e:
-                self.device = torch.device("cpu")
-                logger.warning(f"GPU check failed, using CPU: {e}")
-        else:
-            self.device = torch.device("cpu")
-            logger.info(f"training device: {self.device}")
+        self.device = require_cuda(min_free_bytes=800_000_000)
 
         self.phase = phase
         self.load_checkpoint = load_checkpoint
@@ -105,7 +79,7 @@ class ImagingModelTrainer:
         self._training_scheduler = training_cfg.get("scheduler", "reduce_on_plateau")
         self._training_lr_warmup_epochs = int(training_cfg.get("lr_warmup_epochs", 0))
         self._training_label_smoothing = float(training_cfg.get("label_smoothing", 0.0))
-        self._training_pin_memory = training_cfg.get("pin_memory", True)
+        self._training_pin_memory = training_cfg.get("pin_memory", True) and torch.cuda.is_available()
         self._gradient_accumulation_steps = int(
             training_cfg.get("gradient_accumulation_steps", 1)
         )

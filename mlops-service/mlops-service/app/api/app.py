@@ -1,6 +1,6 @@
+import sys
 from contextlib import asynccontextmanager
 
-import logging
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,8 +36,16 @@ from app.monitoring.prometheus_metrics import (
 )
 from app.monitoring.mlops_monitor_publisher import MLOpsMonitorPublisher
 
-logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING)
-logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+logger.disable("sqlalchemy.engine.Engine")
+logger.disable("sqlalchemy.pool")
+
+# Stage-module imports above replace loguru with JSON-serialized format;
+# reset to human-readable for the API server.
+logger.remove()
+logger.add(
+    sys.stdout,
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level:<7} | {name}:{function}:{line} - {message}",
+)
 
 
 @asynccontextmanager

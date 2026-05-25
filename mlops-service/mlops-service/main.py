@@ -66,8 +66,18 @@ def run_pipeline(stage: str, target: str) -> None:
 
 
 def serve() -> None:
+    import sys
+
     import uvicorn
     from app.config.settings import Settings
+
+    # Stage imports above replace loguru handler with JSON-serialized format;
+    # reset to human-readable for the API server.
+    logger.remove()
+    logger.add(
+        sys.stdout,
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level:<7} | {name}:{function}:{line} - {message}",
+    )
 
     settings = Settings()
 

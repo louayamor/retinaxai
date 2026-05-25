@@ -251,7 +251,9 @@ def train_fundus_classifier(
 ) -> Path:
     """Train the fundus classifier."""
     if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        from app.utils.common import require_cuda
+
+        device = require_cuda()
 
     logger.info(f"[FUNDUS] training on {device}")
 

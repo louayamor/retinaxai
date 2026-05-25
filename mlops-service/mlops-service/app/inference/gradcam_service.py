@@ -22,6 +22,10 @@ class GradCAMService:
         self.target_layer = (
             target_layer if target_layer else find_last_conv_layer(model)
         )
+        self._lesion_clusters: list[dict] | None = None
+
+    def set_lesion_clusters(self, clusters: list[dict] | None) -> None:
+        self._lesion_clusters = clusters
 
     def _build_cam_data(
         self,
@@ -237,6 +241,8 @@ class GradCAMService:
         if not regions:
             return self._get_default_regions_numeric(cam)
 
+        regions = self._overlay_lesion_clusters(regions)
+
         regions.sort(
             key=lambda x: (
                 -x["intensity"],
@@ -247,6 +253,23 @@ class GradCAMService:
             )
         )
         return regions[:10]
+
+    def _overlay_lesion_clusters(self, regions: list[dict]) -> list[dict]:
+        if not self._lesion_clusters:
+            return regions
+
+        for region in regions:
+            rx, ry = region["center_x"], region["center_y"]
+            matched_lesions: list[str] = []
+            for cluster in self._lesion_clusters:
+                cx, cy = cluster["centroid_x"], cluster["centroid_y"]
+                dist = ((cx - rx) ** 2 + (cy - ry) ** 2) ** 0.5
+                if dist < 20:
+                    matched_lesions.append(cluster["class"])
+            if matched_lesions:
+                region["lesions"] = list(set(matched_lesions))
+
+        return regions
 
     def _get_top_hotspots(self, regions: list[dict]) -> list[dict]:
         """Extract top 5 hotspots ranked by intensity."""

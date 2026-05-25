@@ -37,35 +37,9 @@ class ImagingModelEvaluation:
         self.config = config
         self.params = read_yaml(PARAMS_FILE_PATH)
         self.schema = read_yaml(SCHEMA_FILE_PATH)
-        if torch.cuda.is_available():
-            try:
-                import gc
+        from app.utils.common import require_cuda
 
-                gc.collect()
-                torch.cuda.empty_cache()
-                total_memory = torch.cuda.get_device_properties(0).total_memory
-                allocated = torch.cuda.memory_allocated()
-                free_memory = total_memory - allocated
-
-                MIN_FREE_FOR_CUDA = 500_000_000  # 500MB minimum for evaluation
-                if free_memory > MIN_FREE_FOR_CUDA:
-                    self.device = torch.device("cuda")
-                    logger.info(
-                        f"evaluation device: cuda (total={total_memory / 1e9:.1f}GB, "
-                        f"free={free_memory / 1e9:.1f}GB)"
-                    )
-                else:
-                    self.device = torch.device("cpu")
-                    logger.warning(
-                        f"GPU memory low ({free_memory / 1e9:.1f}GB < 0.5GB required), "
-                        f"using CPU for evaluation. Stop MLOps/LLMOps services to free GPU."
-                    )
-            except (RuntimeError, OSError) as e:
-                self.device = torch.device("cpu")
-                logger.warning(f"GPU check failed, using CPU: {e}")
-        else:
-            self.device = torch.device("cpu")
-            logger.info(f"evaluation device: {self.device}")
+        self.device = require_cuda(min_free_bytes=500_000_000)
 
         global_cfg = self.params.get("global", {}) or {}
         training_cfg = self.params.get("training", {}) or {}
@@ -105,8 +79,10 @@ class ImagingModelEvaluation:
                 )
                 return model
             except (OSError, RuntimeError, KeyError) as e:
-                logger.warning(f"Failed to load model on GPU: {e}, falling back to CPU")
-                self.device = torch.device("cpu")
+                logger.error(f"Failed to load model on GPU: {e}")
+                raise RuntimeError(
+                    f"Cannot load model on GPU. Training requires CUDA. Error: {e}"
+                ) from e
 
         model = timm.create_model(
             model_name,
@@ -166,7 +142,7 @@ class ImagingModelEvaluation:
             batch_size=self._eval_batch_size,
             shuffle=False,
             num_workers=self._eval_num_workers,
-            pin_memory=True,
+            pin_memory=torch.cuda.is_available(),
         )
 
         all_preds, all_labels, all_probs = [], [], []
@@ -394,7 +370,7 @@ class ImagingModelEvaluation:
                     batch_size=samaya_batch_size,
                     shuffle=False,
                     num_workers=min(2, self._eval_num_workers),
-                    pin_memory=True,
+                    pin_memory=torch.cuda.is_available(),
                 )
 
                 if tent_enabled and self.device.type == "cuda":

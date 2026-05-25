@@ -136,6 +136,34 @@ mlflow:
   imaging_run_name: efficientnet_b3
   model_log_timeout_seconds: 600
 
+# ── Lesion Detection ──────────────────────────────────────────────────────────
+
+lesion_model:
+  enabled: false
+  encoder_name: timm-efficientnet-b3
+  encoder_weights: null
+  decoder: UNet
+  classes:
+    - ma
+    - he
+    - ex
+    - se
+  thresholds:
+    ma: 0.3
+    he: 0.4
+    ex: 0.4
+    se: 0.35
+  image_size: 384
+  batch_size: 8
+  num_workers: 4
+  lr: 0.0001
+  epochs: 100
+  patience: 15
+  ddr_hf_repo: ctmedtech/DDR-dataset
+  ddr_target_dir: data/lesions/ddr
+  checkpoint_path: artifacts/model/lesion/model.pth
+  grader_checkpoint: artifacts/model/imaging/model.pth
+
 # ── Fundus Classifier ─────────────────────────────────────────────────────────
 
 fundus_classifier:

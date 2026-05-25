@@ -20,6 +20,7 @@ from app.config.settings import Settings
 from app.training.preprocessing import preprocess_fundus_image
 from app.inference.gradcam_service import GradCAMService
 from app.inference.fundus_classifier import FundusClassifierService
+from app.inference.lesion_detector import LesionDetector
 from app.utils.common import load_json, read_yaml
 from app.constants import PARAMS_FILE_PATH, SCHEMA_FILE_PATH
 from app.monitoring.prometheus_metrics import (
@@ -76,6 +77,7 @@ class InferenceService:
         self._imaging_model = None
         self._feature_meta = None
         self._fundus_classifier = None
+        self._lesion_detector = None
 
         # Add model registry service for loading models
         self._registry_service = ModelRegistryService(
@@ -174,6 +176,60 @@ class InferenceService:
         self._imaging_model = model
         logger.info("[IMAGING MODEL] loaded successfully")
         return model
+
+    def _load_lesion_detector(self) -> LesionDetector | None:
+        lesion_cfg = self.params.get("lesion_model", {}) or {}
+        if not lesion_cfg.get("enabled", False):
+            return None
+
+        if self._lesion_detector is not None:
+            return self._lesion_detector
+
+        ckpt_path = Path(
+            str(lesion_cfg.get("checkpoint_path", "artifacts/model/lesion/model.pth"))
+        )
+        if not ckpt_path.exists():
+            logger.warning(f"Lesion checkpoint not found: {ckpt_path}")
+            return None
+
+        logger.info(f"Loading lesion detector from {ckpt_path}")
+        encoder_name = str(
+            lesion_cfg.get("encoder_name", "timm-efficientnet-b3")
+        )
+        thresholds = dict(lesion_cfg.get("thresholds", {}))
+        self._lesion_detector = LesionDetector(
+            checkpoint_path=ckpt_path,
+            encoder_name=encoder_name,
+            thresholds=thresholds,
+            device=self.device,
+        )
+        return self._lesion_detector
+
+    def predict_imaging_with_lesions(
+        self, image_bytes: bytes, eye_side: str = "unknown"
+    ) -> dict:
+        result = self.predict_imaging_with_gradcam(image_bytes, eye_side)
+
+        detector = self._load_lesion_detector()
+        if detector is None:
+            result["lesions"] = None
+            result["lesion_clusters"] = None
+            return result
+
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        tf: nn.Module = self._build_transform()
+        tensor = tf(img).unsqueeze(0).to(self.device)
+
+        masks = detector.predict(tensor)
+        per_class_counts: dict[str, int] = {
+            cls_name: int(mask.sum())
+            for cls_name, mask in masks.items()
+        }
+        clusters = detector.extract_connected_components(masks)
+
+        result["lesions"] = per_class_counts
+        result["lesion_clusters"] = clusters
+        return result
 
     def _build_transform(self) -> transforms.Compose:
         aug = self.params.get("augmentation", {}) or {}

@@ -51,6 +51,33 @@ def get_file_size(path: Path) -> str:
     return f"{size_bytes / 1024 ** 3:.2f} GB"
 
 
+def require_cuda(min_free_bytes: int = 800_000_000) -> torch.device:
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA is not available. Training requires a CUDA-capable GPU. "
+            "Check driver installation with `nvidia-smi`."
+        )
+    import gc
+
+    gc.collect()
+    torch.cuda.empty_cache()
+    total = torch.cuda.get_device_properties(0).total_memory
+    allocated = torch.cuda.memory_allocated()
+    free = total - allocated
+    if free < min_free_bytes:
+        raise RuntimeError(
+            f"Insufficient GPU memory: {free / 1e9:.1f}GB free, "
+            f"need {min_free_bytes / 1e9:.1f}GB. "
+            "Stop other GPU processes to free memory."
+        )
+    device = torch.device("cuda")
+    logger.info(
+        f"CUDA device: {torch.cuda.get_device_name(0)} "
+        f"(total={total / 1e9:.1f}GB, free={free / 1e9:.1f}GB)"
+    )
+    return device
+
+
 def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)

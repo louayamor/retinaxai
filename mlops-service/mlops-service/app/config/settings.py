@@ -96,6 +96,14 @@ class Settings(BaseSettings):
         return self.imaging_artifacts_dir / "model.pth"
 
     @property
+    def lesion_artifacts_dir(self) -> Path:
+        return self.artifacts_root / "model" / "lesion"
+
+    @property
+    def lesion_model_path(self) -> Path:
+        return self.lesion_artifacts_dir / "model.pth"
+
+    @property
     def evidently_metrics_path(self) -> Path:
         return self.monitoring_dir / "evidently_metrics.json"
 

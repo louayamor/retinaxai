@@ -69,8 +69,16 @@ class CurrentProductionResponse(BaseModel):
     promoted_at: Optional[str]
 
 
+class LesionCluster(BaseModel):
+    class_name: str = Field(..., alias="class")
+    centroid_x: float
+    centroid_y: float
+    area: int
+
+
 class PipelineType(str, Enum):
     imaging = "imaging"
+    lesion = "lesion"
 
 
 class TrainRequest(BaseModel):
@@ -189,4 +197,16 @@ class PredictResponse(BaseModel):
     )
     fundus_score_right: Optional[float] = Field(
         None, description="Fundus classifier score for right eye (0-1)"
+    )
+    lesions_left: Optional[dict[str, int]] = Field(
+        None, description="Per-class lesion pixel counts for left eye"
+    )
+    lesions_right: Optional[dict[str, int]] = Field(
+        None, description="Per-class lesion pixel counts for right eye"
+    )
+    lesion_clusters_left: Optional[list[LesionCluster]] = Field(
+        None, description="Connected-component lesion clusters for left eye"
+    )
+    lesion_clusters_right: Optional[list[LesionCluster]] = Field(
+        None, description="Connected-component lesion clusters for right eye"
     )
