@@ -33,7 +33,7 @@ def test_create_refresh_token_marks_type_refresh(refresh_token: str) -> None:
 async def test_refresh_rejects_access_token(access_token: str, auth_db_session) -> None:
     req = _mock_request()
     with pytest.raises(UnauthorizedException):
-        await refresh_token(req, RefreshRequest(refresh_token=access_token), auth_db_session)
+        await refresh_token(req, auth_db_session, RefreshRequest(refresh_token=access_token))
 
 
 @pytest.mark.asyncio

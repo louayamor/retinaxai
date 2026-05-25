@@ -3,7 +3,7 @@ import uuid
 from datetime import UTC
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Body, Depends, Request
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
@@ -90,10 +90,12 @@ async def login(
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(
     request: Request,
-    data: RefreshRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
+    data: RefreshRequest | None = Body(None),
 ):
-    refresh_token = request.cookies.get("rxa_refresh_token") or data.refresh_token
+    refresh_token = request.cookies.get("rxa_refresh_token")
+    if not refresh_token and data is not None:
+        refresh_token = data.refresh_token
     if not refresh_token:
         raise UnauthorizedException("No refresh token provided.")
 
