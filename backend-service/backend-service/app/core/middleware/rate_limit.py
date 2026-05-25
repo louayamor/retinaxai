@@ -15,7 +15,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._requests: dict[str, list[float]] = defaultdict(list)
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        if request.method == "OPTIONS":
+        if request.method in ("OPTIONS", "GET", "HEAD"):
             return await call_next(request)
 
         if request.url.path.startswith("/api/v1/auth/me"):
