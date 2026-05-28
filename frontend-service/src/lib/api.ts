@@ -745,6 +745,74 @@ export async function stopMLOpsTraining(jobId: string): Promise<{ message: strin
   });
 }
 
+// ============ Model Registry API ============
+
+export interface ModelVersionInfo {
+  version: string;
+  pipeline: string | null;
+  stage: 'staging' | 'production' | 'archived';
+  model_path: string | null;
+  artifact_path: string | null;
+  hash: string | null;
+  metrics: Record<string, number> | null;
+  metadata: Record<string, unknown>;
+  created_at: string | null;
+  promoted_at: string | null;
+}
+
+export interface ModelDetailResponse {
+  model: ModelVersionInfo;
+  is_current_production: boolean;
+  can_promote: boolean;
+  can_rollback: boolean;
+  promotion_history: Array<Record<string, unknown>>;
+}
+
+export interface ModelListResponse {
+  models: ModelDetailResponse[];
+  total: number;
+  staging_count: number;
+  production_count: number;
+  archived_count: number;
+}
+
+export interface CurrentProductionResponse {
+  imaging: ModelVersionInfo | null;
+  promoted_at: string | null;
+}
+
+export interface ModelPromotionResponse {
+  success: boolean;
+  previous_version: string | null;
+  new_version: string;
+  promotion_time: string | null;
+  notes: string;
+}
+
+export async function getModelRegistryList(): Promise<ModelListResponse> {
+  return mlopsRequest('/models/');
+}
+
+export async function getModelRegistryDetail(version: string): Promise<ModelDetailResponse> {
+  return mlopsRequest(`/models/${encodeURIComponent(version)}`);
+}
+
+export async function getCurrentProductionModel(): Promise<CurrentProductionResponse> {
+  return mlopsRequest('/models/production/current');
+}
+
+export async function promoteModelVersion(version: string, reason?: string): Promise<ModelPromotionResponse> {
+  const params = reason ? `?reason=${encodeURIComponent(reason)}` : '';
+  return mlopsRequest(`/models/${encodeURIComponent(version)}/promote${params}`, { method: 'POST' });
+}
+
+export async function rollbackModelVersion(version: string, reason: string): Promise<ModelPromotionResponse> {
+  return mlopsRequest(`/models/${encodeURIComponent(version)}/rollback`, {
+    method: 'POST',
+    body: JSON.stringify({ version, reason }),
+  });
+}
+
 // ============ LLMOps API ============
 
 async function llmopsRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -871,6 +939,20 @@ export async function getSystemStats(): Promise<SystemStats> {
   return request<SystemStats>('/api/v1/stats');
 }
 
+// ============ System Health API ============
+
+export interface SystemHealth {
+  backend: 'healthy' | null;
+  mlops: 'healthy' | null;
+  llmops: 'healthy' | null;
+  redis: 'healthy' | null;
+  postgres: 'healthy' | null;
+}
+
+export async function getSystemHealth(): Promise<SystemHealth> {
+  return request<SystemHealth>('/api/v1/system/health');
+}
+
 // ============ Admin API ============
 
 export interface AdminUserItem {
@@ -892,6 +974,20 @@ export interface AdminUsersResponse {
 export interface AdminStats {
   users: { total: number; by_role: Record<string, number>; active: number };
   platform: { patients: number; predictions: number; active_sessions: number };
+}
+
+export interface CreateAdminUserPayload {
+  email: string;
+  username: string;
+  password: string;
+  role: string;
+}
+
+export async function createAdminUser(payload: CreateAdminUserPayload): Promise<AdminUserItem> {
+  return request<AdminUserItem>('/api/v1/admin/users', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getAdminUsers(skip = 0, limit = 100): Promise<AdminUsersResponse> {

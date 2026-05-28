@@ -67,6 +67,14 @@ export const engineeringNav: NavItem[] = [
     items: [],
   },
   {
+    title: 'Model Registry',
+    url: '/dashboard/engineering/models/registry',
+    icon: 'database',
+    isActive: false,
+    shortcut: ['r', 'r'],
+    items: [],
+  },
+  {
     title: 'MLOps Monitor',
     url: '/dashboard/engineering/mlops',
     icon: 'server',

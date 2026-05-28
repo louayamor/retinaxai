@@ -189,12 +189,12 @@ class ExplanationService:
                 )
                 try:
                     # Include lesion counts/clusters if available
-                lesions_left = output_payload.get("lesions_left") or output_payload.get("lesions")
-                lesions_right = output_payload.get("lesions_right")
-                lesion_clusters_left = output_payload.get("lesion_clusters_left") or output_payload.get("lesion_clusters")
-                lesion_clusters_right = output_payload.get("lesion_clusters_right")
+                    lesions_left = output_payload.get("lesions_left") or output_payload.get("lesions")
+                    lesions_right = output_payload.get("lesions_right")
+                    lesion_clusters_left = output_payload.get("lesion_clusters_left") or output_payload.get("lesion_clusters")
+                    lesion_clusters_right = output_payload.get("lesion_clusters_right")
 
-                resp = await client.post(
+                    resp = await client.post(
                         f"{llm_base_url}/api/xai/explain",
                         json={
                             "prediction_id": str(prediction.id),

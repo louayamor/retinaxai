@@ -139,7 +139,7 @@ mlflow:
 # ── Lesion Detection ──────────────────────────────────────────────────────────
 
 lesion_model:
-  enabled: false
+  enabled: true
   encoder_name: timm-efficientnet-b3
   encoder_weights: null
   decoder: UNet

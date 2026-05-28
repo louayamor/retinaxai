@@ -3,8 +3,11 @@ from typing import Annotated, Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import text
 
 from app.auth.role_guard import EngineerUser
+from app.db.session import engine
+from app.services.redis_client import redis_client
 
 router = APIRouter(prefix="/system", tags=["system"])
 
@@ -35,6 +38,46 @@ async def _prom_query_range(query: str, step: str = "1h") -> list[dict[str, Any]
         if data.get("status") != "success":
             raise HTTPException(status_code=502, detail=f"Prometheus error: {data}")
         return data["data"]["result"]
+
+
+async def _ping_service(url: str, timeout: float = 3.0) -> str | None:
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(f"{url}/health")
+            return "healthy" if resp.status_code < 500 else "unhealthy"
+    except Exception:
+        return None
+
+
+@router.get("/health")
+async def get_system_health(_: EngineerUser):
+    redis_ok: str | None = None
+    try:
+        conn = await redis_client.get_connection()
+        if conn:
+            await conn.ping()
+            redis_ok = "healthy"
+    except Exception:
+        redis_ok = None
+
+    pg_ok: str | None = None
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+            pg_ok = "healthy"
+    except Exception:
+        pg_ok = None
+
+    mlops_status = await _ping_service("http://localhost:8004")
+    llmops_status = await _ping_service("http://localhost:8002")
+
+    return {
+        "backend": "healthy",
+        "mlops": mlops_status,
+        "llmops": llmops_status,
+        "redis": redis_ok,
+        "postgres": pg_ok,
+    }
 
 
 @router.get("/metrics")

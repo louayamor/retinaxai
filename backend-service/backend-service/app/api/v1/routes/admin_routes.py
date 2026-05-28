@@ -15,7 +15,7 @@ from app.models.auth_session import AuthSession
 from app.models.patient import Patient
 from app.models.prediction import Prediction
 from app.models.user import User
-from app.schemas.user_schema import UserRead, UserUpdate
+from app.schemas.user_schema import UserCreate, UserRead, UserUpdate
 from app.services.redis_client import redis_client
 from app.users.service import UserService
 
@@ -82,6 +82,16 @@ async def list_users(
         "limit": limit,
         "items": [UserRead.model_validate(u) for u in users],
     }
+
+
+@router.post("/users", response_model=UserRead, status_code=201)
+async def create_user(
+    data: UserCreate,
+    _: AdminUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    service = UserService(db)
+    return await service.create(data)
 
 
 @router.patch("/users/{user_id}", response_model=UserRead)

@@ -19,6 +19,7 @@ import {
   FileText,
   HardDrive,
   Wifi,
+  Waves,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useWebSocket } from '@/hooks/use-websocket';
@@ -83,6 +84,9 @@ export default function MLOpsPage() {
   const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
   const [promMetrics, setPromMetrics] = useState<PrometheusMetrics | null>(null);
   const [promHistory, setPromHistory] = useState<PrometheusMetrics[]>([]);
+  const [driftHistory, setDriftHistory] = useState<
+    Array<{ generated_at: string; overall_psi: number; status: string; current_samples: number; reference_samples: number }>
+  >([]);
   const [loading, setLoading] = useState(true);
 
   const { subscribe } = useWebSocket();
@@ -115,6 +119,19 @@ export default function MLOpsPage() {
     }, 8000);
     return () => clearTimeout(timeout);
   }, [snapshot]);
+
+  const MLOPS = process.env.NEXT_PUBLIC_MLOPS_URL || 'http://localhost:8004';
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`${MLOPS}/drift/history?limit=50`, { signal: controller.signal })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.history) setDriftHistory(data.history);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   const getMetricsRadarData = useMemo(() => {
     const im = metrics.imaging || {};
@@ -186,6 +203,7 @@ export default function MLOpsPage() {
       <Tabs defaultValue='ml' className='w-full'>
         <TabsList>
           <TabsTrigger value='ml'>ML</TabsTrigger>
+          <TabsTrigger value='drift'>Drift</TabsTrigger>
           <TabsTrigger value='system'>System</TabsTrigger>
         </TabsList>
 
@@ -308,6 +326,71 @@ export default function MLOpsPage() {
                 </ResponsiveContainer>
               </div>
               <p className='text-xs text-muted-foreground mt-2'>Validation QWK by epoch (from training summary)</p>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value='drift' className='mt-4'>
+          <StatsRow columns={3}>
+            <StatsCard
+              title='Current Status'
+              value={driftHistory.length > 0 ? driftHistory[driftHistory.length - 1].status.replace('_', ' ') : 'Unknown'}
+              icon={driftHistory.length > 0 && driftHistory[driftHistory.length - 1].status === 'drift_detected' ? AlertTriangle : CheckCircle2}
+              color={driftHistory.length > 0 && driftHistory[driftHistory.length - 1].status === 'drift_detected' ? '#ef4444' : '#22c55e'}
+            />
+            <StatsCard
+              title='Last Check'
+              value={driftHistory.length > 0 ? new Date(driftHistory[driftHistory.length - 1].generated_at).toLocaleDateString() : '—'}
+              icon={Activity}
+            />
+            <StatsCard
+              title='Total Checks'
+              value={String(driftHistory.length)}
+              icon={Database}
+            />
+          </StatsRow>
+
+          {driftHistory.length > 0 && (
+            <div className='rounded-lg border bg-card p-4 mt-4'>
+              <div className='flex items-center gap-2 mb-4'>
+                <Waves className='h-5 w-5 text-blue-500' />
+                <h3 className='font-semibold'>PSI Over Time</h3>
+              </div>
+              <div className='h-[250px]'>
+                <ResponsiveContainer width='100%' height='100%'>
+                  <LineChart
+                    data={driftHistory.map((d) => ({
+                      label: new Date(d.generated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                      psi: d.overall_psi,
+                      samples: d.current_samples,
+                      ref: d.reference_samples,
+                    }))}
+                  >
+                    <CartesianGrid strokeDasharray='3 3' />
+                    <XAxis dataKey='label' tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip
+                      contentStyle={{ fontSize: 12, borderRadius: 6 }}
+                      formatter={(v: number, name: string) => {
+                        if (name === 'psi') return [v.toFixed(6), 'PSI'];
+                        return [v.toLocaleString(), name === 'samples' ? 'Current Samples' : 'Reference Samples'];
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Line type='monotone' dataKey='psi' stroke='#3b82f6' strokeWidth={2} dot={{ r: 3 }} name='psi' />
+                    <Line type='monotone' dataKey='samples' stroke='#22c55e' strokeWidth={1} dot={false} name='samples' />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              <p className='text-xs text-muted-foreground mt-2'>
+                Population Stability Index (PSI) across {driftHistory.length} consecutive drift checks &middot; Lower is better
+              </p>
+            </div>
+          )}
+
+          {driftHistory.length === 0 && (
+            <div className='rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground mt-4'>
+              No drift history available. Run a drift check to populate.
             </div>
           )}
         </TabsContent>

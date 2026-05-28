@@ -65,7 +65,7 @@ import Image from 'next/image';
 import MedicalReport from '@/components/features/reports/medical-report';
 import XAICard from '@/components/features/xai/xai-card';
 import { GradCAMMetricsBlock, type GradCAMRegion, type GradCAMHotspot } from '@/components/features/patients/gradcam-metrics';
-import { BiomarkerPanel } from '@/components/features/patients/biomarker-panel';
+import LesionsPanel from '@/components/features/patients/lesions-panel';
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
 
 const GRADE_LABELS = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative'];
@@ -85,11 +85,10 @@ const RISK_META: Record<string, { color: string; bg: string; border: string }> =
   critical: { color: 'text-rose-400',    bg: 'bg-rose-500/10',    border: 'border-rose-500/30' },
 };
 
-type TabId = 'scans' | 'biomarkers' | 'gradcam' | 'xai' | 'reports';
+type TabId = 'scans' | 'gradcam' | 'xai' | 'reports';
 
 const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id: 'scans',   label: 'Retinal Images',   icon: Scan },
-  { id: 'biomarkers', label: 'Biomarkers',    icon: BarChart3 },
   { id: 'gradcam', label: 'GradCAM Report',   icon: Eye },
   { id: 'xai',     label: 'XAI Explanations', icon: Brain },
   { id: 'reports', label: 'Reports',          icon: FileText },
@@ -115,6 +114,9 @@ export default function PatientProfilePage() {
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const xaiFetchedIdsRef = useRef<Set<string>>(new Set());
   const xaiFetchInFlightRef = useRef<Set<string>>(new Set());
+  const [selectedCluster, setSelectedCluster] = useState<{ predictionId?: string; eye: 'left'|'right'; cluster: any } | null>(null);
+  const gradcamSectionRef = useRef<HTMLDivElement | null>(null);
+
 
   const fetchXAIData = useCallback(async (predId: string, force = false) => {
     if (!force && (xaiFetchedIdsRef.current.has(predId) || xaiFetchInFlightRef.current.has(predId))) {
@@ -312,7 +314,6 @@ export default function PatientProfilePage() {
   const successPredictions = predictions.filter(p => p.status?.toLowerCase() === 'success');
   const tabCounts: Record<TabId, number> = {
     scans: scans.length,
-    biomarkers: predictions.filter(p => Boolean(p.output_payload?.vascular_biomarkers_left || p.output_payload?.vascular_biomarkers_right)).length,
     gradcam: successPredictions.length,
     xai: successPredictions.length,
     reports: reports.length,
@@ -562,28 +563,16 @@ export default function PatientProfilePage() {
                   </div>
                 )}
 
-                {/* BIOMARKERS TAB */}
-                {activeTab === 'biomarkers' && (
-                  <div className="flex flex-col gap-4">
-                    <SectionHeader icon={BarChart3} title="Vascular Biomarkers" iconColor="text-emerald-500" count={tabCounts.biomarkers} />
-                    {latestLeftBiomarkers || latestRightBiomarkers ? (
-                      <BiomarkerPanel
-                        latestLeft={latestLeftBiomarkers as any}
-                        latestRight={latestRightBiomarkers as any}
-                        predictions={predictions.map((prediction) => ({
-                          created_at: prediction.created_at,
-                          output_payload: prediction.output_payload,
-                        }))}
-                      />
-                    ) : (
-                      <EmptyState icon={BarChart3} title="No Biomarkers Yet" description="Run a prediction to generate vascular biomarker metrics." />
-                    )}
-                  </div>
-                )}
 
                 {/* GRADCAM REPORT TAB */}
                 {activeTab === 'gradcam' && (
-                  <div className="flex flex-col gap-4">
+                  <div ref={gradcamSectionRef} className="flex flex-col gap-4">
+                      {latestPrediction && (
+                        <div className="mb-3">
+                          <SectionHeader icon={BarChart3} title="Lesions" iconColor="text-rose-500" />
+                          <LesionsPanel latestPrediction={latestPrediction} onClusterClick={(eye, c) => setSelectedCluster({ predictionId: latestPrediction?.id, eye, cluster: c })} />
+                        </div>
+                      )}
                     {/* GradCAM section */}
                     <SectionHeader
                       icon={Eye}
@@ -616,8 +605,8 @@ export default function PatientProfilePage() {
                               </div>
                             </div>
                             <div className="p-4 grid grid-cols-2 gap-3">
-                              <GradCAMPanel title="Left Eye (OS)" gradcamBase64={pred.output_payload?.gradcam_left as string | undefined} />
-                              <GradCAMPanel title="Right Eye (OD)" gradcamBase64={pred.output_payload?.gradcam_right as string | undefined} />
+                              <GradCAMPanel title="Left Eye (OS)" gradcamBase64={pred.output_payload?.gradcam_left as string | undefined} predictionId={pred.id} eye="left" selectedCluster={selectedCluster} />
+                              <GradCAMPanel title="Right Eye (OD)" gradcamBase64={pred.output_payload?.gradcam_right as string | undefined} predictionId={pred.id} eye="right" selectedCluster={selectedCluster} />
                             </div>
                             <div className="px-4 pb-4">
                               <GradCAMMetricsBlock
@@ -627,56 +616,6 @@ export default function PatientProfilePage() {
                                 rightHotspots={pred.output_payload?.top_hotspots_right as GradCAMHotspot[] | undefined}
                               />
                             </div>
-                            {xaiData[pred.id]?.gradcam_explanation && (
-                              <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {xaiData[pred.id]?.gradcam_explanation?.left_eye_explanation && (
-                                  <div className="rounded-lg border border-[var(--brand-teal)]/30 bg-[var(--brand-teal)]/5 p-4">
-                                    <div className="flex items-center justify-between mb-3">
-                                      <h4 className="font-semibold text-foreground flex items-center gap-2">
-                                        <Eye className="h-4 w-4 text-[var(--brand-teal)]" />
-                                        Left Eye (OS)
-                                      </h4>
-                                      <span className="text-xs font-mono font-bold text-white px-1.5 py-0.5 rounded bg-[var(--brand-teal)]">
-                                        {xaiData[pred.id]?.gradcam_explanation?.highlighted_regions?.left_eye?.length || 0} regions
-                                      </span>
-                                    </div>
-                                    <div className="space-y-3">
-                                      {parseExplanationSections(xaiData[pred.id]?.gradcam_explanation?.left_eye_explanation || '').map((section, idx) => (
-                                        <div key={idx}>
-                                          {section.title && (
-                                            <p className="text-xs font-semibold text-foreground mb-1">{section.title}</p>
-                                          )}
-                                          <p className="text-sm text-muted-foreground leading-relaxed">{section.body}</p>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                {xaiData[pred.id]?.gradcam_explanation?.right_eye_explanation && (
-                                  <div className="rounded-lg border border-[var(--brand-gold)]/30 bg-[var(--brand-gold)]/5 p-4">
-                                    <div className="flex items-center justify-between mb-3">
-                                      <h4 className="font-semibold text-foreground flex items-center gap-2">
-                                        <Eye className="h-4 w-4 text-[var(--brand-gold)]" />
-                                        Right Eye (OD)
-                                      </h4>
-                                      <span className="text-xs font-mono font-bold text-white px-1.5 py-0.5 rounded bg-[var(--brand-gold)]">
-                                        {xaiData[pred.id]?.gradcam_explanation?.highlighted_regions?.right_eye?.length || 0} regions
-                                      </span>
-                                    </div>
-                                    <div className="space-y-3">
-                                      {parseExplanationSections(xaiData[pred.id]?.gradcam_explanation?.right_eye_explanation || '').map((section, idx) => (
-                                        <div key={idx}>
-                                          {section.title && (
-                                            <p className="text-xs font-semibold text-foreground mb-1">{section.title}</p>
-                                          )}
-                                          <p className="text-sm text-muted-foreground leading-relaxed">{section.body}</p>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            )}
                           </div>
                         );
                       })
@@ -1034,12 +973,18 @@ function EyeImagePanel({ title, src, eye }: { title: string; src?: string; eye: 
   );
 }
 
-function GradCAMPanel({ title, gradcamBase64 }: { title: string; gradcamBase64?: string }) {
-  const isLeft = title.includes('OS') || title.includes('Left');
+function GradCAMPanel({ title, gradcamBase64, predictionId, eye, selectedCluster }: { title: string; gradcamBase64?: string; predictionId?: string; eye?: 'left'|'right'; selectedCluster?: { predictionId?: string; eye: 'left'|'right'; cluster: any } | null }) {
+  const isLeft = title.includes('OS') || title.includes('Left') || eye === 'left';
   const accentBorder = isLeft ? 'border-[var(--brand-teal)]/30' : 'border-[var(--brand-gold)]/30';
   const accentBg = isLeft ? 'bg-[var(--brand-teal)]/8' : 'bg-[var(--brand-gold)]/8';
   const accentText = isLeft ? 'text-[var(--brand-teal)]' : 'text-[var(--brand-gold)]';
   const accentBadgeBg = isLeft ? 'bg-[var(--brand-teal)]' : 'bg-[var(--brand-gold)]';
+
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const [naturalW, setNaturalW] = useState<number | null>(null);
+  const [naturalH, setNaturalH] = useState<number | null>(null);
+
+  const markers = (selectedCluster && selectedCluster.predictionId === predictionId && selectedCluster.eye === eye) ? [selectedCluster.cluster] : [];
 
   return (
     <div className={`rounded-lg border ${accentBorder} ${accentBg} overflow-hidden`}>
@@ -1055,9 +1000,16 @@ function GradCAMPanel({ title, gradcamBase64 }: { title: string; gradcamBase64?:
       <div className="relative aspect-square bg-black/5">
         {gradcamBase64 ? (
           <img
+            ref={imgRef}
             src={`data:image/png;base64,${gradcamBase64}`}
             alt={title}
             className="w-full h-full object-contain"
+            onLoad={(e) => {
+              try {
+                setNaturalW((e.currentTarget as HTMLImageElement).naturalWidth);
+                setNaturalH((e.currentTarget as HTMLImageElement).naturalHeight);
+              } catch {}
+            }}
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground/50">
@@ -1065,6 +1017,24 @@ function GradCAMPanel({ title, gradcamBase64 }: { title: string; gradcamBase64?:
             <span className="text-xs">No GradCAM heatmap available</span>
           </div>
         )}
+
+        {/* overlay markers */}
+        {markers.map((c, idx) => {
+          const cx = c.centroid_x ?? c.center_x ?? c.centroid?.x ?? null;
+          const cy = c.centroid_y ?? c.center_y ?? c.centroid?.y ?? null;
+          let leftPct = 50;
+          let topPct = 50;
+          if (cx != null && naturalW) leftPct = Math.round((cx / naturalW) * 10000) / 100;
+          if (cy != null && naturalH) topPct = Math.round((cy / naturalH) * 10000) / 100;
+          return (
+            <div key={idx} style={{ left: `${leftPct}%`, top: `${topPct}%`, transform: 'translate(-50%,-50%)' }} className="absolute pointer-events-auto">
+              <div className={`w-3 h-3 rounded-full ring-2 ring-white/80 ${isLeft ? 'bg-[var(--brand-teal)]' : 'bg-[var(--brand-gold)]'} animate-pulse`} />
+              <div className="absolute mt-2 -translate-x-1/2 text-xs text-white/90 bg-black/60 px-1 rounded">
+                {c.class || c.class_name || 'lesion'} • area: {c.area ?? '-'}
+              </div>
+            </div>
+          );
+        })}
       </div>
       <div className="px-3 py-1.5 border-t border-border/50 bg-muted/20">
         <p className="text-xs text-muted-foreground uppercase tracking-wider">

@@ -34,7 +34,18 @@ import {
   Crosshair,
   BarChart2,
   Clock,
+  ChartLine,
 } from 'lucide-react';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { TrainingProgress } from '@/components/training-progress';
 import { Separator } from '@/components/ui/separator';
@@ -429,6 +440,166 @@ function TrainingHistoryPanel({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function TrainingCurves({
+  trainingSummary,
+}: {
+  trainingSummary: Record<string, unknown>;
+}) {
+  const epochLog = (trainingSummary.epoch_log ?? []) as Array<Record<string, number>>;
+  if (epochLog.length < 2) return null;
+
+  const chartData = epochLog.map((ep) => ({
+    epoch: ep.epoch,
+    loss: ep.loss,
+    train_acc: ep.train_acc != null ? ep.train_acc * 100 : null,
+    val_acc: ep.val_acc != null ? ep.val_acc * 100 : null,
+    val_qwk: ep.val_qwk != null ? ep.val_qwk * 100 : null,
+    val_f1: ep.val_f1 != null ? ep.val_f1 * 100 : null,
+    val_mae: ep.val_mae,
+    val_rmse: ep.val_rmse,
+    lr: ep.lr,
+    train_f1: ep.train_f1 != null ? ep.train_f1 * 100 : null,
+  }));
+
+  const curveAccent = 'var(--brand-teal)';
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <ChartLine className="h-5 w-5 text-[var(--brand-teal)]" />
+        <h3 className="font-semibold">Training Curves</h3>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-muted-foreground">Loss</CardTitle>
+          </CardHeader>
+          <CardContent className="p-2">
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="epoch" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                <Tooltip
+                  contentStyle={{ fontSize: 12, borderRadius: 6 }}
+                  formatter={(v: number) => v.toFixed(4)}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="loss"
+                  stroke="#ef4444"
+                  strokeWidth={2}
+                  dot={false}
+                  name="Loss"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-muted-foreground">Accuracy (%)</CardTitle>
+          </CardHeader>
+          <CardContent className="p-2">
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="epoch" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} stroke="hsl(var(--muted-foreground))" />
+                <Tooltip
+                  contentStyle={{ fontSize: 12, borderRadius: 6 }}
+                  formatter={(v: number) => `${v.toFixed(1)}%`}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line
+                  type="monotone"
+                  dataKey="train_acc"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  dot={false}
+                  name="Train"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="val_acc"
+                  stroke={curveAccent}
+                  strokeWidth={2}
+                  dot={false}
+                  name="Validation"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-muted-foreground">F1 Score (%)</CardTitle>
+          </CardHeader>
+          <CardContent className="p-2">
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="epoch" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} stroke="hsl(var(--muted-foreground))" />
+                <Tooltip
+                  contentStyle={{ fontSize: 12, borderRadius: 6 }}
+                  formatter={(v: number) => `${v.toFixed(1)}%`}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line
+                  type="monotone"
+                  dataKey="train_f1"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  dot={false}
+                  name="Train"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="val_f1"
+                  stroke="#a855f7"
+                  strokeWidth={2}
+                  dot={false}
+                  name="Validation"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-muted-foreground">QWK (%)</CardTitle>
+          </CardHeader>
+          <CardContent className="p-2">
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="epoch" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} stroke="hsl(var(--muted-foreground))" />
+                <Tooltip
+                  contentStyle={{ fontSize: 12, borderRadius: 6 }}
+                  formatter={(v: number) => `${v.toFixed(1)}%`}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="val_qwk"
+                  stroke="#f59e0b"
+                  strokeWidth={2}
+                  dot={false}
+                  name="QWK"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 }
 
@@ -1088,6 +1259,14 @@ export default function ModelsPage() {
         <>
           <Separator />
           <TrainingHistoryPanel trainingSummary={trainingSummary} />
+        </>
+      )}
+
+      {/* Training Curves */}
+      {trainingSummary && (
+        <>
+          <Separator />
+          <TrainingCurves trainingSummary={trainingSummary} />
         </>
       )}
 
