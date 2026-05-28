@@ -60,10 +60,10 @@ training:
   weight_decay: 0.001
   scheduler: cosine
   lr_warmup_epochs: 3
-  batch_size: 24
+  batch_size: 8
   num_workers: 8
   pin_memory: true
-  gradient_accumulation_steps: 6
+  gradient_accumulation_steps: 18
 
   phase1:
     epochs: 20
