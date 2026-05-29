@@ -11,7 +11,11 @@ from app.training.pipeline.stage_04_model_trainer import run as imaging_train
 from app.training.pipeline.stage_05_model_evaluation import (
     run as imaging_evaluate,
 )
-from app.registry.model_registry import ModelRegistryService
+from app.registry.model_registry import (
+    ModelAlreadyExistsError,
+    ModelNotFoundError,
+    ModelRegistryService,
+)
 from app.config.settings import settings
 
 
@@ -25,12 +29,23 @@ class TrainingPipeline:
         """Generate version string automatically (e.g., v1.2.3)."""
         existing = self.registry_service.list_versions(pipeline=pipeline)
         if not existing:
-            return "v1.0.0"
+            candidate = "v1.0.0"
+        else:
+            latest = sorted(existing, key=lambda v: v.created_at)[-1]
+            major, minor, _ = latest.version.lstrip("v").split(".")
+            candidate = f"v{major}.{int(minor) + 1}.0"
 
-        latest = sorted(existing, key=lambda v: v.created_at)[-1]
-        major, minor, patch = latest.version.lstrip("v").split(".")
-        new_minor = str(int(minor) + 1)
-        return f"v{major}.{new_minor}.0"
+        for _ in range(100):
+            try:
+                self.registry_service.get_version(candidate)
+            except ModelNotFoundError:
+                return candidate
+            major, minor, patch = candidate.lstrip("v").split(".")
+            candidate = f"v{major}.{int(minor) + 1}.0"
+
+        raise RuntimeError(
+            f"Cannot generate unique version for {pipeline}"
+        )
 
     def _register_model(
         self, pipeline: str, version: str, model_path: Path, metrics: dict
@@ -84,7 +99,7 @@ class TrainingPipeline:
             )
             logger.info(f"Model {pipeline} v{version} registered successfully")
 
-        except (OSError, RuntimeError, ValueError) as e:
+        except (ModelAlreadyExistsError, OSError, RuntimeError, ValueError) as e:
             logger.error(f"Failed to register {pipeline} model: {e}")
             # Non-critical error - don't fail training if registration fails
 
