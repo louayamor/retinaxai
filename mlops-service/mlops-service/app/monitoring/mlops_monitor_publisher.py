@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import contextlib
 import json
 from datetime import datetime, timezone
@@ -36,11 +37,13 @@ class MLOpsMonitorPublisher:
         self._redis_url = redis_url
         self._channel = channel
         self._observer: Observer | None = None
-        self._pending: asyncio.Task | None = None
+        self._pending: concurrent.futures.Future | None = None
         self._lock = asyncio.Lock()
         self._watched_files: set[Path] = set()
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     def start(self, watch_paths: list[Path]) -> None:
+        self._loop = asyncio.get_running_loop()
         handler = _MetricsUpdateHandler(self)
         observer = Observer()
         for path in watch_paths:
@@ -61,14 +64,17 @@ class MLOpsMonitorPublisher:
         if self._pending:
             self._pending.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await self._pending
+                await asyncio.wrap_future(self._pending)
 
     def schedule_publish(self, changed_path: Path) -> None:
         if changed_path.resolve() not in self._watched_files:
             return
         if self._pending and not self._pending.done():
             return
-        self._pending = asyncio.create_task(self.publish_snapshot())
+        if self._loop is None:
+            return
+        coro = self.publish_snapshot()
+        self._pending = asyncio.run_coroutine_threadsafe(coro, self._loop)
 
     async def publish_snapshot(self) -> None:
         async with self._lock:
