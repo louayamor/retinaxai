@@ -3,6 +3,14 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   devIndicators: false,
   output: 'standalone',
+  async rewrites() {
+    return [
+      {
+        source: '/api/v1/system/grafana/proxy/:path*',
+        destination: 'http://localhost:8000/api/v1/system/grafana/proxy/:path*',
+      },
+    ];
+  },
   async redirects() {
     return [
       { source: '/dashboard/overview/:path*', destination: '/dashboard/clinical/overview/:path*', permanent: true },

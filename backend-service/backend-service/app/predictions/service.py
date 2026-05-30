@@ -16,13 +16,12 @@ from app.predictions.repository import PredictionRepository
 from app.schemas.prediction_schema import PredictionRequest
 from app.services.ml_client.ml_service import MLServiceClient, ml_client
 from app.services.ml_client.schemas import MLPredictRequest, MLPredictResponse
-import structlog
 
 from app.api.v1.websockets import emit_prediction_event
 from app.explanations.service import ExplanationService
 from app.services.task_tracker import bg_tasks
 
-logger = structlog.get_logger(__name__)
+from loguru import logger
 
 _SEVERITY_MAP: dict[int, str] = {
     0: "none",

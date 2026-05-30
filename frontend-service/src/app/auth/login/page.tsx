@@ -5,9 +5,9 @@ import SignInView from '@/features/auth/components/sign-in-view';
 import type { UserRole } from '@/lib/auth';
 
 const ROLE_REDIRECT: Record<UserRole, string> = {
-  doctor: '/dashboard/overview',
-  engineer: '/dashboard/overview',
-  admin: '/dashboard/overview',
+  doctor: '/dashboard/clinical',
+  engineer: '/dashboard/engineering',
+  admin: '/dashboard/admin',
 };
 
 export default function LoginPage() {

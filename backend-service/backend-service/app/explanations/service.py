@@ -7,7 +7,6 @@ from app.models.prediction import Prediction
 from app.models.prediction_explanation import ExplanationStatus, PredictionExplanation
 from app.models.gradcam_explanation import GradCAMExplanation
 from app.models.severity_report import SeverityReport
-import structlog
 
 from app.core.config import settings
 from app.schemas.report_schema import ReportGenerateRequest
@@ -20,7 +19,7 @@ from app.reports.service import ReportService
 from app.services.task_tracker import bg_tasks
 from sqlalchemy.exc import IntegrityError
 
-logger = structlog.get_logger(__name__)
+from loguru import logger
 
 
 class ExplanationService:

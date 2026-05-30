@@ -3,12 +3,11 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notification import Notification
 
-logger = structlog.get_logger(__name__)
+from loguru import logger
 
 
 class NotificationService:

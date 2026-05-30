@@ -6,6 +6,10 @@ on:
     paths:
       - 'mlops-service/**'
       - '.github/workflows/mlops.yaml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'mlops-service/**'
 
 env:
   REGISTRY: ghcr.io

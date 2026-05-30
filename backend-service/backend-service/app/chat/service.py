@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-import structlog
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +17,7 @@ from app.schemas.chat_schemas import (
 )
 from app.services.llm_client.chat_client import ChatServiceClient, chat_client
 
-logger = structlog.get_logger(__name__)
+from loguru import logger
 
 
 class ChatService:

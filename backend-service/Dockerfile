@@ -21,7 +21,7 @@ FROM base AS builder
 
 COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
-COPY backend-service/ .
+COPY ./backend-service/ .
 
 
 RUN addgroup --system appgroup && \

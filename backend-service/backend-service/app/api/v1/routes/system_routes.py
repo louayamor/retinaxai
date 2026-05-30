@@ -1,8 +1,11 @@
 from __future__ import annotations
-from typing import Annotated, Any
+import re
+import time as time_mod
+from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import Response
 from sqlalchemy import text
 
 from app.auth.role_guard import EngineerUser
@@ -12,6 +15,27 @@ from app.services.redis_client import redis_client
 router = APIRouter(prefix="/system", tags=["system"])
 
 PROMETHEUS_URL = "http://localhost:9090"
+GRAFANA_URL = "http://localhost:4000"
+GRAFANA_USER = "admin"
+GRAFANA_PASS = "prtgrm1998"
+
+_RELATIVE_RE = re.compile(r"^(\d+)([mhdw])$")
+
+
+def _resolve_time(t: str) -> float:
+    """Convert relative time strings (6h, 30m, 7d, 1w) to absolute Unix timestamps."""
+    if t == "now":
+        return time_mod.time()
+    m = _RELATIVE_RE.match(t)
+    if m:
+        value = int(m.group(1))
+        unit = m.group(2)
+        multipliers = {"m": 60, "h": 3600, "d": 86400, "w": 604800}
+        return time_mod.time() - value * multipliers[unit]
+    try:
+        return float(t)
+    except ValueError:
+        return time_mod.time()
 
 
 async def _prom_query(query: str) -> list[dict[str, Any]]:
@@ -27,11 +51,15 @@ async def _prom_query(query: str) -> list[dict[str, Any]]:
         return data["data"]["result"]
 
 
-async def _prom_query_range(query: str, step: str = "1h") -> list[dict[str, Any]]:
+async def _prom_query_range(
+    query: str, start: str = "6h", end: str = "now", step: str = "5m"
+) -> list[dict[str, Any]]:
+    start_ts = _resolve_time(start)
+    end_ts = _resolve_time(end)
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(
             f"{PROMETHEUS_URL}/api/v1/query_range",
-            params={"query": query, "start": "6h", "end": "now", "step": step},
+            params={"query": query, "start": start_ts, "end": end_ts, "step": step},
         )
         resp.raise_for_status()
         data = resp.json()
@@ -228,3 +256,66 @@ async def get_gpu_metrics(
         pass
 
     return {"gpus": gpu_info}
+
+
+@router.get("/prometheus/range")
+async def get_prometheus_range(
+    query: str,
+    start: str = "6h",
+    end: str = "now",
+    step: str = "5m",
+) -> list[dict[str, Any]]:
+    try:
+        return await _prom_query_range(query, start=start, end=end, step=step)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.api_route("/grafana/proxy/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def grafana_proxy(
+    path: str,
+    request: Request,
+    _: EngineerUser,
+):
+    target_path = path or ""
+    query_string = str(request.query_params)
+    target_url = f"{GRAFANA_URL}/{target_path}"
+    if query_string:
+        target_url += f"?{query_string}"
+
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        body = await request.body() if request.method in ("POST", "PUT", "PATCH") else None
+
+        headers = {
+            k: v for k, v in request.headers.items()
+            if k.lower() not in ("host", "connection", "content-length", "transfer-encoding")
+        }
+        headers.pop("x-frame-options", None)
+
+        resp = await client.request(
+            method=request.method,
+            url=target_url,
+            headers=headers,
+            content=body,
+            auth=httpx.BasicAuth(GRAFANA_USER, GRAFANA_PASS),
+        )
+
+        content_type = resp.headers.get("content-type", "")
+        content = resp.content
+
+        if "text/html" in content_type:
+            base_tag = f'<base href="/api/v1/system/grafana/proxy/">'
+            content = content.replace(b"<head>", f"<head>{base_tag}".encode())
+
+        response_headers = {
+            k: v for k, v in resp.headers.items()
+            if k.lower() not in ("x-frame-options", "content-security-policy", "content-encoding", "transfer-encoding", "content-length")
+        }
+
+        return Response(
+            content=content,
+            status_code=resp.status_code,
+            headers=response_headers,
+        )

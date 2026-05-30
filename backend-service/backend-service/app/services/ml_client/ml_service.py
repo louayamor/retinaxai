@@ -3,7 +3,8 @@ import base64
 from pathlib import Path
 
 import httpx
-import structlog
+
+from loguru import logger
 
 from app.core.config import settings
 from app.core.exceptions import (
@@ -11,8 +12,6 @@ from app.core.exceptions import (
     UnprocessableEntityException,
 )
 from app.services.ml_client.schemas import MLPredictRequest, MLPredictResponse
-
-logger = structlog.get_logger(__name__)
 
 
 def _encode_image(file_path: str) -> str:

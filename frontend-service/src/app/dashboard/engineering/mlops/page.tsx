@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import PageContainer from '@/components/layout/page-container';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatsRow } from '@/components/ui/stats-row';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { StatsCard } from '@/components/ui/stats-card';
 import {
   Activity,
@@ -20,6 +21,8 @@ import {
   HardDrive,
   Wifi,
   Waves,
+  ExternalLink,
+  BarChart3,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useWebSocket } from '@/hooks/use-websocket';
@@ -39,6 +42,7 @@ import {
   Radar,
   Legend,
 } from 'recharts';
+import { getSystemMetricsRange, GRAFANA_KIOSK_URL, GRAFANA_PROXY_BASE, type PrometheusRangeResult } from '@/lib/api';
 
 interface Metrics {
   imaging?: { accuracy?: number; quadratic_weighted_kappa?: number; roc_auc_macro?: number; precision_macro?: number; recall_macro?: number; num_samples?: number };
@@ -79,6 +83,48 @@ interface MonitorSnapshot {
 const MAX_HISTORY = 40;
 const EMPTY_METRICS: Metrics = { imaging: undefined, clinical: undefined, training_summary: undefined };
 
+const PROMQL = {
+  cpu: '100 - (avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)',
+  memory: '(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100',
+  disk: '(node_filesystem_size_bytes{mountpoint="/"} - node_filesystem_avail_bytes{mountpoint="/"}) / node_filesystem_size_bytes{mountpoint="/"} * 100',
+  netRx: 'rate(node_network_receive_bytes_total{device!="lo"}[5m]) * 8 / 1024 / 1024',
+  netTx: 'rate(node_network_transmit_bytes_total{device!="lo"}[5m]) * 8 / 1024 / 1024',
+  gpuUtil: 'nvidia_gpu_utilization',
+  gpuMem: 'nvidia_gpu_memory_used_bytes / nvidia_gpu_memory_total_bytes * 100',
+};
+
+const TIME_RANGES = ['6h', '24h', '7d'] as const;
+type TimeRange = typeof TIME_RANGES[number];
+
+const GRAFANA_VIEW_URL = `${GRAFANA_PROXY_BASE}/d/retinaxai-mlops-dashboard/retinaxai-mlops-dashboard?kiosk`;
+
+const GRAFANA_PANEL_LINKS = [
+  { id: 2, title: 'Training Runs' },
+  { id: 12, title: 'Accuracy' },
+  { id: 13, title: 'F1 Score' },
+  { id: 8, title: 'Loss' },
+  { id: 6, title: 'QWK Trend' },
+  { id: 7, title: 'Drift PSI' },
+  { id: 3, title: 'Latency' },
+  { id: 19, title: 'GPU Util' },
+  { id: 18, title: 'GPU Memory' },
+] as const;
+
+type RangeData = Record<string, PrometheusRangeResult>;
+
+function formatTimestamp(ts: number): string {
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+}
+
+function toChartData(results: PrometheusRangeResult): Array<{ time: string; value: number }> {
+  if (!results.length) return [];
+  return results[0].values.map(([ts, v]) => ({
+    time: formatTimestamp(ts),
+    value: parseFloat(v),
+  }));
+}
+
 export default function MLOpsPage() {
   const [snapshot, setSnapshot] = useState<MonitorSnapshot | null>(null);
   const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
@@ -88,6 +134,11 @@ export default function MLOpsPage() {
     Array<{ generated_at: string; overall_psi: number; status: string; current_samples: number; reference_samples: number }>
   >([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('ml');
+
+  const [timeRange, setTimeRange] = useState<TimeRange>('6h');
+  const [rangeData, setRangeData] = useState<RangeData>({});
+  const [rangeLoading, setRangeLoading] = useState(false);
 
   const { subscribe } = useWebSocket();
   useEffect(() => {
@@ -132,6 +183,29 @@ export default function MLOpsPage() {
       .catch(() => {});
     return () => controller.abort();
   }, []);
+
+  const fetchRangeData = useCallback(async (range: TimeRange) => {
+    setRangeLoading(true);
+    const queries: [string, string][] = [
+      ['cpu', PROMQL.cpu],
+      ['memory', PROMQL.memory],
+      ['disk', PROMQL.disk],
+      ['netRx', PROMQL.netRx],
+      ['netTx', PROMQL.netTx],
+    ];
+    const results: RangeData = {};
+    await Promise.allSettled(
+      queries.map(async ([key, q]) => {
+        results[key] = await getSystemMetricsRange(q, range, range === '7d' ? '30m' : '10m');
+      })
+    );
+    setRangeData(results);
+    setRangeLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchRangeData(timeRange);
+  }, [timeRange, fetchRangeData]);
 
   const getMetricsRadarData = useMemo(() => {
     const im = metrics.imaging || {};
@@ -179,6 +253,16 @@ export default function MLOpsPage() {
     ? ((promMetrics.disk_total_bytes - promMetrics.disk_free_bytes) / promMetrics.disk_total_bytes) * 100
     : null;
 
+  const cpuChart = useMemo(() => toChartData(rangeData.cpu || []), [rangeData.cpu]);
+  const memoryChart = useMemo(() => toChartData(rangeData.memory || []), [rangeData.memory]);
+  const diskChart = useMemo(() => toChartData(rangeData.disk || []), [rangeData.disk]);
+  const netRxChart = useMemo(() => toChartData(rangeData.netRx || []), [rangeData.netRx]);
+  const netTxChart = useMemo(() => toChartData(rangeData.netTx || []), [rangeData.netTx]);
+
+  const evidentlyShiftImaging = promMetrics?.evidently_dataset_shift_imaging ?? 0;
+  const evidentlyFeaturesImaging = promMetrics?.evidently_features_drifted_imaging ?? 0;
+  const hasEvidentlyData = evidentlyShiftImaging > 0 || evidentlyFeaturesImaging > 0;
+
   if (loading && !snapshot) {
     return (
       <PageContainer>
@@ -189,10 +273,6 @@ export default function MLOpsPage() {
     );
   }
 
-  const evidentlyShiftImaging = promMetrics?.evidently_dataset_shift_imaging ?? 0;
-  const evidentlyFeaturesImaging = promMetrics?.evidently_features_drifted_imaging ?? 0;
-  const hasEvidentlyData = evidentlyShiftImaging > 0 || evidentlyFeaturesImaging > 0;
-
   return (
     <PageContainer className='flex flex-col gap-6'>
       <PageHeader
@@ -200,11 +280,12 @@ export default function MLOpsPage() {
         description='Live monitoring for model performance and system resources'
       />
 
-      <Tabs defaultValue='ml' className='w-full'>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
         <TabsList>
           <TabsTrigger value='ml'>ML</TabsTrigger>
           <TabsTrigger value='drift'>Drift</TabsTrigger>
           <TabsTrigger value='system'>System</TabsTrigger>
+          <TabsTrigger value='grafana'>Grafana</TabsTrigger>
         </TabsList>
 
         <TabsContent value='ml' className='mt-4'>
@@ -420,7 +501,105 @@ export default function MLOpsPage() {
             />
           </StatsRow>
 
-          <div className='grid grid-cols-1 md:grid-cols-2 gap-5'>
+          <div className='flex items-center justify-end mb-4 gap-2'>
+            <BarChart3 className='h-4 w-4 text-muted-foreground' />
+            <span className='text-sm text-muted-foreground mr-1'>Range:</span>
+            {TIME_RANGES.map((r) => (
+              <Button
+                key={r}
+                variant={timeRange === r ? 'default' : 'outline'}
+                size='sm'
+                onClick={() => setTimeRange(r)}
+                className='h-7 px-3 text-xs'
+              >
+                {r}
+              </Button>
+            ))}
+          </div>
+
+          {rangeLoading ? (
+            <div className='flex items-center justify-center h-40'>
+              <div className='animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full' />
+            </div>
+          ) : (
+            <div className='grid grid-cols-1 lg:grid-cols-2 gap-5'>
+              <div className='rounded-lg border bg-card p-4'>
+                <h3 className='text-sm font-semibold mb-3 flex items-center gap-2'>
+                  <Cpu className='h-4 w-4 text-blue-500' /> CPU Utilization
+                </h3>
+                <div className='h-[200px]'>
+                  <ResponsiveContainer width='100%' height='100%'>
+                    <LineChart data={cpuChart}>
+                      <CartesianGrid strokeDasharray='3 3' />
+                      <XAxis dataKey='time' tick={{ fontSize: 10 }} />
+                      <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} unit='%' />
+                      <Tooltip />
+                      <Line type='monotone' dataKey='value' stroke='#2563eb' strokeWidth={2} dot={false} name='CPU' />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className='rounded-lg border bg-card p-4'>
+                <h3 className='text-sm font-semibold mb-3 flex items-center gap-2'>
+                  <Database className='h-4 w-4 text-orange-500' /> Memory Usage
+                </h3>
+                <div className='h-[200px]'>
+                  <ResponsiveContainer width='100%' height='100%'>
+                    <LineChart data={memoryChart}>
+                      <CartesianGrid strokeDasharray='3 3' />
+                      <XAxis dataKey='time' tick={{ fontSize: 10 }} />
+                      <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} unit='%' />
+                      <Tooltip />
+                      <Line type='monotone' dataKey='value' stroke='#f97316' strokeWidth={2} dot={false} name='Memory' />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className='rounded-lg border bg-card p-4'>
+                <h3 className='text-sm font-semibold mb-3 flex items-center gap-2'>
+                  <HardDrive className='h-4 w-4 text-green-500' /> Disk Usage
+                </h3>
+                <div className='h-[200px]'>
+                  <ResponsiveContainer width='100%' height='100%'>
+                    <LineChart data={diskChart}>
+                      <CartesianGrid strokeDasharray='3 3' />
+                      <XAxis dataKey='time' tick={{ fontSize: 10 }} />
+                      <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} unit='%' />
+                      <Tooltip />
+                      <Line type='monotone' dataKey='value' stroke='#22c55e' strokeWidth={2} dot={false} name='Disk' />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className='rounded-lg border bg-card p-4'>
+                <h3 className='text-sm font-semibold mb-3 flex items-center gap-2'>
+                  <Wifi className='h-4 w-4 text-purple-500' /> Network I/O
+                </h3>
+                <div className='h-[200px]'>
+                  <ResponsiveContainer width='100%' height='100%'>
+                    <LineChart>
+                      <CartesianGrid strokeDasharray='3 3' />
+                      <XAxis dataKey='time' tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} unit=' Mbps' />
+                      <Tooltip />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      {netRxChart.length > 0 && (
+                        <Line type='monotone' dataKey='value' data={netRxChart} stroke='#a855f7' strokeWidth={2} dot={false} name='RX' />
+                      )}
+                      {netTxChart.length > 0 && (
+                        <Line type='monotone' dataKey='value' data={netTxChart} stroke='#6366f1' strokeWidth={2} dot={false} name='TX' />
+                      )}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className='grid grid-cols-1 md:grid-cols-2 gap-5 mt-5'>
             <div className='rounded-lg border bg-card p-4'>
               <h3 className='font-semibold mb-4'>Compute Trends</h3>
               <div className='h-[220px]'>
@@ -497,6 +676,45 @@ export default function MLOpsPage() {
                 </Card>
               </div>
             </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value='grafana' className='mt-4'>
+          <div className='rounded-lg border bg-card overflow-hidden'>
+            <div className='flex items-center justify-between px-4 py-3 border-b bg-muted/20'>
+              <div className='flex items-center gap-2'>
+                <BarChart3 className='h-5 w-5 text-blue-500' />
+                <h3 className='font-semibold'>RetinaXAI MLOps Dashboard</h3>
+              </div>
+              <div className='flex items-center gap-2'>
+                <div className='hidden sm:flex items-center gap-1 flex-wrap'>
+                  {GRAFANA_PANEL_LINKS.slice(0, 6).map(panel => (
+                    <a
+                      key={panel.id}
+                      href={`${GRAFANA_VIEW_URL}&viewPanel=${panel.id}`}
+                      target='_blank'
+                      rel='noopener noreferrer'
+                    >
+                      <Button variant='ghost' size='sm' className='h-7 text-xs px-2'>
+                        {panel.title}
+                      </Button>
+                    </a>
+                  ))}
+                </div>
+                <a href={GRAFANA_KIOSK_URL.replace('/api/v1/system/grafana/proxy/', 'http://localhost:4000/')} target='_blank' rel='noopener noreferrer'>
+                  <Button variant='outline' size='sm'>
+                    Open in Grafana <ExternalLink className='ml-1.5 h-3.5 w-3.5' />
+                  </Button>
+                </a>
+              </div>
+            </div>
+            <iframe
+              src={GRAFANA_VIEW_URL}
+              className='w-full border-0'
+              style={{ height: 'calc(100vh - 320px)', minHeight: 500 }}
+              title='Grafana Dashboard'
+              sandbox='allow-scripts allow-same-origin allow-forms'
+            />
           </div>
         </TabsContent>
       </Tabs>

@@ -706,27 +706,27 @@ export interface MLOpsMetrics {
 }
 
 export async function getMLOpsStatus(jobId?: string): Promise<{ job: MLOpsJob | null; jobs: MLOpsJob[] }> {
-  return mlopsRequest(jobId ? `/api/status/${jobId}` : '/api/status');
+  return mlopsRequest(jobId ? `/status/${jobId}` : '/status');
 }
 
 export async function getMLOpsMetrics(): Promise<MLOpsMetrics> {
-  return mlopsRequest('/api/metrics');
+  return mlopsRequest('/metrics');
 }
 
 export async function getMLOpsDriftStatus(pipeline: string): Promise<MLOpsDriftStatus> {
-  return mlopsRequest(`/api/drift/status/${pipeline}`);
+  return mlopsRequest(`/drift/status/${pipeline}`);
 }
 
 export async function getMLOpsDriftHistory(pipeline?: string): Promise<{ history: Array<{ pipeline: string; psi: number; status: string; timestamp: string }> }> {
-  return mlopsRequest(`/api/drift/history${pipeline ? `?pipeline=${pipeline}` : ''}`);
+  return mlopsRequest(`/drift/history${pipeline ? `?pipeline=${pipeline}` : ''}`);
 }
 
 export async function getMLOpsFeatures(): Promise<{ features: MLOpsFeature[]; total: number }> {
-  return mlopsRequest('/api/features/list');
+  return mlopsRequest('/features/list');
 }
 
 export async function triggerMLOpsDriftRetrain(pipeline: string): Promise<{ job_id: string; message: string }> {
-  return mlopsRequest('/api/automation/drift-retrain', {
+  return mlopsRequest('/automation/drift-retrain', {
     method: 'POST',
     body: JSON.stringify({ pipeline }),
   });
@@ -1084,3 +1084,25 @@ export async function sendChatMessage(sessionId: string, content: string): Promi
     body: JSON.stringify({ content }),
   });
 }
+
+// ============ System Metrics Range API ============
+
+export type PrometheusRangeResult = Array<{
+  metric: Record<string, string>;
+  values: Array<[number, string]>;
+}>;
+
+export async function getSystemMetricsRange(
+  query: string,
+  range = '6h',
+  step = '5m'
+): Promise<PrometheusRangeResult> {
+  return request<PrometheusRangeResult>(
+    `/api/v1/system/prometheus/range?query=${encodeURIComponent(query)}&start=${range}&step=${step}`
+  );
+}
+
+// ============ Grafana Proxy ============
+
+export const GRAFANA_PROXY_BASE = '/api/v1/system/grafana/proxy';
+export const GRAFANA_KIOSK_URL = `${GRAFANA_PROXY_BASE}/d/retinaxai-mlops-dashboard/retinaxai-mlops-dashboard?orgId=1&kiosk=tv`;

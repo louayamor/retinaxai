@@ -17,19 +17,12 @@ import {
 import { loginUser } from '@/lib/api';
 import { useAuth } from '@/providers/auth-context';
 import type { UserRole } from '@/lib/auth';
-
 const loginSchema = z.object({
-  email: z.string().email('Enter a valid email'),
-  password: z.string().min(1, 'Password is required')
+  email: z.string().email(),
+  password: z.string().min(1, 'Password is required'),
 });
 
 type LoginValues = z.infer<typeof loginSchema>;
-
-const ROLE_REDIRECT: Record<UserRole, string> = {
-  doctor: '/dashboard/clinical',
-  engineer: '/dashboard/engineering',
-  admin: '/dashboard/admin',
-};
 
 export default function UserAuthForm() {
   const { setUser } = useAuth();
@@ -58,9 +51,8 @@ export default function UserAuthForm() {
           email: data.email,
           role: data.role as UserRole,
         });
-        window.location.href = ROLE_REDIRECT[data.role as UserRole] || '/dashboard/clinical';
       } else {
-        window.location.href = '/dashboard/clinical';
+        setServerError('Failed to load user profile.');
       }
     } catch (err: unknown) {
       const e = err as { message?: string; status?: number };

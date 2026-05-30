@@ -112,7 +112,7 @@ export default function EngineeringDashboard() {
     setRag(ragData);
 
     try {
-      const res = await fetch(`${MLOPS_BASE}/api/metrics/alerts`);
+      const res = await fetch(`${MLOPS_BASE}/metrics/alerts`);
       if (res.ok) {
         const data = await res.json();
         setAlerts(data.alerts ?? []);
