@@ -23,7 +23,7 @@ FROM base AS builder
 
 COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
-COPY . .
+COPY ./mlops-service/ .
 
 RUN addgroup --system appgroup && \
     adduser --system --ingroup appgroup appuser && \
@@ -32,10 +32,9 @@ RUN addgroup --system appgroup && \
 USER appuser
 
 EXPOSE 8004
-EXPOSE 9090
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8004/health || exit 1
 
-ENTRYPOINT ["python", "mlops-service/main.py"]
+ENTRYPOINT ["python", "main.py"]
 CMD ["serve"]

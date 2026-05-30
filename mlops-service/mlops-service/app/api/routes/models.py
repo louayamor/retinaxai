@@ -15,6 +15,7 @@ from app.api.schemas import (
     ModelRegisterResponse,
     ModelRollbackRequest,
     ModelStage,
+    ModelVersion,
     CurrentProductionResponse,
 )
 from app.config.settings import Settings
@@ -228,16 +229,41 @@ async def list_models(
         if pipeline:
             _validate_pipeline(pipeline)
 
-        models = service.list_versions(pipeline=pipeline, stage=stage)
+        versions = service.list_versions(pipeline=pipeline, stage=stage)
+
+        production_cache: dict[str, ModelVersion | None] = {}
+        models: list[ModelDetailResponse] = []
+        for v in versions:
+            pipeline_name = v.pipeline or ""
+            if pipeline_name not in production_cache:
+                production_cache[pipeline_name] = (
+                    service.get_current_production(pipeline_name)
+                    if pipeline_name
+                    else None
+                )
+            current_prod = production_cache[pipeline_name]
+            promotion_history = service.get_promotion_history(v.version)
+
+            models.append(
+                ModelDetailResponse(
+                    model=v,
+                    is_current_production=(
+                        current_prod is not None and current_prod.version == v.version
+                    ),
+                    can_promote=(v.stage == ModelStage.STAGING),
+                    can_rollback=(v.stage == ModelStage.PRODUCTION),
+                    promotion_history=promotion_history,
+                )
+            )
 
         return ModelListResponse(
             models=models,
             total=len(models),
-            staging_count=len([m for m in models if m.stage == ModelStage.STAGING]),
+            staging_count=len([m for m in versions if m.stage == ModelStage.STAGING]),
             production_count=len(
-                [m for m in models if m.stage == ModelStage.PRODUCTION]
+                [m for m in versions if m.stage == ModelStage.PRODUCTION]
             ),
-            archived_count=len([m for m in models if m.stage == ModelStage.ARCHIVED]),
+            archived_count=len([m for m in versions if m.stage == ModelStage.ARCHIVED]),
         )
 
     except Exception as e:

@@ -30,7 +30,8 @@ research/
 *.ipynb
 *.ipynb_checkpoints
 
-# ML/DVC artifacts (download at runtime)
+# ML/DVC artifacts and data (download at runtime)
+data/
 artifacts/
 .dvc
 dvc.lock

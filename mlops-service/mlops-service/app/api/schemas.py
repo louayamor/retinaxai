@@ -66,7 +66,7 @@ class ModelListResponse(BaseModel):
 
 class CurrentProductionResponse(BaseModel):
     imaging: Optional[ModelVersion]
-    promoted_at: Optional[str]
+    promoted_at: Optional[datetime]
 
 
 class LesionCluster(BaseModel):
