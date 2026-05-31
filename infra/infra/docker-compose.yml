@@ -3,15 +3,15 @@ services:
     image: postgres:16-alpine
     container_name: retinaxai-postgres
     environment:
-      POSTGRES_USER: louay
-      POSTGRES_PASSWORD: louay
-      POSTGRES_DB: retinaxai_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U louay"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -35,13 +35,13 @@ services:
       dockerfile: Dockerfile
     container_name: retinaxai-backend
     environment:
-      APP_ENV: production
-      DATABASE_URL: postgresql+asyncpg://louay:louay@postgres:5432/retinaxai_db
-      SECRET_KEY: change-me-in-production
+      APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      SECRET_KEY: ${SECRET_KEY}
       ML_SERVICE_URL: http://mlops-service:8004
       LLM_SERVICE_URL: http://llmops-service:8002
-      ML_SERVICE_API_KEY: ml-api-key
-      LLM_SERVICE_API_KEY: llm-api-key
+      ML_SERVICE_API_KEY: ${ML_SERVICE_API_KEY}
+      LLM_SERVICE_API_KEY: ${LLM_SERVICE_API_KEY}
       CORS_ORIGINS: '["http://localhost:3000"]'
       REDIS_URL: redis://redis:6379
     ports:
@@ -71,6 +71,7 @@ services:
     volumes:
       - mlops_data:/app/data
       - mlops_artifacts:/app/artifacts
+      - huggingface_cache:/root/.cache/huggingface
     depends_on:
       - backend-service
       - redis
@@ -93,6 +94,7 @@ services:
       - "8002:8002"
     volumes:
       - llmops_data:/app/data
+      - huggingface_cache:/root/.cache/huggingface
     depends_on:
       - backend-service
       - redis
@@ -124,6 +126,7 @@ volumes:
   mlops_data:
   mlops_artifacts:
   llmops_data:
+  huggingface_cache:
 
 networks:
   retinaxai-network:
