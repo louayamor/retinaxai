@@ -1,0 +1,49 @@
+name: Deploy MLOps Service
+
+on:
+  push:
+    branches: [prod]
+    paths:
+      - 'mlops-service/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/935440412003/locations/global/workloadIdentityPools/github-pool-v2/providers/github-provider
+          service_account: retinaxai-runner@project-b1ee996a-986e-4b50-bea.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push to Artifact Registry
+        run: |
+          gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+          docker build -f mlops-service/Dockerfile \
+            -t us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/mlops-service:${{ github.sha }} .
+          docker push us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/mlops-service:${{ github.sha }}
+
+      - uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: mlops-service
+          image: us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/mlops-service:${{ github.sha }}
+          region: us-central1
+          service-account: retinaxai-runner@project-b1ee996a-986e-4b50-bea.iam.gserviceaccount.com
+          no-allow-unauthenticated: true
+          cpu: 2
+          memory: 4Gi
+          min-instances: 0
+          max-instances: 3
+          env-vars: |
+            gcs_model_bucket=retinaxai-models
+            mlflow_tracking_uri=${{ secrets.MLFLOW_TRACKING_URI }}
+            dagshub_token=${{ secrets.DAGSHUB_TOKEN }}
