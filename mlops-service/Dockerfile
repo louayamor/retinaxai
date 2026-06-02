@@ -15,7 +15,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 FROM base AS deps
 
-COPY requirements.txt .
+COPY mlops-service/requirements.txt .
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -24,7 +24,7 @@ FROM base AS builder
 
 COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
-COPY ./mlops-service/ .
+COPY mlops-service/mlops-service/ .
 
 EXPOSE 8080
 
