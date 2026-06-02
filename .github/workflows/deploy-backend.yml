@@ -5,10 +5,55 @@ on:
     branches: [prod]
     paths:
       - 'backend-service/**'
+    paths-ignore:
+      - 'backend-service/ruff.toml'
+      - 'backend-service/backend-service/tests/**'
   workflow_dispatch:
 
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Clean install in .venv
+        working-directory: backend-service
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --no-cache-dir -r requirements.txt
+          pip install --no-cache-dir ruff pytest
+
+      - name: Ruff check
+        working-directory: backend-service
+        run: |
+          source .venv/bin/activate
+          ruff check backend-service/
+
+      - name: Import smoke test
+        working-directory: backend-service/backend-service
+        run: |
+          source ../.venv/bin/activate
+          python -c "
+from pathlib import Path
+from app.core.config import settings
+settings.upload_dir.mkdir(parents=True, exist_ok=True)
+from app.main import app
+assert app.title
+"
+
+      - name: Run tests
+        working-directory: backend-service/backend-service
+        run: |
+          source ../.venv/bin/activate
+          pytest tests/ -v --tb=short -x
+
   deploy:
+    needs: quality
     runs-on: ubuntu-latest
     permissions:
       contents: read
