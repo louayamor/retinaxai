@@ -37,7 +37,7 @@ class RetinalDataset(Dataset):
         row = self.df.iloc[idx]
         try:
             img = Image.open(row["image_path"]).convert("RGB")
-        except (FileNotFoundError, OSError, IOError) as e:
+        except (FileNotFoundError, OSError) as e:
             raise RuntimeError(f"Failed to load image {row['image_path']}: {e}") from e
         if self.transform:
             img = self.transform(img)

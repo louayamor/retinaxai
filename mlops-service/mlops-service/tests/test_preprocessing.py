@@ -142,8 +142,6 @@ class TestWithRealSampleImages:
             pytest.skip("No sample fundus images found")
 
         img = Image.open(sample_fundus_path).convert("RGB")
-        original_np = np.array(img)
-
         result = preprocess_fundus_image(img, image_size=300)
 
         assert result.size == (300, 300)

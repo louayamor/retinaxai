@@ -167,6 +167,5 @@ class TestFDAAugment:
         x = torch.zeros(1, 3, 224, 224)
         x[:, :, 50:60, 50:60] = 1.0
         y = augment(x)
-        edge_x = x[:, :, :, 1:] - x[:, :, :, :-1]
         edge_y = y[:, :, :, 1:] - y[:, :, :, :-1]
         assert torch.any(edge_y.abs() > 0.001)

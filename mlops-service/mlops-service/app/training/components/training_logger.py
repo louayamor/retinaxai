@@ -298,11 +298,11 @@ class TrainingLogger:
             self._trainer.params.get("mlflow", {}).get("model_log_timeout_seconds", 600)
         )
 
-        class _LogTimeout(Exception):
+        class LogTimeoutError(Exception):
             pass
 
         def _timeout_handler(signum, frame):
-            raise _LogTimeout("model logging timed out")
+            raise LogTimeoutError("model logging timed out")
 
         old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
         signal.alarm(timeout_seconds)
@@ -326,7 +326,7 @@ class TrainingLogger:
                 registered_model_name="efficientnet_b3",
             )
             logger.info("model logged to mlflow model registry")
-        except _LogTimeout:
+        except LogTimeoutError:
             logger.warning(f"mlflow model logging timed out after {timeout_seconds}s")
         except (MlflowException, OSError, RuntimeError) as e:
             logger.warning(f"failed to log model to mlflow registry: {e}")

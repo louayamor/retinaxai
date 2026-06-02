@@ -101,7 +101,6 @@ class MLOpsMonitorPublisher:
 
 
 def build_monitor_snapshot() -> dict[str, Any]:
-    settings = get_settings()
     metrics = get_metrics()
     metrics_data: dict[str, Any] = metrics.model_dump()
     return {

@@ -32,7 +32,7 @@ class TestTENTAdapter:
         adapter._save_bn_state()
         adapter._configure_for_tent()
 
-        for name, param in model.named_parameters():
+        for name, _param in model.named_parameters():
             is_bn = any(
                 name.endswith(suffix) for suffix in (".weight", ".bias")
             ) and any(
