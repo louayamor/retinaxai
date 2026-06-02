@@ -47,8 +47,16 @@ class MLOpsMonitorPublisher:
         handler = _MetricsUpdateHandler(self)
         observer = Observer()
         for path in watch_paths:
+            parent = path.parent
+            if not parent.exists():
+                logger.warning("mlops_monitor_skip_missing_dir", path=str(parent))
+                continue
             self._watched_files.add(path.resolve())
-            observer.schedule(handler, str(path.parent), recursive=False)
+            observer.schedule(handler, str(parent), recursive=False)
+        if not self._watched_files:
+            logger.info("mlops_monitor_no_paths_to_watch")
+            self._observer = None
+            return
         observer.start()
         self._observer = observer
         logger.info(
