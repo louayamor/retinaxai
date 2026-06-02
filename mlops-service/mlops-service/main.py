@@ -152,5 +152,6 @@ def main():
     elif args.command == "serve":
         serve()
 
+
 if __name__ == "__main__":
     main()
