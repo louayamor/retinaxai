@@ -1,0 +1,96 @@
+name: Deploy LLMOps Service
+
+on:
+  push:
+    branches: [prod]
+    paths:
+      - 'llmops-service/**'
+  workflow_dispatch:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Clean install in .venv
+        working-directory: llmops-service
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --no-cache-dir -r requirements.txt
+          pip install --no-cache-dir ruff pytest
+
+      - name: Ruff check
+        working-directory: llmops-service
+        run: |
+          source .venv/bin/activate
+          ruff check llmops-service/
+
+      - name: Import smoke test
+        working-directory: llmops-service/llmops-service
+        run: |
+          source ../.venv/bin/activate
+          python -c "from app.main import app; assert app.title"
+
+      - name: Run tests
+        working-directory: llmops-service/llmops-service
+        run: |
+          source ../.venv/bin/activate
+          pytest tests/ -v --tb=short -x
+
+  deploy:
+    needs: quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/935440412003/locations/global/workloadIdentityPools/github-pool-v2/providers/github-provider
+          service_account: retinaxai-runner@project-b1ee996a-986e-4b50-bea.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push to Artifact Registry
+        run: |
+          gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+          docker build -f llmops-service/Dockerfile \
+            -t us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/llmops-service:${{ github.sha }} .
+          docker push us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/llmops-service:${{ github.sha }}
+
+      - uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: llmops-service
+          image: us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/llmops-service:${{ github.sha }}
+          region: us-central1
+          service-account: retinaxai-runner@project-b1ee996a-986e-4b50-bea.iam.gserviceaccount.com
+          vpc-connector: projects/${{ vars.GCP_PROJECT_ID }}/locations/us-central1/connectors/retinaxai-vpc
+          no-allow-unauthenticated: true
+          cpu: 2
+          memory: 4Gi
+          min-instances: 0
+          max-instances: 3
+          env-vars: |
+            CHROMA_HOST=10.128.0.2
+            CHROMA_PORT=8000
+            RAG_EMBEDDINGS_OFFLINE=true
+            CORS_ORIGINS=["https://retinaxai.me","https://api.retinaxai.me"]
+            MLOPS_SERVICE_URL=${{ secrets.ML_SERVICE_URL }}
+            BACKEND_SERVICE_URL=${{ secrets.BACKEND_SERVICE_URL }}
+            LLMOPS_API_KEY=${{ secrets.LLMOPS_API_KEY }}
+            BACKEND_API_KEY=${{ secrets.BACKEND_API_KEY }}
+            GITHUB_ACCESS_TOKEN=${{ secrets.GITHUB_ACCESS_TOKEN }}
+            NVIDIA_API_KEY=${{ secrets.NVIDIA_API_KEY }}
+            MLFLOW_TRACKING_URI=${{ secrets.MLFLOW_TRACKING_URI }}
+            MLFLOW_TRACKING_USERNAME=${{ secrets.MLFLOW_TRACKING_USERNAME }}
+            MLFLOW_TRACKING_PASSWORD=${{ secrets.MLFLOW_TRACKING_PASSWORD }}
