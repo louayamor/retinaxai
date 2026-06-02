@@ -383,7 +383,7 @@ class InferenceService:
     def _validate_fundus(self, image_bytes: bytes, eye_side: str) -> float:
         if self._fundus_classifier is None:
             fc_cfg = self.params.get("fundus_classifier", {}) or {}
-            fc_path = self.settings.artifacts_root / "fundus_classifier.pth"
+            fc_path = self._resolve_model_path("fundus", "fundus_classifier.pth")
             if not fc_path.exists():
                 logger.warning(f"[FUNDUS] classifier model not found: {fc_path} — skipping validation")
                 return 1.0
