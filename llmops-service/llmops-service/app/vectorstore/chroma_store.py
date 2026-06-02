@@ -38,6 +38,11 @@ def _build_hf_embeddings(
     return HuggingFaceEmbeddings(model_name=model_name, model_kwargs=model_kwargs)
 
 
+def _get_remote_client_kwargs(chroma_host: str, chroma_port: int) -> dict[str, Any]:
+    import chromadb
+    return {"client": chromadb.HttpClient(host=chroma_host, port=chroma_port)}
+
+
 class ChromaStore:
     def __init__(
         self,
@@ -45,13 +50,30 @@ class ChromaStore:
         collection_name: str | None = None,
         embedding_model: str | None = None,
         embedding_function: Any | None = None,
+        chroma_host: str | None = None,
+        chroma_port: int = 8000,
     ) -> None:
-        if persist_directory:
+        from app.core.config import Settings
+
+        config: Settings | None = None
+
+        if chroma_host is not None:
+            self.chroma_host = chroma_host
+        else:
+            config = Settings()
+            self.chroma_host = config.chroma_host
+
+        self.chroma_port = chroma_port
+        self._is_remote = self.chroma_host is not None
+
+        if self._is_remote:
+            self.persist_directory = Path("/tmp/retinaxai-chroma-state")
+        elif persist_directory:
             self.persist_directory = Path(persist_directory)
         else:
-            from app.core.config import settings
-
-            self.persist_directory = settings.rag_chroma_persist_directory
+            if config is None:
+                config = Settings()
+            self.persist_directory = config.rag_chroma_persist_directory
 
         self.collection_name = collection_name or "retinaxai_rag"
         self.embedding_model = (
@@ -61,40 +83,42 @@ class ChromaStore:
         if embedding_function is not None:
             self.embedding_function = embedding_function
         else:
-            from app.core.config import settings
+            if config is None:
+                config = Settings()
 
             self.embedding_function = _build_hf_embeddings(
                 self.embedding_model,
-                offline=bool(settings.rag_embeddings_offline),
-                hf_home=settings.rag_hf_home,
+                offline=bool(config.rag_embeddings_offline),
+                hf_home=config.rag_hf_home,
             )
         self._client: Chroma | None = None
         self._client_lock = threading.Lock()
 
+    def _client_kwargs(self) -> dict[str, Any]:
+        if self._is_remote:
+            return _get_remote_client_kwargs(self.chroma_host, self.chroma_port)
+        return {"persist_directory": str(self.persist_directory)}
+
     def _get_client(self) -> Chroma:
-        """Lazy-initialize and cache the Chroma client in a thread-safe manner."""
         if self._client is not None:
             return self._client
 
         with self._client_lock:
-            # Double-checked locking
             if self._client is not None:
                 return self._client
 
             self._client = Chroma(
                 collection_name=self.collection_name,
                 embedding_function=self.embedding_function,
-                persist_directory=str(self.persist_directory),
+                **self._client_kwargs(),
             )
             return self._client
 
     def _clear_client(self) -> None:
-        """Clear cached client (used during rebuild when directory changes)."""
         with self._client_lock:
             self._client = None
 
     def close(self) -> None:
-        """Explicit cleanup for Chroma client."""
         with self._client_lock:
             self._client = None
         if self.embedding_function is not None:
@@ -106,25 +130,34 @@ class ChromaStore:
 
     @property
     def lock_path(self) -> Path:
+        if self._is_remote:
+            raise NotImplementedError("file locks not supported in remote mode")
         return self.persist_directory / "index.lock"
 
     @property
     def staging_directory(self) -> Path:
+        if self._is_remote:
+            raise NotImplementedError("staging directories not supported in remote mode")
         return self.persist_directory.with_name(
             f"{self.persist_directory.name}.staging"
         )
 
     @property
     def backup_directory(self) -> Path:
+        if self._is_remote:
+            raise NotImplementedError("backup directories not supported in remote mode")
         return self.persist_directory.with_name(
             f"{self.persist_directory.name}.previous"
         )
 
     def ensure_ready(self) -> None:
-        self.persist_directory.mkdir(parents=True, exist_ok=True)
+        if not self._is_remote:
+            self.persist_directory.mkdir(parents=True, exist_ok=True)
 
     @contextmanager
     def acquire_rebuild_lock(self):
+        if self._is_remote:
+            raise NotImplementedError("file locks not supported in remote mode")
         self.ensure_ready()
         with self.lock_path.open("a+", encoding="utf-8") as lock_file:
             try:
@@ -142,6 +175,12 @@ class ChromaStore:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     def collection_spec(self) -> dict[str, str]:
+        if self._is_remote:
+            return {
+                "host": self.chroma_host,
+                "port": str(self.chroma_port),
+                "collection_name": self.collection_name,
+            }
         return {
             "persist_directory": str(self.persist_directory),
             "collection_name": self.collection_name,
@@ -154,6 +193,8 @@ class ChromaStore:
             path.unlink()
 
     def _swap_directories(self, staging_directory: Path) -> None:
+        if self._is_remote:
+            raise NotImplementedError("directory swap not supported in remote mode")
         import os as _os
 
         active_directory = self.persist_directory
@@ -182,7 +223,7 @@ class ChromaStore:
         return Chroma(
             collection_name=self.collection_name,
             embedding_function=self.embedding_function,
-            persist_directory=str(persist_directory),
+            **self._client_kwargs(),
         )
 
     def upsert_documents(
@@ -195,7 +236,6 @@ class ChromaStore:
         for i in range(0, len(documents), batch_size):
             batch = documents[i : i + batch_size]
             vectorstore.add_documents(batch)
-        # After writing directly, clear cache so next read sees updates
         self._clear_client()
 
     def query(
@@ -248,6 +288,10 @@ class ChromaStore:
     def rebuild_collection_atomically(
         self, documents: list[Document], state: dict[str, Any]
     ) -> None:
+        if self._is_remote:
+            raise NotImplementedError(
+                "atomic rebuild not supported in remote mode; upsert directly"
+            )
         self.ensure_ready()
 
         with self.acquire_rebuild_lock():
@@ -274,7 +318,6 @@ class ChromaStore:
                 raise
 
             self._swap_directories(staging_directory)
-            # Directory changed; clear cached client
             self._clear_client()
 
     def write_state(self, state: dict[str, Any]) -> None:
@@ -287,5 +330,4 @@ class ChromaStore:
     def read_state(self) -> dict[str, Any] | None:
         if not self.state_path.is_file():
             return None
-
         return json.loads(self.state_path.read_text(encoding="utf-8"))

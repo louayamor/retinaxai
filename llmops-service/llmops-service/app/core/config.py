@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     app_env: str = "production"
     app_host: str = "0.0.0.0"
-    app_port: int = 8002
+    app_port: int = Field(default=8080, validation_alias="PORT")
 
     cors_origins: list[str] = ["http://localhost:3000"]
 
@@ -94,6 +94,12 @@ class Settings(BaseSettings):
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
 
     prometheus_metrics_port: int = 9092
+
+    # ChromaDB remote HTTP client (production) — when set, overrides local persist_directory.
+    chroma_host: Optional[str] = Field(
+        default=None, validation_alias="CHROMA_HOST"
+    )
+    chroma_port: int = Field(default=8000, validation_alias="CHROMA_PORT")
 
     # RAG embeddings: support offline / local-only environments.
     rag_embeddings_offline: bool = Field(

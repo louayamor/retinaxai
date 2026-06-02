@@ -47,6 +47,8 @@ class Settings(BaseSettings):
 
     BACKEND_SERVICE_URL: str = "http://localhost:8000"
 
+    GCS_BUCKET_UPLOADS: str = ""
+
     REDIS_URL: str = "redis://localhost:6379"
     WS_URL: str = "ws://localhost:8000/ws"
 

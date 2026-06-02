@@ -29,6 +29,7 @@ from app.monitoring.prometheus_metrics import (
     GPU_MEMORY_USED_BYTES,
     GPU_UTILIZATION_PERCENT,
 )
+from app.model.loader import GCSModelLoader
 from app.registry.model_registry import ModelRegistryService
 from app.registry.model_registry import (
     ModelNotFoundError as ModelRegistryNotFoundError,
@@ -84,6 +85,12 @@ class InferenceService:
             self.settings.artifacts_root / "model_registry"
         )
 
+        # GCS model loader for production — downloads models from GCS on startup
+        self._gcs_loader = GCSModelLoader(
+            self.settings.gcs_model_bucket, self.settings.gcs_model_prefix
+        )
+        self._model_cache = Path("/tmp/model_cache")
+
         global_cfg = self.params.get("global", {}) or {}
         training_cfg = self.params.get("training", {}) or {}
 
@@ -129,20 +136,36 @@ class InferenceService:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+    def _resolve_model_path(self, pipeline: str, filename: str) -> Path:
+        if self._gcs_loader._enabled:
+            cached = self._gcs_loader.download_to_cache(
+                self._model_cache, pipeline, filename
+            )
+            if cached is not None:
+                return cached
+        if pipeline == "imaging":
+            return self.settings.imaging_model_path
+        if pipeline == "lesion":
+            return self.settings.lesion_model_path
+        return self.settings.artifacts_root / "model" / pipeline / filename
+
     def _load_imaging_model(self) -> nn.Module:
         if self._imaging_model is not None:
             return self._imaging_model
+
+        model_path = self._resolve_model_path("imaging", "model.pth")
+
         logger.info(
-            f"[IMAGING MODEL] path={self.settings.imaging_model_path} exists={self.settings.imaging_model_path.exists()}"
+            f"[IMAGING MODEL] path={model_path} exists={model_path.exists()}"
         )
-        if not self.settings.imaging_model_path.exists():
+        if not model_path.exists():
             raise FileNotFoundError(
-                f"imaging model not found: {self.settings.imaging_model_path}"
+                f"imaging model not found: {model_path}"
             )
 
-        if self.settings.imaging_model_path.stat().st_size == 0:
+        if model_path.stat().st_size == 0:
             raise ValueError(
-                f"imaging model file is empty: {self.settings.imaging_model_path}"
+                f"imaging model file is empty: {model_path}"
             )
 
         model_name = self.params.get("mlflow", {}).get(
@@ -158,7 +181,6 @@ class InferenceService:
             drop_rate=self._training_dropout,
         )
         try:
-            model_path = self._get_current_production_model_path("imaging")
             logger.info(f"[IMAGING MODEL] loading state dict from {model_path}")
             model.load_state_dict(torch.load(model_path, map_location=self.device))
         except Exception as e:

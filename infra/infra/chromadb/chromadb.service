@@ -1,0 +1,21 @@
+[Unit]
+Description=ChromaDB vector store server for RetinaXAI
+After=network.target
+
+[Service]
+Type=simple
+User=chroma
+Group=chroma
+ExecStart=/opt/chroma/venv/bin/chroma run \
+    --path /data/chroma \
+    --host 0.0.0.0 \
+    --port 8000
+Restart=on-failure
+RestartSec=5
+ProtectSystem=full
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateDevices=yes
+
+[Install]
+WantedBy=multi-user.target

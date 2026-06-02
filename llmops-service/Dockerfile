@@ -23,15 +23,6 @@ COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.
 COPY --from=deps /usr/local/bin /usr/local/bin
 COPY ./llmops-service/ .
 
-RUN addgroup --system appgroup && \
-    adduser --system --ingroup appgroup appuser && \
-    chown -R appuser:appgroup /app
-
-USER appuser
-
-EXPOSE 8002
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8002/health || exit 1
+EXPOSE 8080
 
 CMD ["python", "main.py", "serve"]

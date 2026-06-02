@@ -13,12 +13,15 @@ from app.pipeline.indexing_pipeline import IndexingPipeline
 
 def serve() -> None:
     """Start the LLMOps API server."""
+    from app.core.config import Settings
+
+    settings = Settings()
     logger.info("Starting LLMOps API server...")
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=8002,
-        reload=True,
+        port=settings.app_port,
+        reload=False,
     )
 
 
