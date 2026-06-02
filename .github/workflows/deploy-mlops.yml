@@ -81,13 +81,14 @@ jobs:
           service: mlops-service
           image: us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/mlops-service:${{ github.sha }}
           region: us-central1
-          service-account: retinaxai-runner@project-b1ee996a-986e-4b50-bea.iam.gserviceaccount.com
-          no-allow-unauthenticated: true
-          cpu: 2
-          memory: 4Gi
-          min-instances: 0
-          max-instances: 3
-          env-vars: |
+          flags: >-
+            --service-account=retinaxai-runner@project-b1ee996a-986e-4b50-bea.iam.gserviceaccount.com
+            --no-allow-unauthenticated
+            --cpu=2
+            --memory=4Gi
+            --min-instances=0
+            --max-instances=3
+          env_vars: |
             gcs_model_bucket=retinaxai-models
             mlflow_tracking_uri=${{ secrets.MLFLOW_TRACKING_URI }}
             dagshub_token=${{ secrets.DAGSHUB_TOKEN }}
