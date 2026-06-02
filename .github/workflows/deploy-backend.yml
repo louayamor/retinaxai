@@ -1,0 +1,55 @@
+name: Deploy Backend Service
+
+on:
+  push:
+    branches: [prod]
+    paths:
+      - 'backend-service/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/935440412003/locations/global/workloadIdentityPools/github-pool-v2/providers/github-provider
+          service_account: retinaxai-runner@project-b1ee996a-986e-4b50-bea.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push to Artifact Registry
+        run: |
+          gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+          docker build -f backend-service/Dockerfile \
+            -t us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/backend-service:${{ github.sha }} .
+          docker push us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/backend-service:${{ github.sha }}
+
+      - uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: backend-service
+          image: us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/backend-service:${{ github.sha }}
+          region: us-central1
+          service-account: retinaxai-runner@project-b1ee996a-986e-4b50-bea.iam.gserviceaccount.com
+          vpc-connector: projects/${{ vars.GCP_PROJECT_ID }}/locations/us-central1/connectors/retinaxai-vpc
+          no-allow-unauthenticated: true
+          cpu: 2
+          memory: 4Gi
+          min-instances: 0
+          max-instances: 3
+          env-vars: |
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            SECRET_KEY=${{ secrets.SECRET_KEY }}
+            ML_SERVICE_URL=${{ secrets.ML_SERVICE_URL }}
+            LLM_SERVICE_URL=${{ secrets.LLM_SERVICE_URL }}
+            ML_SERVICE_API_KEY=${{ secrets.ML_SERVICE_API_KEY }}
+            LLM_SERVICE_API_KEY=${{ secrets.LLM_SERVICE_API_KEY }}
+            CORS_ORIGINS=["https://retinaxai.me","https://api.retinaxai.me"]
+            GCS_BUCKET_UPLOADS=retinaxai-uploads
