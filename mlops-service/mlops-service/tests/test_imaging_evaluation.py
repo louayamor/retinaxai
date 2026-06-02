@@ -64,6 +64,10 @@ def evaluator(mock_config: ImagingModelEvaluationConfig, mock_params: dict):
             "app.training.evaluation.imaging_evaluation.Path.exists",
             return_value=True,
         ),
+        patch(
+            "app.training.evaluation.imaging_evaluation.require_cuda",
+            return_value=torch.device("cpu"),
+        ),
     ):
         params_mock = MagicMock()
 
