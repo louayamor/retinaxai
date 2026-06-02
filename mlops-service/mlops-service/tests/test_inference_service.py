@@ -15,6 +15,8 @@ from app.api.routes import predict as predict_route
 
 
 class DummyImage:
+    size = (224, 224)
+
     def convert(self, *_args, **_kwargs):
         return self
 
@@ -70,8 +72,12 @@ def test_predict_imaging_retries_on_cuda_oom(monkeypatch):
     service._clinical_encoders = None
     service._clinical_numeric_medians = None
 
+    service._global_image_size = 384
+    service._confidence_threshold = 0.0
+
     monkeypatch.setattr(service, "_load_imaging_model", lambda: model)
     monkeypatch.setattr(service, "_build_transform", lambda: lambda _img: DummyTensor())
+    monkeypatch.setattr(service, "_validate_fundus", lambda *args: 1.0)
     monkeypatch.setattr(module.Image, "open", lambda *_args, **_kwargs: DummyImage())
     monkeypatch.setattr(module.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(module.torch.cuda, "empty_cache", lambda: None)
@@ -84,7 +90,15 @@ def test_predict_imaging_retries_on_cuda_oom(monkeypatch):
         ),
     )
 
-    result = module.InferenceService.predict_imaging(service, b"fake-image-bytes")
+    monkeypatch.setattr(service, "get_embedding", lambda *args: [0.1] * 1536)
+    monkeypatch.setattr(
+        module, "GradCAMService", lambda *args: SimpleNamespace(
+            set_lesion_clusters=lambda *a: None,
+            generate_with_regions_numeric=lambda *a: ("", [], []),
+        )
+    )
+
+    result = module.InferenceService.predict_imaging_with_gradcam(service, b"fake-image-bytes", "left")
 
     assert result["predicted_grade"] == 4
     assert result["predicted_label"] == "Proliferative DR"
@@ -121,7 +135,9 @@ def test_predict_route_emits_failure_event(monkeypatch):
     emitted = {}
 
     class DummyService:
-        def predict_imaging_with_gradcam(self, _image_bytes):
+        params = {"lesion_model": {"enabled": False}}
+
+        def predict_imaging_with_gradcam(self, _image_bytes, _eye_side):
             raise RuntimeError("boom")
 
     async def fake_log(*_args, **_kwargs):
@@ -160,7 +176,9 @@ def test_predict_route_emits_failure_event(monkeypatch):
 
 def test_predict_route_includes_embedding(monkeypatch):
     class DummyService:
-        def predict_imaging_with_gradcam(self, image_bytes):
+        params = {"lesion_model": {"enabled": False}}
+
+        def predict_imaging_with_gradcam(self, image_bytes, _eye_side):
             return {
                 "predicted_grade": 2,
                 "predicted_label": "Moderate",

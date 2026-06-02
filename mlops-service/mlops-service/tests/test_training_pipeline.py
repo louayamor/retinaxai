@@ -28,9 +28,13 @@ def test_training_pipeline_runs_imaging_stages(monkeypatch):
         "app.training.orchestration.training_pipeline.imaging_train",
         make_stage("imaging_train"),
     )
+    def _evaluate():
+        calls.append("imaging_evaluate")
+        return {"eyepacs_test": {}, "timestamp": "", "num_samples": 0}
+
     monkeypatch.setattr(
         "app.training.orchestration.training_pipeline.imaging_evaluate",
-        make_stage("imaging_evaluate"),
+        _evaluate,
     )
 
     TrainingPipeline().run()
@@ -69,9 +73,13 @@ def test_training_pipeline_run_imaging_only(monkeypatch):
         "app.training.orchestration.training_pipeline.imaging_train",
         _stage("imaging_train"),
     )
+    def _evaluate():
+        calls.append("imaging_evaluate")
+        return {"eyepacs_test": {}, "timestamp": "", "num_samples": 0}
+
     monkeypatch.setattr(
         "app.training.orchestration.training_pipeline.imaging_evaluate",
-        _stage("imaging_evaluate"),
+        _evaluate,
     )
 
     pipeline = TrainingPipeline()
