@@ -55,7 +55,7 @@ assert app.title
         working-directory: backend-service/backend-service
         run: |
           source ../.venv/bin/activate
-          pytest tests/ -v --tb=short -x
+          pytest tests/ -v --tb=short
 
   deploy:
     needs: quality

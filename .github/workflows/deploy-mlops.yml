@@ -49,7 +49,7 @@ jobs:
         working-directory: mlops-service/mlops-service
         run: |
           source ../.venv/bin/activate
-          pytest tests/ -v --tb=short -x
+          pytest tests/ -v --tb=short
 
   deploy:
     needs: quality
