@@ -147,5 +147,9 @@ infra/template.py
 
 Thesis-LouayAmor/*
 
+# CI workflow files (deployed separately)
+.github/workflows/deploy-backend.yml
+.github/workflows/deploy-llmops.yml
+
 backend-service/backend-service/docs/
 

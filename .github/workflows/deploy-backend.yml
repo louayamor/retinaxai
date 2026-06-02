@@ -44,12 +44,12 @@ jobs:
         run: |
           source ../.venv/bin/activate
           python -c "
-from pathlib import Path
-from app.core.config import settings
-settings.upload_dir.mkdir(parents=True, exist_ok=True)
-from app.main import app
-assert app.title
-"
+          from pathlib import Path
+          from app.core.config import settings
+          settings.upload_dir.mkdir(parents=True, exist_ok=True)
+          from app.main import app
+          assert app.title
+          "
 
       - name: Run tests
         working-directory: backend-service/backend-service
