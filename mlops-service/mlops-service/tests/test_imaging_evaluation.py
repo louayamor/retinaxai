@@ -65,7 +65,7 @@ def evaluator(mock_config: ImagingModelEvaluationConfig, mock_params: dict):
             return_value=True,
         ),
         patch(
-            "app.training.evaluation.imaging_evaluation.require_cuda",
+            "app.utils.common.require_cuda",
             return_value=torch.device("cpu"),
         ),
     ):
