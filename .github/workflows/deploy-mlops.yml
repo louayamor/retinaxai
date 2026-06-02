@@ -69,12 +69,18 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Build and push to Artifact Registry
-        run: |
-          gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
-          docker build -f mlops-service/Dockerfile \
-            -t us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/mlops-service:${{ github.sha }} .
-          docker push us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/mlops-service:${{ github.sha }}
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Build and push with layer cache
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: mlops-service/Dockerfile
+          push: true
+          tags: us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/mlops-service:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - uses: google-github-actions/deploy-cloudrun@v2
         with:
