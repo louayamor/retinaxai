@@ -103,11 +103,11 @@ jobs:
             --memory=4Gi
             --min-instances=0
             --max-instances=3
-            --clear-env-vars=CORS_ORIGINS
           env_vars: |
             CHROMA_HOST=10.128.0.2
             CHROMA_PORT=8000
             RAG_EMBEDDINGS_OFFLINE=true
+            CORS_ORIGINS=["https://retinaxai.me"]
             MLOPS_SERVICE_URL=${{ secrets.ML_SERVICE_URL }}
             LLMOPS_API_KEY=${{ secrets.LLMOPS_API_KEY }}
             BACKEND_API_KEY=${{ secrets.BACKEND_API_KEY }}
