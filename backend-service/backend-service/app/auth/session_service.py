@@ -184,7 +184,7 @@ class AuthSessionService:
                 if old_refresh_jti:
                     pipe.delete(f"jti_refresh:{old_refresh_jti}")
                 await pipe.execute()
-                logger.debug(f"Old session removed from Redis")
+                logger.debug("Old session removed from Redis")
             except Exception as e:
                 logger.warning(f"Failed to clean old session in Redis: {e}")
 

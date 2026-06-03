@@ -14,9 +14,9 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "add_prediction_biomarker_columns"
-down_revision: Union[str, None] = "96e2434a5f94"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "96e2434a5f94"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

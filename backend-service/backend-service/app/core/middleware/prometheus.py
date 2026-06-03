@@ -20,7 +20,7 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             status_code = str(response.status_code)
-        except Exception as exc:
+        except Exception:
             error_type = "unhandled"
             ERROR_COUNT.labels(error_type=error_type).inc()
             raise

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
+
 
 from app.chat.service import ChatService
 
@@ -65,7 +66,7 @@ async def test_chat_service_create_session() -> None:
 async def test_chat_service_get_session_not_found() -> None:
     db = DummyDB()
     service = ChatService(db)
-    with pytest.raises(Exception):
+    with pytest.raises(HTTPException):
         await service.get_session("nonexistent", "user-1")
 
 
@@ -81,7 +82,7 @@ async def test_chat_service_update_session_title() -> None:
 async def test_chat_service_delete_session_wrong_user() -> None:
     db = DummyDB()
     service = ChatService(db)
-    with pytest.raises(Exception):
+    with pytest.raises(HTTPException):
         await service.delete_session("session-2", "user-1")
 
 
@@ -89,5 +90,5 @@ async def test_chat_service_delete_session_wrong_user() -> None:
 async def test_chat_service_send_message_missing_session() -> None:
     db = DummyDB()
     service = ChatService(db)
-    with pytest.raises(Exception):
+    with pytest.raises(HTTPException):
         await service.send_message("nonexistent", "user-1", "hello")

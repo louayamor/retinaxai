@@ -159,6 +159,7 @@ async def get_workflow_history(
     _: EngineerUser,
     limit: int = 100,
     status: str | None = None,
+    workflow_type: str | None = None,
 ) -> WorkflowHistory:
     """
     Get workflow history (completed and failed workflows).
@@ -169,7 +170,7 @@ async def get_workflow_history(
     for job_id, job in training_jobs.items():
         job_status = job.get("status", "unknown")
 
-        if workflow_type and workflow_type != "training":
+        if workflow_type is not None and workflow_type != "training":
             continue
 
         if job_status not in ("completed", "failed", "cancelled"):

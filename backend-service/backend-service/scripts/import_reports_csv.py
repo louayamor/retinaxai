@@ -106,14 +106,6 @@ async def main():
     print(f"Patients: {inserted} inserted, {skipped} already existed")
 
     # Insert OCT reports
-    report_cols = [
-        "eye", "source_file", "image_quality",
-        "thickness_center_fovea", "thickness_average_thickness", "thickness_total_volume_mm3",
-        "thickness_inner_superior", "thickness_inner_nasal", "thickness_inner_inferior", "thickness_inner_temporal",
-        "thickness_outer_superior", "thickness_outer_nasal", "thickness_outer_inferior", "thickness_outer_temporal",
-        "edema", "erm_status",
-    ]
-
     reports_inserted = 0
     reports_skipped = 0
 
@@ -137,7 +129,7 @@ async def main():
 
         report_uuid = uuid.uuid4()
         await conn.execute(
-            f"""
+            """
             INSERT INTO oct_reports (
                 id, patient_id, eye, source_file, image_quality,
                 thickness_center_fovea, thickness_average_thickness, thickness_total_volume_mm3,

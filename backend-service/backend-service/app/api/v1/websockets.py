@@ -13,6 +13,7 @@ from loguru import logger
 from app.core.config import settings
 from app.db.session import get_db
 from app.notifications.service import NotificationService
+import redis.asyncio as aioredis
 from app.services.redis_client import RedisClient, redis_client as shared_redis
 
 router = APIRouter()

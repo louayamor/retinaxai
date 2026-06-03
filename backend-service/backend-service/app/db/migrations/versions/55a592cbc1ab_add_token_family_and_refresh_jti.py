@@ -7,9 +7,9 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision: str = "55a592cbc1ab"
-down_revision: Union[str, None] = "add_chat"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "add_chat"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

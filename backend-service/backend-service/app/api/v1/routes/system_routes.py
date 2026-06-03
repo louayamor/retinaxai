@@ -306,7 +306,7 @@ async def grafana_proxy(
         content = resp.content
 
         if "text/html" in content_type:
-            base_tag = f'<base href="/api/v1/system/grafana/proxy/">'
+            base_tag = '<base href="/api/v1/system/grafana/proxy/">'
             content = content.replace(b"<head>", f"<head>{base_tag}".encode())
 
         response_headers = {

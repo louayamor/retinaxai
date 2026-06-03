@@ -118,13 +118,9 @@ class PredictionService:
         if getattr(ml_response, "lesions_right", None):
             output_payload["lesions_right"] = ml_response.lesions_right
         if getattr(ml_response, "lesion_clusters_left", None):
-            output_payload["lesion_clusters_left"] = [
-                c for c in ml_response.lesion_clusters_left
-            ]
+            output_payload["lesion_clusters_left"] = list(ml_response.lesion_clusters_left)
         if getattr(ml_response, "lesion_clusters_right", None):
-            output_payload["lesion_clusters_right"] = [
-                c for c in ml_response.lesion_clusters_right
-            ]
+            output_payload["lesion_clusters_right"] = list(ml_response.lesion_clusters_right)
         return output_payload
 
     async def _handle_prediction_success(
