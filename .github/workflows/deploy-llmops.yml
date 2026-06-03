@@ -103,6 +103,7 @@ jobs:
             --memory=4Gi
             --min-instances=0
             --max-instances=3
+            --clear-env-vars=CORS_ORIGINS
           env_vars: |
             CHROMA_HOST=10.128.0.2
             CHROMA_PORT=8000

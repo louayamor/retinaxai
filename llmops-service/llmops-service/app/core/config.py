@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 load_dotenv()
@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     app_port: int = Field(default=8080, validation_alias="PORT")
 
     cors_origins: list[str] = ["http://localhost:3000"]
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors(cls, v: object) -> object:
+        if isinstance(v, str):
+            import json
+            return json.loads(v)
+        return v
 
     backend_service_url: str = Field(
         default="http://backend-service:8000", validation_alias="BACKEND_SERVICE_URL"
