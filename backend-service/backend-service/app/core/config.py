@@ -103,7 +103,12 @@ class Settings(BaseSettings):
         return self.data_dir / "metrics" / "clinical" / "metrics.json"
 
     def ensure_dirs(self) -> None:
-        for dir_path in [self.fundus_dir, self.oct_dir, self.gradcam_dir]:
+        for dir_path in [
+            self.upload_dir, self.fundus_dir, self.oct_dir,
+            self.output_dir, self.gradcam_dir,
+            self.data_dir / "metrics" / "imaging",
+            self.data_dir / "metrics" / "clinical",
+        ]:
             dir_path.mkdir(parents=True, exist_ok=True)
 
 

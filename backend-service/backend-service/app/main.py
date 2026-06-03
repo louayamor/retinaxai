@@ -27,6 +27,7 @@ from app.services.task_tracker import bg_tasks
 async def lifespan(app: FastAPI):
     setup_logging()
 
+    settings.ensure_dirs()
     start_metrics_server(port=9102)
 
     mlops_task = asyncio.create_task(subscribe_mlops_monitor())

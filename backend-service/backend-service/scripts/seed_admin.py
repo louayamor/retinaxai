@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -13,7 +14,10 @@ from app.auth.roles import Role
 from app.core.security import hash_password
 from app.models.user import User
 
-DATABASE_URL = "postgresql+asyncpg://louay:louay@localhost:5432/retinaxai_db"
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql+asyncpg://louay:louay@localhost:5432/retinaxai_db",
+)
 
 
 async def main() -> None:

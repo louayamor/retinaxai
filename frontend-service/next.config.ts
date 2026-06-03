@@ -1,5 +1,7 @@
 import type { NextConfig } from 'next';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
 const nextConfig: NextConfig = {
   devIndicators: false,
   output: 'standalone',
@@ -7,7 +9,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/v1/system/grafana/proxy/:path*',
-        destination: 'http://localhost:8000/api/v1/system/grafana/proxy/:path*',
+        destination: `${API_URL}/api/v1/system/grafana/proxy/:path*`,
       },
     ];
   },
