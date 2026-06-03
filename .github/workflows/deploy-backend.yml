@@ -31,7 +31,7 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           pip install -r requirements.txt
-          pip install ruff pytest
+          pip install ruff pytest pytest-asyncio
 
       - name: Ruff check
         working-directory: backend-service
@@ -75,31 +75,40 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Build and push to Artifact Registry
-        run: |
-          gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
-          docker build -f backend-service/Dockerfile \
-            -t us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/backend-service:${{ github.sha }} .
-          docker push us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/backend-service:${{ github.sha }}
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push with layer cache
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: backend-service/Dockerfile
+          push: true
+          tags: us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/backend-service:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: backend-service
           image: us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/backend-service:${{ github.sha }}
           region: us-central1
-          service-account: retinaxai-runner@project-b1ee996a-986e-4b50-bea.iam.gserviceaccount.com
-          vpc-connector: projects/${{ vars.GCP_PROJECT_ID }}/locations/us-central1/connectors/retinaxai-vpc
-          no-allow-unauthenticated: true
-          cpu: 2
-          memory: 4Gi
-          min-instances: 0
-          max-instances: 3
-          env-vars: |
+          flags: >-
+            --service-account=retinaxai-runner@project-b1ee996a-986e-4b50-bea.iam.gserviceaccount.com
+            --vpc-connector=projects/${{ vars.GCP_PROJECT_ID }}/locations/us-central1/connectors/retinaxai-vpc
+            --no-allow-unauthenticated
+            --cpu=2
+            --memory=4Gi
+            --min-instances=0
+            --max-instances=3
+          env_vars: |
             DATABASE_URL=${{ secrets.DATABASE_URL }}
             SECRET_KEY=${{ secrets.SECRET_KEY }}
             ML_SERVICE_URL=${{ secrets.ML_SERVICE_URL }}
             LLM_SERVICE_URL=${{ secrets.LLM_SERVICE_URL }}
             ML_SERVICE_API_KEY=${{ secrets.ML_SERVICE_API_KEY }}
             LLM_SERVICE_API_KEY=${{ secrets.LLM_SERVICE_API_KEY }}
-            CORS_ORIGINS=["https://retinaxai.me","https://api.retinaxai.me"]
+            CORS_ORIGINS=["https://retinaxai.me"]
             GCS_BUCKET_UPLOADS=retinaxai-uploads
