@@ -69,36 +69,42 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Build and push to Artifact Registry
-        run: |
-          gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
-          docker build -f llmops-service/Dockerfile \
-            -t us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/llmops-service:${{ github.sha }} .
-          docker push us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/llmops-service:${{ github.sha }}
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push with layer cache
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: llmops-service/Dockerfile
+          push: true
+          tags: us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/llmops-service:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: llmops-service
           image: us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/retinaxai/llmops-service:${{ github.sha }}
           region: us-central1
-          service-account: retinaxai-runner@project-b1ee996a-986e-4b50-bea.iam.gserviceaccount.com
-          vpc-connector: projects/${{ vars.GCP_PROJECT_ID }}/locations/us-central1/connectors/retinaxai-vpc
-          no-allow-unauthenticated: true
-          cpu: 2
-          memory: 4Gi
-          min-instances: 0
-          max-instances: 3
-          env-vars: |
+          flags: >-
+            --service-account=retinaxai-runner@project-b1ee996a-986e-4b50-bea.iam.gserviceaccount.com
+            --vpc-connector=projects/${{ vars.GCP_PROJECT_ID }}/locations/us-central1/connectors/retinaxai-vpc
+            --no-allow-unauthenticated
+            --cpu=2
+            --memory=4Gi
+            --min-instances=0
+            --max-instances=3
+          env_vars: |
             CHROMA_HOST=10.128.0.2
             CHROMA_PORT=8000
             RAG_EMBEDDINGS_OFFLINE=true
             CORS_ORIGINS=["https://retinaxai.me","https://api.retinaxai.me"]
             MLOPS_SERVICE_URL=${{ secrets.ML_SERVICE_URL }}
-            BACKEND_SERVICE_URL=${{ secrets.BACKEND_SERVICE_URL }}
             LLMOPS_API_KEY=${{ secrets.LLMOPS_API_KEY }}
             BACKEND_API_KEY=${{ secrets.BACKEND_API_KEY }}
-            GITHUB_ACCESS_TOKEN=${{ secrets.GITHUB_ACCESS_TOKEN }}
+            GH_ACCESS_TOKEN=${{ secrets.GH_ACCESS_TOKEN }}
             NVIDIA_API_KEY=${{ secrets.NVIDIA_API_KEY }}
             MLFLOW_TRACKING_URI=${{ secrets.MLFLOW_TRACKING_URI }}
-            MLFLOW_TRACKING_USERNAME=${{ secrets.MLFLOW_TRACKING_USERNAME }}
-            MLFLOW_TRACKING_PASSWORD=${{ secrets.MLFLOW_TRACKING_PASSWORD }}
