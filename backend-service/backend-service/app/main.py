@@ -2,6 +2,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 import asyncio
 import contextlib
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -125,9 +126,11 @@ def create_app() -> FastAPI:
     app.include_router(api_router)
     app.include_router(ws_router, tags=["websocket"])
 
+    upload_dir = settings.data_dir / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
     app.mount(
         "/uploads",
-        StaticFiles(directory=str(settings.data_dir / "uploads")),
+        StaticFiles(directory=str(upload_dir)),
         name="uploads",
     )
 
