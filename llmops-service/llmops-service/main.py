@@ -49,6 +49,5 @@ def main() -> None:
     elif args.command == "pipeline" and args.task == "reindex":
         reindex()
 
-
 if __name__ == "__main__":
     main()
