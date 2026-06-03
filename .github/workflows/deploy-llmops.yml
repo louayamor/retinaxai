@@ -101,7 +101,6 @@ jobs:
             CHROMA_HOST=10.128.0.2
             CHROMA_PORT=8000
             RAG_EMBEDDINGS_OFFLINE=true
-            CORS_ORIGINS=["https://retinaxai.me","https://api.retinaxai.me"]
             MLOPS_SERVICE_URL=${{ secrets.ML_SERVICE_URL }}
             LLMOPS_API_KEY=${{ secrets.LLMOPS_API_KEY }}
             BACKEND_API_KEY=${{ secrets.BACKEND_API_KEY }}
