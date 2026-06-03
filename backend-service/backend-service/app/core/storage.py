@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import structlog
-
-logger = structlog.get_logger()
+from loguru import logger
 
 
 class GCSStorageService:
@@ -16,9 +14,9 @@ class GCSStorageService:
                 from google.cloud import storage
 
                 self._client = storage.Client()
-                logger.info("gcs_storage_initialized", bucket=bucket_name)
+                logger.bind(bucket=bucket_name).info("gcs_storage_initialized")
             except Exception as exc:
-                logger.error("gcs_storage_init_failed", bucket=bucket_name, error=str(exc))
+                logger.bind(bucket=bucket_name, error=str(exc)).error("gcs_storage_init_failed")
                 self._enabled = False
 
     def get_uri(self, key: str) -> str:
@@ -39,7 +37,7 @@ class GCSStorageService:
         bucket = self._client.bucket(self._bucket_name)
         blob = bucket.blob(key)
         blob.upload_from_string(data, content_type=content_type)
-        logger.info("gcs_upload_complete", key=key, size=len(data))
+        logger.bind(key=key, size=len(data)).info("gcs_upload_complete")
         return self.get_uri(key)
 
     async def download(self, key: str) -> bytes | None:
@@ -58,6 +56,6 @@ class GCSStorageService:
         blob = bucket.blob(key)
         if blob.exists():
             blob.delete()
-            logger.info("gcs_delete_complete", key=key)
+            logger.bind(key=key).info("gcs_delete_complete")
             return True
         return False
