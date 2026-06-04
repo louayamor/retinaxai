@@ -36,7 +36,6 @@ dirs = [
 files = [
     "app/__init__.py",
     "app/main.py",
-
     "app/core/__init__.py",
     "app/core/config.py",
     "app/core/security.py",
