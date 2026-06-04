@@ -136,8 +136,8 @@ async def logout(
             await session_service.revoke_refresh_token(session.refresh_token)
 
     response = JSONResponse(content={"status": "ok"})
-    response.delete_cookie(key="rxa_access_token", path="/")
-    response.delete_cookie(key="rxa_refresh_token", path="/")
+    response.delete_cookie(key="rxa_access_token", path="/", samesite="none", secure=COOKIE_SECURE)
+    response.delete_cookie(key="rxa_refresh_token", path="/", samesite="none", secure=COOKIE_SECURE)
     return response
 
 
@@ -149,8 +149,8 @@ async def logout_all(
     await db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
     await db.flush()
     response = JSONResponse(content={"status": "ok"})
-    response.delete_cookie(key="rxa_access_token", path="/")
-    response.delete_cookie(key="rxa_refresh_token", path="/")
+    response.delete_cookie(key="rxa_access_token", path="/", samesite="none", secure=COOKIE_SECURE)
+    response.delete_cookie(key="rxa_refresh_token", path="/", samesite="none", secure=COOKIE_SECURE)
     return response
 
 

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.role_guard import DoctorUser
+from app.auth.role_guard import StaffUser
 from app.db.session import get_db
 from app.patients.service import PatientService, PatientStats
 from app.schemas.common import MessageResponse
@@ -25,7 +25,7 @@ class PatientStatsResponse(BaseModel):
 
 @router.get("/stats", response_model=PatientStatsResponse)
 async def get_patient_stats(
-    _: DoctorUser,
+    _: StaffUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     service = PatientService(db)
@@ -42,7 +42,7 @@ async def get_patient_stats(
 @router.post("/", response_model=PatientRead, status_code=201)
 async def create_patient(
     data: PatientCreate,
-    _: DoctorUser,
+    _: StaffUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     service = PatientService(db)
@@ -51,7 +51,7 @@ async def create_patient(
 
 @router.get("/", response_model=list[PatientRead])
 async def list_patients(
-    _: DoctorUser,
+    _: StaffUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
@@ -65,7 +65,7 @@ async def list_patients(
 @router.get("/{patient_id}", response_model=PatientRead)
 async def get_patient(
     patient_id: uuid.UUID,
-    _: DoctorUser,
+    _: StaffUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     service = PatientService(db)
@@ -76,7 +76,7 @@ async def get_patient(
 async def update_patient(
     patient_id: uuid.UUID,
     data: PatientUpdate,
-    _: DoctorUser,
+    _: StaffUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     service = PatientService(db)
@@ -86,7 +86,7 @@ async def update_patient(
 @router.delete("/{patient_id}", response_model=MessageResponse)
 async def delete_patient(
     patient_id: uuid.UUID,
-    _: DoctorUser,
+    _: StaffUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     service = PatientService(db)

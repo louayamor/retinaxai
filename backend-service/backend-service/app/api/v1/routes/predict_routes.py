@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.role_guard import DoctorUser
+from app.auth.role_guard import StaffUser
 from app.db.session import get_db
 from app.predictions.service import PredictionService
 from app.schemas.prediction_schema import PredictionRead, PredictionRequest
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/predictions", tags=["predictions"])
 @router.post("/", response_model=PredictionRead, status_code=201)
 async def run_prediction(
     data: PredictionRequest,
-    current_user: DoctorUser,
+    current_user: StaffUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     service = PredictionService(db)
@@ -25,7 +25,7 @@ async def run_prediction(
 
 @router.get("/", response_model=dict)
 async def list_predictions(
-    _: DoctorUser,
+    _: StaffUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
@@ -45,7 +45,7 @@ async def list_predictions(
 @router.get("/patient/{patient_id}", response_model=dict)
 async def list_patient_predictions(
     patient_id: uuid.UUID,
-    _: DoctorUser,
+    _: StaffUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
@@ -65,7 +65,7 @@ async def list_patient_predictions(
 @router.get("/{prediction_id}", response_model=PredictionRead)
 async def get_prediction(
     prediction_id: uuid.UUID,
-    _: DoctorUser,
+    _: StaffUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     service = PredictionService(db)

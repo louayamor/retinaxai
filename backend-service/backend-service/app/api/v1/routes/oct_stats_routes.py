@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.role_guard import DoctorUser
+from app.auth.role_guard import StaffUser
 from app.db.session import get_db
 from app.models.patient import Patient
 from app.models.prediction import Prediction
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/oct-stats", tags=["oct_stats"])
 
 @router.get("/stats")
 async def get_oct_stats(
-    _: DoctorUser,
+    _: StaffUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     # ==== OCT Reports Data (from reports table with report_type=OCT) ====
