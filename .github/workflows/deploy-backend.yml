@@ -98,7 +98,7 @@ jobs:
           flags: >-
             --service-account=retinaxai-runner@project-b1ee996a-986e-4b50-bea.iam.gserviceaccount.com
             --vpc-connector=projects/${{ vars.GCP_PROJECT_ID }}/locations/us-central1/connectors/retinaxai-vpc
-            --no-allow-unauthenticated
+            --allow-unauthenticated
             --cpu=2
             --memory=4Gi
             --min-instances=0
@@ -110,5 +110,11 @@ jobs:
             LLM_SERVICE_URL=${{ secrets.LLM_SERVICE_URL }}
             ML_SERVICE_API_KEY=${{ secrets.ML_SERVICE_API_KEY }}
             LLM_SERVICE_API_KEY=${{ secrets.LLM_SERVICE_API_KEY }}
-            CORS_ORIGINS=["https://retinaxai.me"]
             GCS_BUCKET_UPLOADS=retinaxai-uploads
+
+      - name: Update CORS origins (avoids ^,^ delimiter collision with comma in JSON)
+        run: >-
+          gcloud run services update backend-service
+          --region us-central1
+          --update-env-vars
+          "^|^CORS_ORIGINS=[\"https://retinaxai.me\",\"https://retina-xai.vercel.app\"]"
