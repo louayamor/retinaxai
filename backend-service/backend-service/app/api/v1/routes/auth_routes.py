@@ -24,7 +24,7 @@ from app.users.service import UserService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-COOKIE_SAMESITE = "lax"
+COOKIE_SAMESITE = "none"
 COOKIE_SECURE = settings.APP_ENV == "production"
 
 
