@@ -117,4 +117,4 @@ jobs:
           gcloud run services update backend-service
           --region us-central1
           --update-env-vars
-          "^|^CORS_ORIGINS=[\"https://retinaxai.me\",\"https://retina-xai.vercel.app\"]"
+          "^|^CORS_ORIGINS=[\"https://retinaxai.me\",\"https://www.retinaxai.me\",\"https://retina-xai.vercel.app\"]"
