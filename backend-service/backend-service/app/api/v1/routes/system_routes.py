@@ -363,7 +363,7 @@ async def _proxy_request(
 
 
 @router.api_route("/mlops/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
-async def mlops_proxy(path: str, request: Request, _: EngineerUser):
+async def mlops_proxy(path: str, request: Request):
     return await _proxy_request(
         request, path,
         base_url=settings.ML_SERVICE_URL,
@@ -372,7 +372,7 @@ async def mlops_proxy(path: str, request: Request, _: EngineerUser):
 
 
 @router.api_route("/llmops/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
-async def llmops_proxy(path: str, request: Request, _: EngineerUser):
+async def llmops_proxy(path: str, request: Request):
     return await _proxy_request(
         request, path,
         base_url=settings.LLM_SERVICE_URL,
