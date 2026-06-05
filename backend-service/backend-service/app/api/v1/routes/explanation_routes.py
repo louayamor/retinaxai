@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.auth.role_guard import StaffUser
+from app.auth.dependencies import CurrentUser
 from app.db.session import get_db
 from app.models.prediction import Prediction
 from app.explanations.service import ExplanationService
@@ -30,7 +30,7 @@ class StoreXAIRequest(BaseModel):
 @router.post("/store")
 async def store_xai_results(
     request: StoreXAIRequest,
-    _: StaffUser,
+    _: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Store XAI results from LLMOps service."""
@@ -70,7 +70,7 @@ class XAIResponse(BaseModel):
 @router.get("/{prediction_id}", response_model=XAIResponse)
 async def get_xai_explanations(
     prediction_id: str,
-    _: StaffUser,
+    _: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Retrieve XAI explanations for a prediction."""

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.role_guard import StaffUser
+from app.auth.dependencies import CurrentUser
 from app.chat.service import ChatService
 from app.db.session import get_db
 from app.schemas.chat_schemas import (
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 @router.post("/sessions", response_model=CreateChatSessionResponse, status_code=201)
 async def create_session(
-    current_user: StaffUser,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> CreateChatSessionResponse:
     service = ChatService(db)
@@ -29,7 +29,7 @@ async def create_session(
 
 @router.get("/sessions", response_model=ChatSessionListResponse)
 async def list_sessions(
-    current_user: StaffUser,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> ChatSessionListResponse:
     service = ChatService(db)
@@ -40,7 +40,7 @@ async def list_sessions(
 @router.get("/sessions/{session_id}", response_model=ChatSessionDetailSchema)
 async def get_session(
     session_id: str,
-    current_user: StaffUser,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> ChatSessionDetailSchema:
     service = ChatService(db)
@@ -51,7 +51,7 @@ async def get_session(
 async def update_session_title(
     session_id: str,
     body: UpdateSessionTitle,
-    current_user: StaffUser,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> CreateChatSessionResponse:
     service = ChatService(db)
@@ -61,7 +61,7 @@ async def update_session_title(
 @router.delete("/sessions/{session_id}")
 async def delete_session(
     session_id: str,
-    current_user: StaffUser,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     service = ChatService(db)
@@ -77,7 +77,7 @@ async def delete_session(
 async def send_message(
     session_id: str,
     body: SendMessageRequest,
-    current_user: StaffUser,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> SendMessageResponse:
     service = ChatService(db)

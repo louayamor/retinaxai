@@ -23,7 +23,5 @@ def require_role(allowed: Role | list[Role]):
     return _check
 
 
-DoctorUser = Annotated[User, Depends(require_role(Role.DOCTOR))]
 EngineerUser = Annotated[User, Depends(require_role(Role.ENGINEER))]
 AdminUser = Annotated[User, Depends(require_role(Role.ADMIN))]
-StaffUser = Annotated[User, Depends(require_role([Role.DOCTOR, Role.ADMIN]))]
