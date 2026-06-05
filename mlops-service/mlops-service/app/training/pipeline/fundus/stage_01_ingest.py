@@ -38,13 +38,12 @@ def _ensure_positives(raw_dir: Path, num_samples: int = FUNDUS_POSITIVE_SAMPLES)
     logger.info(f"[FUNDUS] downloading {num_samples} positive samples from EyePACS...")
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    params = read_yaml(PARAMS_FILE_PATH)
     cfg = read_yaml(Path(__file__).parent.parent.parent.parent / "config" / "config.yaml")
     dataset_name = cfg.get("data_ingestion", {}).get("huggingface", {}).get("dataset_name", "bumbledeep/eyepacs")
 
     ds = load_dataset(dataset_name, split="train", streaming=True)
     collected: list = []
-    for i, sample in enumerate(ds):
+    for _, sample in enumerate(ds):
         collected.append(sample)
         if len(collected) >= num_samples:
             break
