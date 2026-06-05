@@ -52,7 +52,8 @@ import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
-const MLOPS_BASE = process.env.NEXT_PUBLIC_MLOPS_URL || 'http://localhost:8004';
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const MLOPS_BASE = `${API}/api/v1/system/mlops`;
 
 interface SplitMetrics {
   split: string;

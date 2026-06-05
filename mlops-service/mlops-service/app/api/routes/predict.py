@@ -31,10 +31,6 @@ from app.monitoring.prometheus_metrics import (
 
 router = APIRouter()
 
-MLOPS_BACKEND_WS_URL = "ws://localhost:8000/ws"
-MLOPS_BACKEND_API_KEY = ""
-
-
 def get_inference_service(
     settings: Settings = Depends(get_settings),
 ) -> InferenceService:

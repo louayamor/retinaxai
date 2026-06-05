@@ -33,7 +33,9 @@ import {
   Zap,
 } from 'lucide-react';
 
-const MLOPS_BASE = process.env.NEXT_PUBLIC_MLOPS_URL || 'http://localhost:8004';
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+const MLOPS_BASE = `${API}/api/v1/system/mlops`;
 
 interface SystemMetrics {
   cpu: { usage_percent: number };
@@ -91,8 +93,6 @@ export default function EngineeringDashboard() {
   const [training, setTraining] = useState(false);
   const [reindexing, setReindexing] = useState(false);
   const [driftRetraining, setDriftRetraining] = useState(false);
-
-  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
   const fetchData = useCallback(async () => {
     const [healthData, metricsData, gpuData, statusData, driftData, ragData] = await Promise.all([

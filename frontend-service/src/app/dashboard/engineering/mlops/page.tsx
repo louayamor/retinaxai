@@ -171,7 +171,8 @@ export default function MLOpsPage() {
     return () => clearTimeout(timeout);
   }, [snapshot]);
 
-  const MLOPS = process.env.NEXT_PUBLIC_MLOPS_URL || 'http://localhost:8004';
+  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  const MLOPS = `${API}/api/v1/system/mlops`;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -701,7 +702,7 @@ export default function MLOpsPage() {
                     </a>
                   ))}
                 </div>
-                <a href={GRAFANA_KIOSK_URL.replace('/api/v1/system/grafana/proxy/', 'http://localhost:4000/')} target='_blank' rel='noopener noreferrer'>
+                <a href={GRAFANA_KIOSK_URL} target='_blank' rel='noopener noreferrer'>
                   <Button variant='outline' size='sm'>
                     Open in Grafana <ExternalLink className='ml-1.5 h-3.5 w-3.5' />
                   </Button>

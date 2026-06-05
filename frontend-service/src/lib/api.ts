@@ -288,8 +288,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   return request<DashboardStats>('/api/v1/dashboard/stats');
 }
 
-// LLMOps service API (runs on port 8002)
-const LLMOPS_BASE = process.env.NEXT_PUBLIC_LLMOPS_URL ?? 'http://localhost:8002';
+// LLMOps service API (proxied through backend)
+const LLMOPS_BASE = `${BASE}/api/v1/system/llmops`;
 
 interface RagStatusResponse {
   status: string;
@@ -312,8 +312,6 @@ interface RagReindexResponse {
   };
 }
 
-const LLMOPS_API_KEY = process.env.NEXT_PUBLIC_LLMOPS_API_KEY ?? 'dev-api-key';
-
 async function _handleLlmoopsResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -324,16 +322,13 @@ async function _handleLlmoopsResponse<T>(res: Response): Promise<T> {
 }
 
 export async function getRagStatus(): Promise<RagStatusResponse> {
-  const res = await fetch(`${LLMOPS_BASE}/api/rag/status`, {
-    headers: { 'x-api-key': LLMOPS_API_KEY },
-  });
+  const res = await fetch(`${LLMOPS_BASE}/api/rag/status`);
   return _handleLlmoopsResponse(res);
 }
 
 export async function triggerRagReindex(): Promise<RagReindexResponse> {
   const res = await fetch(`${LLMOPS_BASE}/api/rag/reindex`, {
     method: 'POST',
-    headers: { 'x-api-key': LLMOPS_API_KEY },
   });
   return _handleLlmoopsResponse(res);
 }
@@ -440,10 +435,7 @@ export async function generateXAIExplanation(
 ): Promise<XAIExplanationResponse> {
   const res = await fetch(`${LLMOPS_BASE}/api/xai/explain`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': LLMOPS_API_KEY,
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       prediction_id: predictionId,
       dr_grade: drGrade,
@@ -461,10 +453,7 @@ export async function generateXAIGradCAM(
 ): Promise<XAIGradCAMResponse> {
   const res = await fetch(`${LLMOPS_BASE}/api/xai/gradcam`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': LLMOPS_API_KEY,
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       prediction_id: predictionId,
       left_eye_regions: leftEyeRegions,
@@ -482,10 +471,7 @@ export async function generateXAISeverity(
 ): Promise<XAISeverityResponse> {
   const res = await fetch(`${LLMOPS_BASE}/api/xai/severity`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': LLMOPS_API_KEY,
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       prediction_id: predictionId,
       patient_data: patientData,
@@ -518,10 +504,7 @@ export async function generateSHAPExplanation(
 ): Promise<SHAPExplainResponse> {
   const res = await fetch(`${LLMOPS_BASE}/api/xai/shap/explain`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': LLMOPS_API_KEY,
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       prediction_id: predictionId,
       features: clinicalFeatures,
@@ -634,7 +617,7 @@ export async function getXAIExplanations(predictionId: string): Promise<XAIRespo
 
 // ============ MLOps API ============
 
-const MLOPS_BASE = process.env.NEXT_PUBLIC_MLOPS_URL || 'http://localhost:8004';
+const MLOPS_BASE = `${BASE}/api/v1/system/mlops`;
 
 async function mlopsRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${MLOPS_BASE}${path}`, {
@@ -820,7 +803,6 @@ async function llmopsRequest<T>(path: string, init: RequestInit = {}): Promise<T
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': process.env.NEXT_PUBLIC_LLMOPS_API_KEY || '',
       ...(init.headers as Record<string, string> || {}),
     },
   });

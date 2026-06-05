@@ -23,8 +23,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const LLMOPS_BASE = process.env.NEXT_PUBLIC_LLMOPS_URL || 'http://localhost:8002';
-const LLMOPS_API_KEY = process.env.NEXT_PUBLIC_LLMOPS_API_KEY || '';
+const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const LLMOPS_BASE = `${BASE}/api/v1/system/llmops`;
 
 interface HealthStatus {
   status: string;
@@ -84,7 +84,6 @@ export default function LLMOpsPage() {
       void (async () => {
         try {
           const opRes = await fetch(`${LLMOPS_BASE}/api/operation`, {
-            headers: { 'x-api-key': LLMOPS_API_KEY },
             signal: controller.signal,
           });
           const opJson = opRes.ok ? await opRes.json().catch(() => null) : null;
@@ -130,7 +129,6 @@ export default function LLMOpsPage() {
     try {
       const res = await fetch(`${LLMOPS_BASE}/api/rag/reindex`, {
         method: 'POST',
-        headers: { 'x-api-key': LLMOPS_API_KEY },
       });
       const data = await res.json();
       toast.success(`Reindex triggered: ${data.job_id}`);

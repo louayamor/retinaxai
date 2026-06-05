@@ -106,10 +106,7 @@ def _emit_training_completed_event(
         from app.config.settings import get_settings
 
         settings = get_settings()
-        backend_url = settings.ML_SERVICE_URL.replace("8004", "8000").replace(
-            "8001", "8000"
-        )
-        llmops_trigger_url = f"{backend_url}/emit"
+        llmops_trigger_url = f"{settings.backend_service_url}/emit"
     except (ImportError, AttributeError, RuntimeError):
         llmops_trigger_url = "http://localhost:8000/emit"
 

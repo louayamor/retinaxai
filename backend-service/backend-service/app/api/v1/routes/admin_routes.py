@@ -10,6 +10,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.role_guard import AdminUser
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.auth_session import AuthSession
 from app.models.patient import Patient
@@ -51,8 +52,8 @@ async def get_admin_health(_: AdminUser):
     except Exception:
         pg_ok = None
 
-    mlops_status = await _ping_service("http://localhost:8004")
-    llmops_status = await _ping_service("http://localhost:8002")
+    mlops_status = await _ping_service(settings.ml_service_url)
+    llmops_status = await _ping_service(settings.llm_service_url)
 
     return {
         "backend": "healthy",

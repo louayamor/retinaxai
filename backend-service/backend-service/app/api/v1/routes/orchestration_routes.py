@@ -9,6 +9,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.auth.role_guard import EngineerUser
+from app.core.config import settings
 from app.services.event_queue import EventStatus
 
 router = APIRouter(prefix="/v1/orchestration", tags=["orchestration"])
@@ -86,8 +87,8 @@ async def get_orchestration_status(_: EngineerUser) -> OrchestrationStatus:
 
     from app.api.v1.websockets import _connected_clients
 
-    mlops_status = _check_service_health("http://localhost:8004/health")
-    llmops_status = _check_service_health("http://localhost:8002/health")
+    mlops_status = _check_service_health(f"{settings.ml_service_url}/health")
+    llmops_status = _check_service_health(f"{settings.llm_service_url}/health")
 
     return OrchestrationStatus(
         status="healthy" if (mlops_status and llmops_status) else "degraded",

@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
+import websockets.exceptions
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,8 @@ import redis.asyncio as aioredis
 from app.services.redis_client import RedisClient, redis_client as shared_redis
 
 router = APIRouter()
+
+WS_CHAT_RECEIVE_TIMEOUT: float = 120.0
 
 
 
@@ -317,6 +320,43 @@ async def websocket_endpoint(websocket: WebSocket):
             _ws_manager.connected_clients.remove(websocket)
         _ws_manager.client_rooms.pop(websocket, None)
         logger.info(f"Client removed. Total clients: {len(_ws_manager.connected_clients)}")
+
+
+@router.websocket("/ws/chat")
+async def chat_websocket_proxy(websocket: WebSocket):
+    await websocket.accept()
+
+    token = websocket.query_params.get("token", "")
+    target_url = f"{settings.LLM_SERVICE_URL}/ws/chat"
+    if token:
+        target_url += f"?token={token}"
+
+    try:
+        async with websockets.connect(target_url) as llm_ws:
+            async def forward_to_client() -> None:
+                try:
+                    async for msg in llm_ws:
+                        await websocket.send_text(msg if isinstance(msg, str) else json.dumps(msg))
+                except Exception:
+                    pass
+
+            forward_task = asyncio.create_task(forward_to_client())
+
+            try:
+                while True:
+                    data = await websocket.receive_text()
+                    await llm_ws.send(data)
+            except WebSocketDisconnect:
+                pass
+            finally:
+                forward_task.cancel()
+                try:
+                    await forward_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+    except (websockets.exceptions.WebSocketException, OSError) as e:
+        logger.error("chat_ws_proxy_failed", error=str(e))
+        await websocket.send_json({"event": "error", "data": {"message": "Chat service unavailable"}})
 
 
 @router.post("/emit")

@@ -103,40 +103,30 @@ export default function SystemStatsPage() {
       setDashboardStats(dashboardRes);
 
       const health: Record<string, ServiceHealth> = {};
-      const services = [
-        { name: 'backend', base: BASE, url: '/health' },
-        { name: 'mlops', url: '/health', base: process.env.NEXT_PUBLIC_MLOPS_URL || 'http://localhost:8004' },
-        { name: 'llmops', url: '/health', base: process.env.NEXT_PUBLIC_LLMOPS_URL || 'http://localhost:8002' },
-      ];
-
-      console.info('[System] probing services', services.map(svc => svc.name));
-      for (const svc of services) {
-        const base = svc.base || BASE;
-        try {
-          const start = Date.now();
-          const isHealthProbe = svc.url === '/health' || svc.url.endsWith('/health');
-          const res = await fetch(`${base}${svc.url}`, isHealthProbe ? {} : { credentials: 'include' });
-          const responseTime = Date.now() - start;
-          const status = res.ok ? 'healthy' : 'unhealthy';
-          const error = res.ok ? undefined : `${res.status} ${res.statusText}`.trim();
-          health[svc.name] = {
-            status,
-            response_time: responseTime,
-            status_code: res.status,
-            error,
-          };
-          console.info('[System] service health result', {
-            service: svc.name,
-            status,
-            code: res.status,
-            error,
-            responseTime,
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          health[svc.name] = { status: 'unhealthy', error: message };
-          console.info('[System] service health failed', { service: svc.name, error: message });
+      const svcStart = Date.now();
+      try {
+        const res = await fetch(`${BASE}/api/v1/system/health`);
+        const elapsed = Date.now() - svcStart;
+        if (res.ok) {
+          const body = await res.json();
+          const names = ['backend', 'mlops', 'llmops', 'redis', 'postgres'] as const;
+          for (const name of names) {
+            const s = body[name];
+            if (s === 'healthy') {
+              health[name] = { status: 'healthy', response_time: elapsed };
+            } else if (s === 'unhealthy') {
+              health[name] = { status: 'unhealthy', status_code: 502 };
+            } else {
+              health[name] = { status: 'unhealthy', error: s ?? 'unreachable' };
+            }
+          }
+        } else {
+          const statusText = `${res.status} ${res.statusText}`.trim();
+          health.backend = { status: 'unhealthy', status_code: res.status, error: statusText };
         }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        health.backend = { status: 'unhealthy', error: message };
       }
 
       setServiceHealth(health);

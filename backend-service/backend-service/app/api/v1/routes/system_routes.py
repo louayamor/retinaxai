@@ -9,6 +9,7 @@ from fastapi.responses import Response
 from sqlalchemy import text
 
 from app.auth.role_guard import EngineerUser
+from app.core.config import settings
 from app.db.session import engine
 from app.services.redis_client import redis_client
 
@@ -96,8 +97,8 @@ async def get_system_health(_: EngineerUser):
     except Exception:
         pg_ok = None
 
-    mlops_status = await _ping_service("http://localhost:8004")
-    llmops_status = await _ping_service("http://localhost:8002")
+    mlops_status = await _ping_service(settings.ml_service_url)
+    llmops_status = await _ping_service(settings.llm_service_url)
 
     return {
         "backend": "healthy",
@@ -319,3 +320,61 @@ async def grafana_proxy(
             status_code=resp.status_code,
             headers=response_headers,
         )
+
+
+async def _proxy_request(
+    request: Request,
+    path: str,
+    base_url: str,
+    api_key: str,
+) -> Response:
+    target_path = path or ""
+    query_string = str(request.query_params)
+    target_url = f"{base_url}/{target_path}"
+    if query_string:
+        target_url += f"?{query_string}"
+
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        body = await request.body() if request.method in ("POST", "PUT", "PATCH", "DELETE") else None
+
+        headers = {
+            k: v for k, v in request.headers.items()
+            if k.lower() not in ("host", "connection", "content-length", "transfer-encoding")
+        }
+        headers["X-API-Key"] = api_key
+
+        resp = await client.request(
+            method=request.method,
+            url=target_url,
+            headers=headers,
+            content=body,
+        )
+
+        response_headers = {
+            k: v for k, v in resp.headers.items()
+            if k.lower() not in ("content-encoding", "transfer-encoding", "content-length")
+        }
+
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            headers=response_headers,
+        )
+
+
+@router.api_route("/mlops/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def mlops_proxy(path: str, request: Request, _: EngineerUser):
+    return await _proxy_request(
+        request, path,
+        base_url=settings.ML_SERVICE_URL,
+        api_key=settings.ML_SERVICE_API_KEY,
+    )
+
+
+@router.api_route("/llmops/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def llmops_proxy(path: str, request: Request, _: EngineerUser):
+    return await _proxy_request(
+        request, path,
+        base_url=settings.LLM_SERVICE_URL,
+        api_key=settings.LLM_SERVICE_API_KEY,
+    )

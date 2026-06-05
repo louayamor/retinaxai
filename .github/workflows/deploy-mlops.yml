@@ -97,6 +97,9 @@ jobs:
             --min-instances=0
             --max-instances=3
           env_vars: |
+            backend_service_url=${{ secrets.BACKEND_SERVICE_URL }}
+            ML_SERVICE_API_KEY=${{ secrets.ML_SERVICE_API_KEY }}
+            LLM_SERVICE_API_KEY=${{ secrets.LLM_SERVICE_API_KEY }}
             gcs_model_bucket=retinaxai-models
             mlflow_tracking_uri=${{ secrets.MLFLOW_TRACKING_URI }}
             dagshub_token=${{ secrets.DAGSHUB_TOKEN }}

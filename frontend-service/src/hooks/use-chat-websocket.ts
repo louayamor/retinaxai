@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AnalyticsChartSpec, ChatMessage } from '@/lib/api';
 
-const WS_BASE = process.env.NEXT_PUBLIC_LLM_URL
-  ? process.env.NEXT_PUBLIC_LLM_URL.replace(/^http/, 'ws')
-  : 'ws://localhost:8002';
+const WS_BASE = process.env.NEXT_PUBLIC_API_URL
+  ? process.env.NEXT_PUBLIC_API_URL.replace(/^http/, 'ws')
+  : 'ws://localhost:8000';
 
 export interface ThinkingState {
   stage: string;
