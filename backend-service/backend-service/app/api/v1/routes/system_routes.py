@@ -1,6 +1,8 @@
 from __future__ import annotations
+import asyncio
 import re
 import time as time_mod
+from functools import partial
 from typing import Any
 
 import httpx
@@ -322,6 +324,21 @@ async def grafana_proxy(
         )
 
 
+async def _get_identity_token(audience: str) -> str | None:
+    try:
+        import google.auth.transport.requests
+        import google.oauth2.id_token
+        auth_req = google.auth.transport.requests.Request()
+        loop = asyncio.get_running_loop()
+        token = await loop.run_in_executor(
+            None,
+            partial(google.oauth2.id_token.fetch_id_token, auth_req, audience),
+        )
+        return token
+    except Exception:
+        return None
+
+
 async def _proxy_request(
     request: Request,
     path: str,
@@ -334,6 +351,8 @@ async def _proxy_request(
     if query_string:
         target_url += f"?{query_string}"
 
+    identity_token = await _get_identity_token(base_url)
+
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
         body = await request.body() if request.method in ("POST", "PUT", "PATCH", "DELETE") else None
 
@@ -341,7 +360,12 @@ async def _proxy_request(
             k: v for k, v in request.headers.items()
             if k.lower() not in ("host", "connection", "content-length", "transfer-encoding")
         }
+        for k in list(headers):
+            if k.lower() == "authorization":
+                del headers[k]
         headers["X-API-Key"] = api_key
+        if identity_token is not None:
+            headers["Authorization"] = f"Bearer {identity_token}"
 
         resp = await client.request(
             method=request.method,
