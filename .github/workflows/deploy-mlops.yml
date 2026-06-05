@@ -101,5 +101,7 @@ jobs:
             ML_SERVICE_API_KEY=${{ secrets.ML_SERVICE_API_KEY }}
             LLM_SERVICE_API_KEY=${{ secrets.LLM_SERVICE_API_KEY }}
             gcs_model_bucket=retinaxai-models
+            gcs_model_prefix=
+            artifacts_root_override=/tmp/artifacts
             mlflow_tracking_uri=${{ secrets.MLFLOW_TRACKING_URI }}
             dagshub_token=${{ secrets.DAGSHUB_TOKEN }}

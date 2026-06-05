@@ -1,7 +1,73 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
+
 from loguru import logger
+
+
+def sync_artifacts_from_gcs(
+    bucket_name: str, prefix: str, local_dir: Path
+) -> None:
+    """Download all artifacts under `prefix` from GCS to `local_dir`.
+
+    Skips files that already exist and are the same size (simple cache check).
+    """
+    if not bucket_name or not prefix:
+        return
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blobs = list(bucket.list_blobs(prefix=prefix))
+        if not blobs:
+            logger.warning("gcs_sync_no_files", bucket=bucket_name, prefix=prefix)
+            return
+        for blob in blobs:
+            if blob.name.endswith("/"):
+                continue
+            rel = Path(blob.name).relative_to(prefix)
+            dest = local_dir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if dest.exists() and dest.stat().st_size == blob.size:
+                continue
+            blob.download_to_filename(str(dest))
+            logger.info(
+                "gcs_sync_downloaded",
+                key=blob.name,
+                dest=str(dest),
+                size=blob.size,
+            )
+        logger.info("gcs_sync_complete", bucket=bucket_name, prefix=prefix, files=len(blobs))
+    except Exception as exc:
+        logger.error("gcs_sync_failed", bucket=bucket_name, prefix=prefix, error=str(exc))
+
+
+def read_json_from_gcs(bucket_name: str, key: str) -> dict[str, Any] | None:
+    """Read a JSON file directly from GCS.
+
+    Returns None if the bucket is not configured, the key doesn't exist,
+    or any GCS error occurs.
+    """
+    if not bucket_name:
+        return None
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(key)
+        if not blob.exists():
+            logger.warning("gcs_json_not_found", bucket=bucket_name, key=key)
+            return None
+        raw = blob.download_as_bytes()
+        logger.info("gcs_json_loaded", bucket=bucket_name, key=key, size=len(raw))
+        return json.loads(raw)
+    except Exception as exc:
+        logger.error("gcs_json_read_failed", bucket=bucket_name, key=key, error=str(exc))
+        return None
 
 
 class GCSModelLoader:

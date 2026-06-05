@@ -2,19 +2,38 @@ import json
 from fastapi import APIRouter, HTTPException
 from app.api.schemas import MetricsResponse, ImagingMetrics
 from app.api.dependencies import get_settings
+from app.model.loader import read_json_from_gcs
 
 router = APIRouter()
+
+GCS_ARTIFACTS_PREFIX = "imaging"
+
+
+def _read_artifact_json(settings, local_path, gcs_filename: str):
+    """Read a JSON artifact: try GCS first, fall back to local file."""
+    bucket = settings.gcs_model_bucket
+    if bucket:
+        key = f"{GCS_ARTIFACTS_PREFIX}/{gcs_filename}"
+        data = read_json_from_gcs(bucket, key)
+        if data is not None:
+            return data
+    if local_path.is_file():
+        with open(local_path) as f:
+            return json.load(f)
+    return None
 
 
 @router.get("/metrics", response_model=MetricsResponse)
 def get_metrics():
     settings = get_settings()
 
+    data = _read_artifact_json(
+        settings, settings.imaging_metrics_path, "metrics.json"
+    )
+
     imaging_metrics = None
     imaging_detail = None
-    if settings.imaging_metrics_path.is_file():
-        with open(settings.imaging_metrics_path) as f:
-            data = json.load(f)
+    if data is not None:
         eyepacs = data.get("eyepacs_test", {})
         imaging_metrics = ImagingMetrics(
             accuracy=eyepacs.get("accuracy"),
@@ -26,11 +45,11 @@ def get_metrics():
         )
         imaging_detail = data
 
-    training_summary = None
-    training_summary_path = settings.imaging_artifacts_dir / "training_summary.json"
-    if training_summary_path.is_file():
-        with open(training_summary_path) as f:
-            training_summary = json.load(f)
+    training_summary = _read_artifact_json(
+        settings,
+        settings.imaging_artifacts_dir / "training_summary.json",
+        "training_summary.json",
+    )
 
     return MetricsResponse(
         imaging=imaging_metrics,

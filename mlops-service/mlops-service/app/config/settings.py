@@ -53,6 +53,17 @@ class Settings(BaseSettings):
     gcs_model_bucket: str = ""
     gcs_model_prefix: str = "models"
 
+    # If set, overrides the default artifacts_root path (useful for Cloud Run
+    # where the sibling artifacts/ dir doesn't exist).
+    artifacts_root_override: Path | None = None
+
+    @property
+    def artifacts_root(self) -> Path:
+        """Artifacts directory — from override env var, or sibling to mlops-service/."""
+        if self.artifacts_root_override:
+            return self.artifacts_root_override
+        return _get_service_root().parent / "artifacts"
+
     @property
     def data_dir(self) -> Path:
         """Service-relative data directory."""
@@ -87,11 +98,6 @@ class Settings(BaseSettings):
         return self.data_dir / "vectorstore"
 
     @property
-    def artifacts_root(self) -> Path:
-        """Artifacts directory - sibling to mlops-service/."""
-        return _get_service_root().parent / "artifacts"
-
-    @property
     def imaging_artifacts_dir(self) -> Path:
         return self.artifacts_root / "model" / "imaging"
 
@@ -106,6 +112,14 @@ class Settings(BaseSettings):
     @property
     def lesion_model_path(self) -> Path:
         return self.lesion_artifacts_dir / "model.pth"
+
+    @property
+    def fundus_artifacts_dir(self) -> Path:
+        return self.artifacts_root / "model" / "fundus"
+
+    @property
+    def fundus_model_path(self) -> Path:
+        return self.fundus_artifacts_dir / "fundus_classifier.pth"
 
     @property
     def evidently_metrics_path(self) -> Path:

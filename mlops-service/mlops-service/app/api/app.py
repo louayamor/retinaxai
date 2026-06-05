@@ -35,6 +35,7 @@ from app.monitoring.prometheus_metrics import (
     start_evaluation_background_refresh,
 )
 from app.monitoring.mlops_monitor_publisher import MLOpsMonitorPublisher
+from app.model.loader import sync_artifacts_from_gcs
 
 logger.disable("sqlalchemy.engine.Engine")
 logger.disable("sqlalchemy.pool")
@@ -55,6 +56,30 @@ async def lifespan(app: FastAPI):
     logger.info(f"environment: {settings.app_env}")
     init_metrics()
     start_metrics_server(port=settings.prometheus_metrics_port)
+
+    # Sync artifacts from GCS on startup so local-file routes (metrics, downloads) work
+    if settings.gcs_model_bucket:
+        logger.info(
+            "gcs_sync_starting",
+            bucket=settings.gcs_model_bucket,
+            dest=str(settings.artifacts_root),
+        )
+        sync_artifacts_from_gcs(
+            settings.gcs_model_bucket,
+            "imaging",
+            settings.imaging_artifacts_dir,
+        )
+        # Also sync lesion artifacts if present
+        sync_artifacts_from_gcs(
+            settings.gcs_model_bucket,
+            "lesion",
+            settings.lesion_artifacts_dir,
+        )
+        sync_artifacts_from_gcs(
+            settings.gcs_model_bucket,
+            "fundus",
+            settings.fundus_artifacts_dir,
+        )
 
     # Bridge pipeline-evaluation metrics into Prometheus gauges
     update_qwk_from_metrics_files(settings.imaging_metrics_path)

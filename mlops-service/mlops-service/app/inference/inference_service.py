@@ -207,9 +207,7 @@ class InferenceService:
         if self._lesion_detector is not None:
             return self._lesion_detector
 
-        ckpt_path = Path(
-            str(lesion_cfg.get("checkpoint_path", "artifacts/model/lesion/model.pth"))
-        )
+        ckpt_path = self.settings.lesion_model_path
         if not ckpt_path.exists():
             logger.warning(f"Lesion checkpoint not found: {ckpt_path}")
             return None
