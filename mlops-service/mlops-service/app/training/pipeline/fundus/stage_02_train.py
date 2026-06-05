@@ -111,7 +111,7 @@ def train_fundus_classifier(
     image_size: int = 384,
     num_classes: int = 2,
     dropout: float = 0.1,
-    batch_size: int = 128,
+    batch_size: int = 64,
     num_epochs: int = 5,
     learning_rate: float = 0.001,
     num_workers: int = 4,
@@ -279,7 +279,7 @@ def run() -> None:
     image_size = fc_cfg.get("image_size", 384)
     num_classes = fc_cfg.get("num_classes", 2)
     dropout_rate = fc_cfg.get("dropout", 0.1)
-    batch_size = int(fc_cfg.get("batch_size", 128))
+    batch_size = int(fc_cfg.get("batch_size", 64))
     num_epochs = int(fc_cfg.get("num_epochs", 5))
     learning_rate = float(fc_cfg.get("learning_rate", 0.001))
     num_workers = int(fc_cfg.get("num_workers", 4))
