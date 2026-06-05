@@ -52,7 +52,12 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379"
     WS_URL: str = "ws://localhost:8000/ws"
 
-    CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "https://retinaxai.me",
+        "https://www.retinaxai.me",
+        "https://retina-xai.vercel.app",
+    ]
 
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "console"
