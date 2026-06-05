@@ -111,9 +111,10 @@ def train_fundus_classifier(
     image_size: int = 384,
     num_classes: int = 2,
     dropout: float = 0.1,
-    batch_size: int = 32,
+    batch_size: int = 128,
     num_epochs: int = 5,
     learning_rate: float = 0.001,
+    num_workers: int = 4,
     device: torch.device = None,
 ) -> Path:
     if device is None:
@@ -189,10 +190,10 @@ def train_fundus_classifier(
     )
 
     train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=0
+        train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=0
+        val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
     )
 
     logger.info(f"[FUNDUS] train samples: {train_size}, val samples: {val_size}")
@@ -278,9 +279,10 @@ def run() -> None:
     image_size = fc_cfg.get("image_size", 384)
     num_classes = fc_cfg.get("num_classes", 2)
     dropout_rate = fc_cfg.get("dropout", 0.1)
-    batch_size = int(fc_cfg.get("batch_size", 32))
+    batch_size = int(fc_cfg.get("batch_size", 128))
     num_epochs = int(fc_cfg.get("num_epochs", 5))
     learning_rate = float(fc_cfg.get("learning_rate", 0.001))
+    num_workers = int(fc_cfg.get("num_workers", 4))
 
     output_path = ARTIFACTS_DIR / "fundus_classifier.pth"
 
@@ -294,6 +296,7 @@ def run() -> None:
         batch_size=batch_size,
         num_epochs=num_epochs,
         learning_rate=learning_rate,
+        num_workers=num_workers,
     )
 
     logger.info(">>> fundus stage 02: training complete")
