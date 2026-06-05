@@ -1,8 +1,6 @@
 from __future__ import annotations
-import asyncio
 import re
 import time as time_mod
-from functools import partial
 from typing import Any
 
 import httpx
@@ -325,16 +323,19 @@ async def grafana_proxy(
 
 
 async def _get_identity_token(audience: str) -> str | None:
+    metadata_url = (
+        "http://metadata.google.internal/computeMetadata/v1/"
+        "instance/service-accounts/default/identity"
+    )
     try:
-        import google.auth.transport.requests
-        import google.oauth2.id_token
-        auth_req = google.auth.transport.requests.Request()
-        loop = asyncio.get_running_loop()
-        token = await loop.run_in_executor(
-            None,
-            partial(google.oauth2.id_token.fetch_id_token, auth_req, audience),
-        )
-        return token
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(
+                metadata_url,
+                params={"audience": audience, "format": "full"},
+                headers={"Metadata-Flavor": "Google"},
+            )
+            resp.raise_for_status()
+            return resp.text
     except Exception:
         return None
 
