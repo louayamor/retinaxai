@@ -4,29 +4,23 @@ import io
 import sys
 from pathlib import Path
 
-import mlflow
 import timm
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from loguru import logger
 from torch.utils.data import DataLoader, Dataset
-from torchvision import datasets, transforms
+from torchvision import transforms
 from datasets import load_from_disk
 from PIL import Image
-import numpy as np
-
-from mlflow.exceptions import MlflowException
 
 from app.training.preprocessing import preprocess_fundus_image
-from app.utils.common import read_yaml, set_seed
+from app.utils.common import read_yaml
 from app.constants import PARAMS_FILE_PATH
-
+from app.config.settings import settings as _settings
 
 logger.remove()
 logger.add(sys.stdout, serialize=True)
-
-from app.config.settings import settings as _settings
 
 ARTIFACTS_DIR = _settings.artifacts_root
 PROCESSED_DATA_DIR = _settings.imaging_data_dir
@@ -34,8 +28,6 @@ RAW_DATA_DIR = _settings.artifacts_root / "data" / "raw" / "huggingface" / "trai
 
 
 class FundusValidationDataset(Dataset):
-    """Binary dataset: fundus (1) vs non-fundus (0)."""
-
     def __init__(self, fundus_dir: Path, non_fundus_dir: Path, transform=None):
         self.transform = transform
         self.samples: list[tuple[Path, int]] = []
@@ -80,8 +72,6 @@ class FundusValidationDataset(Dataset):
 
 
 class RawFundusParquetDataset(Dataset):
-    """Raw fundus images from HuggingFace parquet/arrow cache (all positives)."""
-
     def __init__(self, raw_dir: Path, transform=None):
         self.raw_dir = raw_dir
         self.transform = transform
@@ -114,129 +104,6 @@ class RawFundusParquetDataset(Dataset):
         return img, 1
 
 
-def download_imagenet_subset(output_dir: Path, num_samples: int = 5000) -> None:
-    """Download random ImageNet images as negative samples.
-
-    If ImageNet is unavailable, fallback to CIFAR-10 download.
-    """
-    logger.info(f"[FUNDUS] downloading {num_samples} ImageNet images...")
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        dataset = datasets.ImageNet(
-            root=output_dir / "imagenet_raw",
-            split="val",
-            download=True,
-        )
-
-        indices = np.random.choice(
-            len(dataset), min(num_samples, len(dataset)), replace=False
-        )
-
-        for i, idx in enumerate(indices):
-            img, _label = dataset[idx]
-            img.save(output_dir / f"imagenet_{i:05d}.jpg")
-
-        logger.info(f"[FUNDUS] downloaded {len(indices)} ImageNet images")
-        return
-    except (OSError, RuntimeError, ValueError) as e:
-        logger.warning(f"ImageNet download failed: {e}")
-
-    logger.info("[FUNDUS] falling back to CIFAR-10 negatives")
-    try:
-        cifar_root = output_dir / "cifar10_raw"
-        dataset = datasets.CIFAR10(root=cifar_root, train=False, download=True)
-        indices = np.random.choice(
-            len(dataset), min(num_samples, len(dataset)), replace=False
-        )
-        for i, idx in enumerate(indices):
-            img, _label = dataset[idx]
-            img.save(output_dir / f"cifar10_{i:05d}.jpg")
-        logger.info(f"[FUNDUS] downloaded {len(indices)} CIFAR-10 images")
-    except (OSError, RuntimeError, ValueError) as e:
-        logger.error(f"CIFAR-10 download failed: {e}")
-        raise
-
-
-def create_corrupted_fundus_from_raw(
-    raw_dir: Path, output_dir: Path, num_samples: int = 5000
-) -> None:
-    """Create corrupted fundus images as negative samples from raw parquet."""
-    logger.info(f"[FUNDUS] creating {num_samples} corrupted fundus images...")
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    if not raw_dir.exists():
-        logger.warning(f"[FUNDUS] raw fundus directory not found: {raw_dir}")
-        return
-
-    ds = load_from_disk(str(raw_dir))
-    if len(ds) == 0:
-        logger.warning("[FUNDUS] raw fundus dataset is empty")
-        return
-
-    corruption_types = [
-        "gaussian_noise",
-        "blur",
-        "invert",
-        "grayscale",
-        "rotate_90",
-        "rotate_180",
-        "rotate_270",
-        "color_shift",
-        "overexpose",
-        "underexpose",
-    ]
-
-    for i in range(num_samples):
-        try:
-            sample = ds[np.random.randint(0, len(ds))]
-            img = sample.get("image")
-            if isinstance(img, dict) and img.get("bytes") is not None:
-                img = Image.open(io.BytesIO(img["bytes"])).convert("RGB")
-            elif isinstance(img, Image.Image):
-                img = img.convert("RGB")
-            else:
-                continue
-
-            corruption = np.random.choice(corruption_types)
-
-            if corruption == "gaussian_noise":
-                img_np = np.array(img).astype(np.float32)
-                noise = np.random.normal(0, 50, img_np.shape)
-                img_np = np.clip(img_np + noise, 0, 255).astype(np.uint8)
-                img = Image.fromarray(img_np)
-            elif corruption == "blur":
-                from torchvision import transforms as T
-
-                img = T.GaussianBlur(kernel_size=15, sigma=(5, 10))(img)
-            elif corruption == "invert":
-                img_np = 255 - np.array(img)
-                img = Image.fromarray(img_np)
-            elif corruption == "grayscale":
-                img = img.convert("L").convert("RGB")
-            elif corruption.startswith("rotate"):
-                angle = int(corruption.split("_")[1])
-                img = img.rotate(angle, expand=True)
-            elif corruption == "color_shift":
-                img_np = np.array(img)
-                img_np[:, :, 0] = np.roll(img_np[:, :, 0], 50)
-                img = Image.fromarray(img_np)
-            elif corruption == "overexpose":
-                img_np = np.clip(np.array(img) * 2.0, 0, 255).astype(np.uint8)
-                img = Image.fromarray(img_np)
-            elif corruption == "underexpose":
-                img_np = np.clip(np.array(img) * 0.2, 0, 255).astype(np.uint8)
-                img = Image.fromarray(img_np)
-
-            img.save(output_dir / f"corrupted_{i:05d}.jpg")
-        except (OSError, RuntimeError, ValueError) as e:
-            logger.debug(f"Failed to corrupt image: {e}")
-
-    logger.info(f"[FUNDUS] created {num_samples} corrupted fundus images")
-
-
 def train_fundus_classifier(
     train_dir: Path,
     output_path: Path,
@@ -249,15 +116,12 @@ def train_fundus_classifier(
     learning_rate: float = 0.001,
     device: torch.device = None,
 ) -> Path:
-    """Train the fundus classifier."""
     if device is None:
         from app.utils.common import require_cuda
-
         device = require_cuda()
 
     logger.info(f"[FUNDUS] training on {device}")
 
-    # Transforms
     params = read_yaml(PARAMS_FILE_PATH)
     aug = params.get("augmentation", {}) or {}
     norm = aug.get("normalize", {}) or {}
@@ -291,11 +155,8 @@ def train_fundus_classifier(
         ]
     )
 
-    # Dataset (raw fundus positives, downloaded negatives)
     non_fundus_dir = train_dir / "non_fundus"
 
-    # Separate dataset instances for train and val splits to avoid
-    # shared-transform mutation issues with random_split
     raw_dataset_train = RawFundusParquetDataset(RAW_DATA_DIR, transform=train_transform)
     neg_dataset_train = FundusValidationDataset(
         Path("/tmp/empty"), non_fundus_dir, train_transform
@@ -318,12 +179,10 @@ def train_fundus_classifier(
     full_train = torch.utils.data.ConcatDataset([raw_dataset_train, neg_dataset_train])
     full_val = torch.utils.data.ConcatDataset([raw_dataset_val, neg_dataset_val])
 
-    # Split both using the same seed so the same indices end up in val
     train_size = int(0.8 * len(full_train))
     val_size = len(full_train) - train_size
-    seed = torch.Generator().manual_seed(42)
     train_dataset, _ = torch.utils.data.random_split(
-        full_train, [train_size, val_size], generator=seed,
+        full_train, [train_size, val_size], generator=torch.Generator().manual_seed(42),
     )
     _, val_dataset = torch.utils.data.random_split(
         full_val, [train_size, val_size], generator=torch.Generator().manual_seed(42),
@@ -338,18 +197,15 @@ def train_fundus_classifier(
 
     logger.info(f"[FUNDUS] train samples: {train_size}, val samples: {val_size}")
 
-    # Model
     model = timm.create_model(
         model_name, pretrained=True, num_classes=num_classes, drop_rate=dropout
     )
     model = model.to(device)
 
-    # Loss and optimizer
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
 
-    # Training loop
     best_val_acc = 0.0
 
     for epoch in range(num_epochs):
@@ -375,7 +231,6 @@ def train_fundus_classifier(
         train_acc = train_correct / train_total
         train_loss /= len(train_loader)
 
-        # Validation
         model.eval()
         val_loss = 0.0
         val_correct = 0
@@ -397,16 +252,6 @@ def train_fundus_classifier(
 
         scheduler.step()
 
-        mlflow.log_metrics(
-            {
-                "train_loss": float(round(train_loss, 4)),
-                "train_acc": float(round(train_acc, 4)),
-                "val_loss": float(round(val_loss, 4)),
-                "val_acc": float(round(val_acc, 4)),
-            },
-            step=epoch,
-        )
-
         logger.info(
             f"[FUNDUS] epoch {epoch + 1}/{num_epochs}: "
             f"train_loss={train_loss:.4f} train_acc={train_acc:.4f} "
@@ -419,32 +264,12 @@ def train_fundus_classifier(
             torch.save(model.state_dict(), output_path)
             logger.info(f"[FUNDUS] best model saved to {output_path}")
 
-    mlflow.log_metric("best_val_acc", float(round(best_val_acc, 4)))
     logger.info(f"[FUNDUS] training complete: best_val_acc={best_val_acc:.4f}")
     return output_path
 
 
-def _prepare_negatives(non_fundus_dir: Path) -> None:
-    """Download or load cached negative samples for fundus classifier."""
-    cached_marker = non_fundus_dir / ".cached"
-    if cached_marker.exists():
-        existing = len(list(non_fundus_dir.rglob("*.jpg"))) + len(
-            list(non_fundus_dir.rglob("*.png"))
-        )
-        if existing >= 5000:
-            logger.info(
-                f"[FUNDUS] using {existing} cached negative samples at {non_fundus_dir}"
-            )
-            return
-    logger.info("[FUNDUS] preparing negative samples...")
-    download_imagenet_subset(non_fundus_dir, num_samples=5000)
-    create_corrupted_fundus_from_raw(RAW_DATA_DIR, non_fundus_dir, num_samples=5000)
-    cached_marker.touch()
-
-
 def run() -> None:
-    """Main entry point for stage 04b."""
-    logger.info(">>> stage 04b: fundus classifier training started")
+    logger.info(">>> fundus stage 02: training started")
 
     params = read_yaml(PARAMS_FILE_PATH)
     fc_cfg = params.get("fundus_classifier", {})
@@ -452,66 +277,23 @@ def run() -> None:
     model_name = fc_cfg.get("model_name", "mobilenetv3_small_100")
     image_size = fc_cfg.get("image_size", 384)
     num_classes = fc_cfg.get("num_classes", 2)
-    threshold = fc_cfg.get("threshold", 0.3)
     dropout_rate = fc_cfg.get("dropout", 0.1)
     batch_size = int(fc_cfg.get("batch_size", 32))
     num_epochs = int(fc_cfg.get("num_epochs", 5))
     learning_rate = float(fc_cfg.get("learning_rate", 0.001))
 
-    non_fundus_dir = PROCESSED_DATA_DIR / "non_fundus"
-    _prepare_negatives(non_fundus_dir)
-
     output_path = ARTIFACTS_DIR / "fundus_classifier.pth"
 
-    from app.utils.mlflow_utils import configure_mlflow
+    train_fundus_classifier(
+        train_dir=PROCESSED_DATA_DIR,
+        output_path=output_path,
+        model_name=model_name,
+        image_size=image_size,
+        num_classes=num_classes,
+        dropout=dropout_rate,
+        batch_size=batch_size,
+        num_epochs=num_epochs,
+        learning_rate=learning_rate,
+    )
 
-    configure_mlflow()
-
-    try:
-        with mlflow.start_run(run_name="fundus_classifier"):
-            mlflow.log_params(
-                {
-                    "model_name": model_name,
-                    "image_size": image_size,
-                    "num_classes": num_classes,
-                    "threshold": threshold,
-                    "batch_size": batch_size,
-                    "num_epochs": num_epochs,
-                    "learning_rate": learning_rate,
-                    "dropout": dropout_rate,
-                }
-            )
-
-            train_fundus_classifier(
-                train_dir=PROCESSED_DATA_DIR,
-                output_path=output_path,
-                model_name=model_name,
-                image_size=image_size,
-                num_classes=num_classes,
-                dropout=dropout_rate,
-                batch_size=batch_size,
-                num_epochs=num_epochs,
-                learning_rate=learning_rate,
-            )
-
-            mlflow.log_artifact(str(output_path), artifact_path="fundus_classifier")
-            logger.info(f"[FUNDUS] model logged to MLflow: {output_path}")
-    except MlflowException as e:
-        logger.warning(f"[FUNDUS] MLflow disabled: {e}")
-        train_fundus_classifier(
-            train_dir=PROCESSED_DATA_DIR,
-            output_path=output_path,
-            model_name=model_name,
-            image_size=image_size,
-            num_classes=num_classes,
-            dropout=dropout_rate,
-            batch_size=batch_size,
-            num_epochs=num_epochs,
-            learning_rate=learning_rate,
-        )
-
-    logger.info(">>> stage 04b: fundus classifier training complete")
-
-
-if __name__ == "__main__":
-    run()
+    logger.info(">>> fundus stage 02: training complete")

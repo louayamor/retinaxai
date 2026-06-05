@@ -70,6 +70,48 @@ async def trigger_imaging_pipeline(
     )
 
 
+@router.post("/train/fundus", response_model=TrainResponse)
+async def trigger_fundus_pipeline(
+    background_tasks: BackgroundTasks,
+    settings: Settings = Depends(get_settings),
+):
+    gate = ResourceManager(
+        max_jobs=settings.max_training_jobs,
+        max_jobs_per_pipeline=settings.max_training_jobs_per_pipeline,
+    ).can_start("fundus")
+    if not gate.allowed:
+        await send_raw_event(
+            event="training.rejected",
+            data={
+                "pipeline": "fundus",
+                "reason": gate.reason,
+            },
+            room="training:fundus",
+        )
+        raise MLOpsException(
+            status_code=429,
+            detail=f"Training rejected: {gate.reason}",
+            error_code="TRAINING_REJECTED",
+        )
+    job_id = create_job("fundus")
+    await send_raw_event(
+        event="training.queued",
+        data={
+            "job_id": job_id,
+            "pipeline": "fundus",
+            "status": "queued",
+        },
+        room="training:fundus",
+    )
+    background_tasks.add_task(run_pipeline_task, job_id, "fundus")
+    return TrainResponse(
+        job_id=job_id,
+        pipeline="fundus",
+        status="pending",
+        message="fundus classifier training job queued",
+    )
+
+
 @router.post("/train/{job_id}/stop")
 async def stop_training(job_id: str):
     """Stop a running training job."""

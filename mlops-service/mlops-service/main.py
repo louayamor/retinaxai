@@ -15,9 +15,8 @@ from app.training.pipeline.stage_03_data_transformation import (
     run as img_transform,
 )  # noqa: E402
 from app.training.pipeline.stage_04_model_trainer import run as img_train  # noqa: E402
-from app.training.pipeline.stage_04b_fundus_classifier import (
-    run as img_fundus,
-)  # noqa: E402
+from app.training.pipeline.fundus.stage_01_ingest import run as fundus_ingest  # noqa: E402
+from app.training.pipeline.fundus.stage_02_train import run as fundus_train  # noqa: E402
 from app.training.pipeline.stage_05_model_evaluation import run as img_evaluate  # noqa: E402
 
 from app.training.pipeline.lesion.stage_01_ddr_ingestion import (  # noqa: E402
@@ -37,12 +36,18 @@ IMAGING_PIPELINE: dict[str, Callable] = {
     "ingest": img_ingest,
     "clean": img_clean,
     "transform": img_transform,
-    "fundus": img_fundus,
     "train": img_train,
     "evaluate": img_evaluate,
 }
 
-IMAGING_PIPELINE_ORDER = ["ingest", "clean", "transform", "fundus", "train", "evaluate"]
+IMAGING_PIPELINE_ORDER = ["ingest", "clean", "transform", "train", "evaluate"]
+
+FUNDUS_PIPELINE: dict[str, Callable] = {
+    "prepare": fundus_ingest,
+    "train": fundus_train,
+}
+
+FUNDUS_PIPELINE_ORDER = ["prepare", "train"]
 
 LESION_PIPELINE: dict[str, Callable] = {
     "ingest": lesion_ingest,
@@ -87,6 +92,13 @@ def run_pipeline(stage: str, target: str) -> None:
             run_full_pipeline(LESION_PIPELINE, LESION_PIPELINE_ORDER)
         else:
             run_stage(stage, LESION_PIPELINE)
+    elif target == "fundus":
+        TRAINING_RUNS_TOTAL.labels(pipeline="fundus").inc()
+        logger.info("Executing fundus classifier pipeline")
+        if stage == "all":
+            run_full_pipeline(FUNDUS_PIPELINE, FUNDUS_PIPELINE_ORDER)
+        else:
+            run_stage(stage, FUNDUS_PIPELINE)
     else:
         TRAINING_RUNS_TOTAL.labels(pipeline="imaging").inc()
         logger.info("Executing imaging pipeline")
@@ -131,15 +143,15 @@ def main():
     pipeline_parser.add_argument(
         "--stage",
         type=str,
-        choices=["ingest", "clean", "transform", "fundus", "train", "evaluate", "all"],
+        choices=["ingest", "clean", "transform", "prepare", "train", "evaluate", "all"],
         default="all",
     )
     pipeline_parser.add_argument(
         "--pipeline",
         type=str,
-        choices=["imaging", "lesion"],
+        choices=["imaging", "lesion", "fundus"],
         default="imaging",
-        help="Pipeline to run (imaging: DR grading; lesion: lesion segmentation)",
+        help="Pipeline to run (imaging: DR grading; lesion: lesion segmentation; fundus: fundus classifier)",
     )
 
     subparsers.add_parser("serve")

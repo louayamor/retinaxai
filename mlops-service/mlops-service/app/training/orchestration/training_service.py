@@ -13,6 +13,8 @@ from app.training.pipeline.stage_02_data_cleaning import run as img_s2
 from app.training.pipeline.stage_03_data_transformation import run as img_s3
 from app.training.pipeline.stage_04_model_trainer import run as img_s4
 from app.training.pipeline.stage_05_model_evaluation import run as img_s5
+from app.training.pipeline.fundus.stage_01_ingest import run as fundus_s1
+from app.training.pipeline.fundus.stage_02_train import run as fundus_s2
 from app.training.pipeline.lesion import (
     stage_01_ddr_ingestion as lesion_s1,
     stage_02_ddr_transformation as lesion_s2,
@@ -459,80 +461,115 @@ def run_pipeline_task(job_id: str, pipeline: str) -> None:
                 )
                 raise
 
-        # Register trained models in model registry
-        try:
+        elif pipeline == "fundus":
             _emit_stage_event(
-                job_id,
-                pipeline,
-                "model_registration",
-                "started",
-                95,
-                "Registering trained models in model registry...",
+                job_id, pipeline, "data_ingestion", "started", 0,
+                "Downloading EyePACS positives and preparing negatives...",
             )
+            if is_job_cancelled(job_id):
+                raise TrainingException("Job cancelled by user")
+            try:
+                fundus_s1()
+                _emit_stage_event(
+                    job_id, pipeline, "data_ingestion", "completed", 50,
+                    "Fundus positives and negatives ready",
+                )
+            except (OSError, RuntimeError, ValueError) as e:
+                _emit_stage_event(
+                    job_id, pipeline, "data_ingestion", "failed", 0, str(e), error=str(e),
+                )
+                raise
 
-            from app.config.settings import settings
-            from app.training.orchestration.training_pipeline import TrainingPipeline
+            _emit_stage_event(
+                job_id, pipeline, "model_training", "started", 50,
+                "Training fundus classifier...",
+            )
+            if is_job_cancelled(job_id):
+                raise TrainingException("Job cancelled by user")
+            try:
+                fundus_s2()
+                _emit_stage_event(
+                    job_id, pipeline, "model_training", "completed", 100,
+                    "Fundus classifier training complete",
+                )
+            except (OSError, RuntimeError, ValueError) as e:
+                _emit_stage_event(
+                    job_id, pipeline, "model_training", "failed", 0, str(e), error=str(e),
+                )
+                raise
 
-            # Initialize registry and create version
-            training_pipeline = TrainingPipeline()
-
-            # Generate version numbers
-            imaging_version = training_pipeline._generate_version("imaging")
-            lesion_version = training_pipeline._generate_version("lesion")
-
-            if settings.imaging_model_path.exists():
-                imaging_metrics = {}
-                if settings.imaging_metrics_path.exists():
-                    try:
-                        with open(settings.imaging_metrics_path) as f:
-                            imaging_metrics = json.load(f)
-                    except (OSError, json.JSONDecodeError) as e:
-                        logger.warning(f"Failed to load imaging metrics: {e}")
-
-                training_pipeline._register_model(
-                    pipeline="imaging",
-                    version=imaging_version,
-                    model_path=settings.imaging_model_path,
-                    metrics=imaging_metrics,
+        # Register trained models in model registry (fundus pipeline skips registration)
+        if pipeline != "fundus":
+            try:
+                _emit_stage_event(
+                    job_id,
+                    pipeline,
+                    "model_registration",
+                    "started",
+                    95,
+                    "Registering trained models in model registry...",
                 )
 
-            if settings.lesion_model_path.exists():
-                lesion_metrics_path = settings.lesion_model_path.parent / "metrics.json"
-                lesion_metrics = {}
-                if lesion_metrics_path.exists():
-                    try:
-                        with open(lesion_metrics_path) as f:
-                            lesion_metrics = json.load(f)
-                    except (OSError, json.JSONDecodeError) as e:
-                        logger.warning(f"Failed to load lesion metrics: {e}")
+                from app.config.settings import settings
+                from app.training.orchestration.training_pipeline import TrainingPipeline
 
-                training_pipeline._register_model(
-                    pipeline="lesion",
-                    version=lesion_version,
-                    model_path=settings.lesion_model_path,
-                    metrics=lesion_metrics,
+                training_pipeline = TrainingPipeline()
+
+                imaging_version = training_pipeline._generate_version("imaging")
+                lesion_version = training_pipeline._generate_version("lesion")
+
+                if settings.imaging_model_path.exists():
+                    imaging_metrics = {}
+                    if settings.imaging_metrics_path.exists():
+                        try:
+                            with open(settings.imaging_metrics_path) as f:
+                                imaging_metrics = json.load(f)
+                        except (OSError, json.JSONDecodeError) as e:
+                            logger.warning(f"Failed to load imaging metrics: {e}")
+
+                    training_pipeline._register_model(
+                        pipeline="imaging",
+                        version=imaging_version,
+                        model_path=settings.imaging_model_path,
+                        metrics=imaging_metrics,
+                    )
+
+                if settings.lesion_model_path.exists():
+                    lesion_metrics_path = settings.lesion_model_path.parent / "metrics.json"
+                    lesion_metrics = {}
+                    if lesion_metrics_path.exists():
+                        try:
+                            with open(lesion_metrics_path) as f:
+                                lesion_metrics = json.load(f)
+                        except (OSError, json.JSONDecodeError) as e:
+                            logger.warning(f"Failed to load lesion metrics: {e}")
+
+                    training_pipeline._register_model(
+                        pipeline="lesion",
+                        version=lesion_version,
+                        model_path=settings.lesion_model_path,
+                        metrics=lesion_metrics,
+                    )
+
+                _emit_stage_event(
+                    job_id,
+                    pipeline,
+                    "model_registration",
+                    "completed",
+                    100,
+                    f"Models registered: imaging={imaging_version} lesion={lesion_version}",
                 )
 
-            _emit_stage_event(
-                job_id,
-                pipeline,
-                "model_registration",
-                "completed",
-                100,
-                f"Models registered: imaging={imaging_version} lesion={lesion_version}",
-            )
-
-        except (OSError, RuntimeError, ValueError) as e:
-            logger.error(f"Failed to register models: {e}")
-            # Non-critical - don't fail job if registration fails
-            _emit_stage_event(
-                job_id,
-                pipeline,
-                "model_registration",
-                "warning",
-                95,
-                f"Model registration failed (non-critical): {e}",
-            )
+            except (OSError, RuntimeError, ValueError) as e:
+                logger.error(f"Failed to register models: {e}")
+                _emit_stage_event(
+                    job_id,
+                    pipeline,
+                    "model_registration",
+                    "warning",
+                    95,
+                    f"Model registration failed (non-critical): {e}",
+                )
 
         _job_store[job_id]["status"] = "completed"
         _job_store[job_id]["completed_at"] = datetime.utcnow().isoformat()
