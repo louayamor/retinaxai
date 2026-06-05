@@ -10,6 +10,7 @@ SRC_REPO = "retinaxai-llmops"
 AUTHOR_EMAIL = "amor.louay20@gmail.com"
 
 setuptools.setup(
+    
     name=SRC_REPO,
     version=__version__,
     author=AUTHOR_USER_NAME,

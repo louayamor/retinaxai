@@ -92,7 +92,6 @@ def _start_local_redis():
 def _stop_local_redis():
     pass
 
-
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.APP_NAME,
