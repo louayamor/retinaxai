@@ -1,4 +1,5 @@
 import Providers from '@/components/layout/providers';
+import { SkipToContent } from '@/components/skip-to-content';
 import { Toaster } from '@/components/ui/sonner';
 import { fontVariables } from '@/components/themes/font.config';
 import ThemeProvider from '@/components/themes/theme-provider';
@@ -29,7 +30,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: META_THEME_COLORS.light
+  themeColor: META_THEME_COLORS.dark
 };
 
 export default function RootLayout({
@@ -45,12 +46,12 @@ export default function RootLayout({
           fontVariables
         )}
       >
+        <SkipToContent />
         <NextTopLoader color='var(--primary)' showSpinner={false} />
         <NuqsAdapter>
           <ThemeProvider
             attribute='class'
-            defaultTheme='system'
-            enableSystem
+            defaultTheme='dark'
             disableTransitionOnChange
             enableColorScheme
           >

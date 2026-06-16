@@ -288,9 +288,6 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   return request<DashboardStats>('/api/v1/dashboard/stats');
 }
 
-// LLMOps service API (runs on port 8002)
-const LLMOPS_BASE = process.env.NEXT_PUBLIC_LLMOPS_URL ?? 'http://localhost:8002';
-
 interface RagStatusResponse {
   status: string;
   schema_version?: string;
@@ -298,6 +295,33 @@ interface RagStatusResponse {
   artifact_count: number;
   collection_name?: string;
   persist_directory?: string;
+}
+
+async function llmopsProxyRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return request<T>(`/api/v1/llmops-proxy/${path}`, init);
+}
+
+export async function getRagStatus(): Promise<RagStatusResponse> {
+  return llmopsProxyRequest<RagStatusResponse>('api/rag/status');
+}
+
+export async function triggerRagReindex(): Promise<RagReindexResponse> {
+  return llmopsProxyRequest<RagReindexResponse>('api/rag/reindex', { method: 'POST' });
+}
+
+export async function checkLlmoopsHealth(): Promise<{ status: string }> {
+  return llmopsProxyRequest<{ status: string }>('health');
+}
+
+export interface OperationStatus {
+  state: string;
+  message: string;
+  progress: number | null;
+  started_at: string | null;
+}
+
+export async function getOperationStatus(): Promise<OperationStatus> {
+  return llmopsProxyRequest<OperationStatus>('api/operation/status');
 }
 
 interface RagReindexResponse {
@@ -310,49 +334,6 @@ interface RagReindexResponse {
     document_count: number;
     chunk_count: number;
   };
-}
-
-const LLMOPS_API_KEY = process.env.NEXT_PUBLIC_LLMOPS_API_KEY ?? 'dev-api-key';
-
-async function _handleLlmoopsResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const detail = body?.detail || `HTTP ${res.status}`;
-    throw new Error(detail);
-  }
-  return res.json();
-}
-
-export async function getRagStatus(): Promise<RagStatusResponse> {
-  const res = await fetch(`${LLMOPS_BASE}/api/rag/status`, {
-    headers: { 'x-api-key': LLMOPS_API_KEY },
-  });
-  return _handleLlmoopsResponse(res);
-}
-
-export async function triggerRagReindex(): Promise<RagReindexResponse> {
-  const res = await fetch(`${LLMOPS_BASE}/api/rag/reindex`, {
-    method: 'POST',
-    headers: { 'x-api-key': LLMOPS_API_KEY },
-  });
-  return _handleLlmoopsResponse(res);
-}
-
-export async function checkLlmoopsHealth(): Promise<{ status: string }> {
-  const res = await fetch(`${LLMOPS_BASE}/health`);
-  return _handleLlmoopsResponse(res);
-}
-
-export interface OperationStatus {
-  state: string;
-  message: string;
-  progress: number | null;
-  started_at: string | null;
-}
-
-export async function getOperationStatus(): Promise<OperationStatus> {
-  const res = await fetch(`${LLMOPS_BASE}/api/operation/status`);
-  return _handleLlmoopsResponse(res);
 }
 
 // Notification API
@@ -438,12 +419,8 @@ export async function generateXAIExplanation(
   confidence: number,
   clinicalFeatures?: Record<string, unknown>
 ): Promise<XAIExplanationResponse> {
-  const res = await fetch(`${LLMOPS_BASE}/api/xai/explain`, {
+  return llmopsProxyRequest<XAIExplanationResponse>('api/xai/explain', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': LLMOPS_API_KEY,
-    },
     body: JSON.stringify({
       prediction_id: predictionId,
       dr_grade: drGrade,
@@ -451,7 +428,6 @@ export async function generateXAIExplanation(
       clinical_features: clinicalFeatures,
     }),
   });
-  return _handleLlmoopsResponse(res);
 }
 
 export async function generateXAIGradCAM(
@@ -459,19 +435,14 @@ export async function generateXAIGradCAM(
   leftEyeRegions: (string | Record<string, unknown>)[] = [],
   rightEyeRegions: (string | Record<string, unknown>)[] = []
 ): Promise<XAIGradCAMResponse> {
-  const res = await fetch(`${LLMOPS_BASE}/api/xai/gradcam`, {
+  return llmopsProxyRequest<XAIGradCAMResponse>('api/xai/gradcam', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': LLMOPS_API_KEY,
-    },
     body: JSON.stringify({
       prediction_id: predictionId,
       left_eye_regions: leftEyeRegions,
       right_eye_regions: rightEyeRegions,
     }),
   });
-  return _handleLlmoopsResponse(res);
 }
 
 export async function generateXAISeverity(
@@ -480,12 +451,8 @@ export async function generateXAISeverity(
   drGrade: string,
   riskFactors: string[] = []
 ): Promise<XAISeverityResponse> {
-  const res = await fetch(`${LLMOPS_BASE}/api/xai/severity`, {
+  return llmopsProxyRequest<XAISeverityResponse>('api/xai/severity', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': LLMOPS_API_KEY,
-    },
     body: JSON.stringify({
       prediction_id: predictionId,
       patient_data: patientData,
@@ -493,7 +460,6 @@ export async function generateXAISeverity(
       risk_factors: riskFactors,
     }),
   });
-  return _handleLlmoopsResponse(res);
 }
 
 // SHAP-specific API
@@ -516,19 +482,14 @@ export async function generateSHAPExplanation(
   clinicalFeatures: Record<string, unknown>,
   pipeline = 'clinical'
 ): Promise<SHAPExplainResponse> {
-  const res = await fetch(`${LLMOPS_BASE}/api/xai/shap/explain`, {
+  return llmopsProxyRequest<SHAPExplainResponse>('api/xai/shap/explain', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': LLMOPS_API_KEY,
-    },
     body: JSON.stringify({
       prediction_id: predictionId,
       features: clinicalFeatures,
       pipeline,
     }),
   });
-  return _handleLlmoopsResponse(res);
 }
 
 export async function storeXAIShallowResults(
@@ -815,22 +776,6 @@ export async function rollbackModelVersion(version: string, reason: string): Pro
 
 // ============ LLMOps API ============
 
-async function llmopsRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${LLMOPS_BASE}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.NEXT_PUBLIC_LLMOPS_API_KEY || '',
-      ...(init.headers as Record<string, string> || {}),
-    },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(body.detail ?? 'LLMOps request failed', res.status);
-  }
-  return res.json();
-}
-
 export interface LLMOpsRagStatus {
   status: string;
   collection_name: string;
@@ -847,21 +792,21 @@ export interface LLMOpsOperation {
 }
 
 export async function getLLMOpsHealth(): Promise<{ status: string; llm_provider: string; model: string }> {
-  return llmopsRequest('/health');
+  return llmopsProxyRequest<{ status: string; llm_provider: string; model: string }>('health');
 }
 
 export async function getLLMOpsRagStatus(): Promise<LLMOpsRagStatus> {
-  return llmopsRequest('/api/rag/status');
+  return llmopsProxyRequest<LLMOpsRagStatus>('api/rag/status');
 }
 
 export async function triggerLLMOpsReindex(): Promise<{ message: string; job_id: string }> {
-  return llmopsRequest('/api/rag/reindex', {
+  return llmopsProxyRequest<{ message: string; job_id: string }>('api/rag/reindex', {
     method: 'POST',
   });
 }
 
 export async function getLLMOpsOperation(): Promise<LLMOpsOperation | null> {
-  return llmopsRequest('/api/operation');
+  return llmopsProxyRequest<LLMOpsOperation | null>('api/operation');
 }
 
 // ============ Analytics API ============
@@ -905,7 +850,7 @@ export const ANALYTIC_QUERIES: Omit<AnalyticsSection, 'response' | 'loading' | '
 ];
 
 export async function queryAnalytics(question: string): Promise<AnalyticsQueryResponse> {
-  return llmopsRequest<AnalyticsQueryResponse>('/api/analytics/query', {
+  return llmopsProxyRequest<AnalyticsQueryResponse>('api/analytics/query', {
     method: 'POST',
     body: JSON.stringify({
       question,

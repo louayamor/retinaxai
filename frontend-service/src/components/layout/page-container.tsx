@@ -6,7 +6,6 @@ import { LoadingState } from '@/components/ui/empty-state';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import type { InfobarContent } from '@/components/ui/infobar';
 import { cn } from '@/lib/utils';
 
 interface PageContainerProps {
@@ -16,7 +15,6 @@ interface PageContainerProps {
   accessFallback?: React.ReactNode;
   pageTitle?: string;
   pageDescription?: string;
-  infoContent?: InfobarContent;
   pageHeaderAction?: React.ReactNode;
   className?: string;
   loadingMessage?: string;
@@ -60,7 +58,6 @@ export default function PageContainer({
   accessFallback,
   pageTitle,
   pageDescription,
-  infoContent,
   pageHeaderAction,
   className,
   loadingMessage = 'Loading...',
@@ -86,7 +83,6 @@ export default function PageContainer({
             <Heading
               title={pageTitle}
               description={pageDescription}
-              infoContent={infoContent}
             />
             {pageHeaderAction && <div>{pageHeaderAction}</div>}
           </div>
@@ -105,7 +101,6 @@ export default function PageContainer({
             <Heading
               title={pageTitle}
               description={pageDescription}
-              infoContent={infoContent}
             />
             {pageHeaderAction && <div>{pageHeaderAction}</div>}
           </div>
@@ -129,7 +124,6 @@ export default function PageContainer({
           <Heading
             title={pageTitle}
             description={pageDescription}
-            infoContent={infoContent}
           />
           {pageHeaderAction && <div>{pageHeaderAction}</div>}
         </div>

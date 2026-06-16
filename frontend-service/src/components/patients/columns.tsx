@@ -18,10 +18,8 @@ function PatientCell({ patient }: PatientCellProps) {
     return `${firstName[0]}${lastName[0]}`.toUpperCase();
   };
 
-  const getGenderColor = (gender: string) => {
-    return gender === 'M'
-      ? 'bg-gradient-to-br from-blue-500 to-blue-700'
-      : 'bg-gradient-to-br from-pink-500 to-pink-700';
+  const getGenderRing = (gender: string) => {
+    return gender === 'M' ? 'ring-blue-300 dark:ring-blue-700' : 'ring-rose-300 dark:ring-rose-700';
   };
 
   return (
@@ -30,9 +28,9 @@ function PatientCell({ patient }: PatientCellProps) {
       className="flex items-center gap-3 text-left hover:opacity-80 transition-opacity"
     >
       <div
-        className={`flex h-8 w-8 items-center justify-center rounded-full ${getGenderColor(
+        className={`flex h-8 w-8 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-bold ring-2 ${getGenderRing(
           patient.gender
-        )} text-white text-xs font-bold`}
+        )}`}
       >
         {getInitials(patient.first_name, patient.last_name)}
       </div>

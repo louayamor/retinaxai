@@ -3,12 +3,14 @@
 import { Badge } from '@/components/ui/badge';
 import type { DRSeverity } from '@/types';
 
-const DR_GRADE_CONFIG: Record<DRSeverity, { label: string; variant: string }> = {
-  no_dr: { label: 'No DR', variant: 'dr_no_dr' },
-  mild: { label: 'Mild', variant: 'dr_mild' },
-  moderate: { label: 'Moderate', variant: 'dr_moderate' },
-  severe: { label: 'Severe', variant: 'dr_severe' },
-  proliferative: { label: 'Proliferative', variant: 'dr_proliferative' },
+const GRADE_ORDER: DRSeverity[] = ['no_dr', 'mild', 'moderate', 'severe', 'proliferative'];
+
+const DR_GRADE_CONFIG: Record<DRSeverity, { label: string; ordinal: string; variant: string }> = {
+  no_dr: { label: 'No DR', ordinal: 'Grade 0 of 4: No Diabetic Retinopathy', variant: 'dr_no_dr' },
+  mild: { label: 'Mild', ordinal: 'Grade 1 of 4: Mild Non-Proliferative DR', variant: 'dr_mild' },
+  moderate: { label: 'Moderate', ordinal: 'Grade 2 of 4: Moderate Non-Proliferative DR', variant: 'dr_moderate' },
+  severe: { label: 'Severe', ordinal: 'Grade 3 of 4: Severe Non-Proliferative DR', variant: 'dr_severe' },
+  proliferative: { label: 'Proliferative', ordinal: 'Grade 4 of 4: Proliferative DR', variant: 'dr_proliferative' },
 };
 
 interface DRGradeBadgeProps {
@@ -38,8 +40,10 @@ export function DRGradeBadge({ grade, showLabel = true, size = 'default' }: DRGr
     <Badge
       variant={config.variant as 'dr_no_dr'}
       className={size === 'sm' ? 'text-xs px-1.5 py-0' : ''}
+      role='status'
     >
-      {showLabel ? config.label : gradeStr}
+      <span aria-hidden='true'>{showLabel ? config.label : gradeStr}</span>
+      <span className='sr-only'>{config.ordinal}</span>
     </Badge>
   );
 }

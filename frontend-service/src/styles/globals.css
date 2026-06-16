@@ -101,3 +101,28 @@
 ::view-transition-new(root) {
   animation: reveal 0.4s ease-in-out forwards;
 }
+
+@media print {
+  body {
+    font-size: 12pt;
+    color: #000;
+    background: #fff;
+  }
+  header, footer, nav, .sidebar,
+  [role='navigation'], [data-slot='sidebar'],
+  .no-print {
+    display: none !important;
+  }
+  main, [id='main-content'] {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+  @page {
+    margin: 1.5cm;
+    size: A4 portrait;
+  }
+  a[href]::after {
+    content: none !important;
+  }
+}

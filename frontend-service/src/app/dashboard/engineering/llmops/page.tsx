@@ -23,8 +23,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const LLMOPS_BASE = process.env.NEXT_PUBLIC_LLMOPS_URL || 'http://localhost:8002';
-const LLMOPS_API_KEY = process.env.NEXT_PUBLIC_LLMOPS_API_KEY || '';
+const LLMOPS_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const LLMOPS_PROXY = `${LLMOPS_BASE}/api/v1/llmops-proxy`;
 
 interface HealthStatus {
   status: string;
@@ -69,8 +69,8 @@ export default function LLMOpsPage() {
 
     try {
       const [healthResult, ragResult] = await Promise.allSettled([
-        fetch(`${LLMOPS_BASE}/health`, { signal: controller.signal }),
-        fetch(`${LLMOPS_BASE}/api/rag/status`, { signal: controller.signal }),
+        fetch(`${LLMOPS_PROXY}/health`, { signal: controller.signal }),
+        fetch(`${LLMOPS_PROXY}/api/rag/status`, { signal: controller.signal }),
       ]);
 
       const healthRes = healthResult.status === 'fulfilled'
@@ -83,8 +83,7 @@ export default function LLMOpsPage() {
 
       void (async () => {
         try {
-          const opRes = await fetch(`${LLMOPS_BASE}/api/operation`, {
-            headers: { 'x-api-key': LLMOPS_API_KEY },
+          const opRes = await fetch(`${LLMOPS_PROXY}/api/operation`, {
             signal: controller.signal,
           });
           const opJson = opRes.ok ? await opRes.json().catch(() => null) : null;
@@ -128,10 +127,7 @@ export default function LLMOpsPage() {
   const handleReindex = async () => {
     setReindexing(true);
     try {
-      const res = await fetch(`${LLMOPS_BASE}/api/rag/reindex`, {
-        method: 'POST',
-        headers: { 'x-api-key': LLMOPS_API_KEY },
-      });
+      const res = await fetch(`${LLMOPS_PROXY}/api/rag/reindex`, { method: 'POST' });
       const data = await res.json();
       toast.success(`Reindex triggered: ${data.job_id}`);
       setTimeout(() => { void fetchData(false); }, 2000);

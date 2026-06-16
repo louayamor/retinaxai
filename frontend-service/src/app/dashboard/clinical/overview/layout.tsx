@@ -1,9 +1,19 @@
+import { ErrorBoundary } from '@/components/error-boundary';
 import PageContainer from '@/components/layout/page-container';
 import React from 'react';
 import ScrollRestorer from '@/components/scroll-restorer';
 import { OverviewStats } from '@/components/features/overview/overview-stats';
+import { TriageAlerts } from '@/components/features/overview/triage-alerts';
 
-export default function OverViewLayout() {
+export default function OverViewLayout({
+  bar_stats,
+  area_stats,
+  pie_stats,
+}: {
+  bar_stats?: React.ReactNode;
+  area_stats?: React.ReactNode;
+  pie_stats?: React.ReactNode;
+}) {
   return (
     <>
     <ScrollRestorer />
@@ -20,12 +30,25 @@ export default function OverViewLayout() {
           </div>
         </div>
 
-        <OverviewStats />
+        <ErrorBoundary>
+          <OverviewStats />
+        </ErrorBoundary>
 
-        <p className='text-xs text-muted-foreground text-center pt-2'>
-          RetinaXAI · Samaya Specialized Center
-        </p>
+        <div className='grid grid-cols-1 gap-6 lg:grid-cols-4'>
+          <div className='lg:col-span-3 grid grid-cols-1 gap-6 md:grid-cols-3'>
+          <ErrorBoundary>{bar_stats}</ErrorBoundary>
+          <ErrorBoundary>{area_stats}</ErrorBoundary>
+          <ErrorBoundary>{pie_stats}</ErrorBoundary>
+          </div>
+          <ErrorBoundary>
+            <TriageAlerts />
+          </ErrorBoundary>
+        </div>
       </div>
+
+      <p className='text-xs text-muted-foreground text-center pt-2'>
+        RetinaXAI · Samaya Specialized Center
+      </p>
     </PageContainer>
     </>
   );

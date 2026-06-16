@@ -34,6 +34,16 @@ import { usePathname, useRouter } from 'next/navigation';
 import * as React from 'react';
 import { Icons } from '../icons';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import type { NavItem } from '@/types';
 
 const ROLE_NAV: Record<string, NavItem[]> = {
@@ -43,8 +53,7 @@ const ROLE_NAV: Record<string, NavItem[]> = {
 };
 
 function isActivePath(pathname: string, url: string): boolean {
-  if (pathname === url) return true;
-  return pathname.startsWith(url) && url !== '/dashboard';
+  return pathname === url;
 }
 
 function NavItemComponent({
@@ -80,8 +89,10 @@ export default function AppSidebar() {
   const { user, logout } = useAuth();
   const userRole = user?.role ?? 'doctor';
   const navItems = ROLE_NAV[userRole] ?? clinicalNav;
+  const [showLogoutConfirm, setShowLogoutConfirm] = React.useState(false);
 
   async function handleLogout() {
+    setShowLogoutConfirm(false);
     await logout();
   }
 
@@ -158,7 +169,7 @@ export default function AppSidebar() {
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleLogout}>
+                <DropdownMenuItem onClick={() => setShowLogoutConfirm(true)}>
                   <IconLogout className='mr-2 h-4 w-4' />
                   Log out
                 </DropdownMenuItem>
@@ -168,6 +179,21 @@ export default function AppSidebar() {
         </SidebarMenu>
       </SidebarFooter>
       <SidebarRail />
+
+      <AlertDialog open={showLogoutConfirm} onOpenChange={setShowLogoutConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sign out</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to sign out? Any unsaved work will be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleLogout}>Sign out</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sidebar>
   );
 }

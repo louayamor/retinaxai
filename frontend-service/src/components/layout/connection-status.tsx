@@ -12,7 +12,11 @@ export function ConnectionStatus() {
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className={cn(
+          <div
+            role='status'
+            aria-live='polite'
+            aria-label={connected ? 'Real-time updates connected' : 'Real-time updates offline'}
+            className={cn(
             'flex items-center gap-2 cursor-default px-3 py-1.5 rounded-full border text-xs font-medium transition-colors',
             connected 
               ? 'border-green-500/50 bg-green-500/10 text-green-600' 

@@ -1,3 +1,5 @@
+'use client';
+
 import React from 'react';
 import Image from 'next/image';
 import { SidebarTrigger } from '../ui/sidebar';
@@ -5,8 +7,14 @@ import { Separator } from '../ui/separator';
 import SearchInput from '../search-input';
 import { UserNav } from './user-nav';
 import { NotificationCenter } from '@/components/notifications/notification-center';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useFontSize } from '@/hooks/use-font-size';
+import { Type } from 'lucide-react';
 
 export default function Header() {
+  const { cycle, level } = useFontSize();
+
   return (
     <header className="flex h-14 shrink-0 items-center justify-between gap-3 transition-[width,height] ease-linear bg-sidebar text-sidebar-foreground border-b border-sidebar-border px-3">
       <div className="flex items-center gap-2 min-w-0 flex-[2]">
@@ -29,6 +37,24 @@ export default function Header() {
       </div>
 
       <div className="flex items-center gap-1.5 flex-1 justify-end min-w-0">
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant='ghost'
+                size='icon'
+                className='h-8 w-8'
+                onClick={cycle}
+                aria-label={`Font size: ${level}. Click to change.`}
+              >
+                <Type className='h-4 w-4' />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side='bottom'>
+              <p>Font size: {level}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <NotificationCenter />
         <UserNav />
       </div>

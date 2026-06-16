@@ -35,10 +35,8 @@ export function PatientCard({ patient, onEdit, onDelete }: PatientCardProps) {
     return `${firstName[0]}${lastName[0]}`.toUpperCase();
   };
 
-  const getGenderColor = (gender: string) => {
-    return gender === 'M' 
-      ? 'from-blue-500 to-blue-700' 
-      : 'from-pink-500 to-pink-700';
+  const getGenderClass = (gender: string) => {
+    return gender === 'M' ? 'ring-blue-400' : 'ring-rose-400';
   };
 
   return (
@@ -49,7 +47,7 @@ export function PatientCard({ patient, onEdit, onDelete }: PatientCardProps) {
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
               {/* Patient Avatar */}
-              <div className={`flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br ${getGenderColor(patient.gender)} text-white font-bold`}>
+              <div className={`flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground font-bold ring-2 ${getGenderClass(patient.gender)}`}>
                 {getInitials(patient.first_name, patient.last_name)}
               </div>
               <div>

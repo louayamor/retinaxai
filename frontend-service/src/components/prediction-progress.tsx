@@ -37,23 +37,32 @@ const STAGE_LABELS: Record<string, string> = {
 
 export function PredictionProgress({ progress, stage, message, status, className }: PredictionProgressProps) {
   const label = STAGE_LABELS[stage] || stage;
+  const clamped = Math.max(0, Math.min(100, progress));
+  const numeric = Math.round(clamped);
 
   return (
-    <div className={cn('space-y-2 rounded-lg border bg-muted/30 p-4', className)}>
+    <div className={cn('space-y-2 rounded-lg border bg-muted/30 p-4', className)} role='group' aria-label='Prediction progress'>
       <div className='flex items-center justify-between gap-3'>
         <div className='min-w-0'>
           <p className='text-sm font-medium'>{label}</p>
           {message && <p className='text-xs text-muted-foreground'>{message}</p>}
         </div>
         <span className='text-xs font-medium tabular-nums text-muted-foreground'>
-          {Math.max(0, Math.min(100, Math.round(progress)))}%
+          {numeric}%
         </span>
       </div>
 
-      <div className='h-2 w-full overflow-hidden rounded-full bg-muted'>
+      <div
+        className='h-2 w-full overflow-hidden rounded-full bg-muted'
+        role='progressbar'
+        aria-valuenow={numeric}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`${label}: ${numeric}% complete`}
+      >
         <div
           className={cn('h-full rounded-full transition-all duration-300', STATUS_COLORS[status])}
-          style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
+          style={{ width: `${clamped}%` }}
         />
       </div>
     </div>
